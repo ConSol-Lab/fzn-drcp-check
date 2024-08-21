@@ -1,2 +1,7 @@
+(coq.extraction
+  (prelude extraction)
+  (extracted_modules myproject_extracted)
+  (theories MyProject))
+
 (library
  (name fzn_drcp_check))

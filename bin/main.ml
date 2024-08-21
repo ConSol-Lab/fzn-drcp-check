@@ -1,11 +1,17 @@
 open Cmdliner
 
+open Fzn_drcp_check
+
+let explode_string s = List.init (String.length s) (String.get s);;
+
 let check_proof model proof =
     if not (Sys.file_exists model)
     then `Error (false, model ^ ": not a file")
     else if not (Sys.file_exists proof)
     then `Error (false, proof ^ ": not a file")
-    else `Ok (Printf.printf "model = %s\nproof = %s\n" model proof)
+    else if Myproject_extracted.strings_are_equal (explode_string model) (explode_string proof)
+    then `Ok (print_endline "Files are the same!")
+    else `Ok (print_endline "Files are different!")
 
 let model_t =
     let doc = "The FZN file describing the model." in

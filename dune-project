@@ -1,4 +1,5 @@
 (lang dune 3.16)
+(using coq 0.8)
 
 (name fzn_drcp_check)
 
