@@ -1,0 +1,4 @@
+(executable
+ (public_name fzn_drcp_check)
+ (name main)
+ (libraries fzn_drcp_check))
