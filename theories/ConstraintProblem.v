@@ -4,11 +4,11 @@ Require Import Checker.Linear.
 
 Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint)
-  | nogood (atomics : list atomic).
+  | nogood (atomics : list Atomic).
 
 Record ConstraintProblem := 
   {
-    variables : list variable;
+    variables : list Var;
     constraints : list Constraint;
   }.
 

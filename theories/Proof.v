@@ -1,11 +1,11 @@
 Require Import Checker.Atomic.
 
 Inductive Step :=
-  | inference (premises : list atomic) (conclusion : atomic).
+  | inference (premises : list Atomic) (conclusion : Atomic).
 
 Inductive Conclusion :=
   | unsat
-  | optimal (bound : atomic).
+  | optimal (bound : Atomic).
 
 Record Proof := 
   {

@@ -12,7 +12,7 @@ Record IntervalVariable :=
     upper_bound : Z := lower_bound + Z.of_nat (proj1_sig size)
   }.
 
-Inductive variable :=
+Inductive Var :=
   | interval (var : IntervalVariable).
 
 Compute upper_bound {| name := "a"; lower_bound := 1; size := exist _ 5 (Nat.neq_succ_0 4) |}.

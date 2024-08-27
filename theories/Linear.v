@@ -4,14 +4,14 @@ Require Import Checker.Inference.
 
 Record LinearConstraint :=
   {
-    terms : list (Z * variable);
+    terms : list (Z * Var);
     bound : Z;
   }.
 
 Record LinearInference :=
   {
-    premises : list (variable * Z); (* (variable, lower_bound) *)
-    conclusion : (variable * Z);    (* (variable, upper_bound) *)
+    premises : list (Var * Z); (* (variable, lower_bound) *)
+    conclusion : (Var * Z);    (* (variable, upper_bound) *)
   }.
 
 Definition linear_checker

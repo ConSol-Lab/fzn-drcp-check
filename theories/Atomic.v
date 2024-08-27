@@ -1,15 +1,15 @@
 Require Import ZArith.
 Require Import Checker.Variable.
 
-Inductive atomic_comparator :=
+Inductive AtomicComparator :=
   | less_equal
   | greater_equal
   | not_equal
   | equal.
 
-Record atomic :=
+Record Atomic :=
   {
-    var : variable;
-    comparator : atomic_comparator;
+    var : Var;
+    comparator : AtomicComparator;
     value : Z;
   }.
