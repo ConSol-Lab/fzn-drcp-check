@@ -1,0 +1,4 @@
+-R _build/default/theories Checker
+theories
+-I _build/default/lib
+lib/extraction.v

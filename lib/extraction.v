@@ -3,7 +3,7 @@ Require Import ExtrOcamlString.
 
 From Coq Require Extraction.
 
-From MyProject Require Import StringEqual.
+From Checker Require Import StringEqual.
 
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
