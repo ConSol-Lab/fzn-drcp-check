@@ -10,4 +10,4 @@ From Checker Require Import ProofChecker.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
 
-Extraction "checker_extracted" Checker.ConstraintProblem.ConstraintProblem Checker.Proof.Proof proof_checker.
+Extraction "checker_extracted" Checker.ConstraintProblem.ConstraintProblem Checker.Proof.Proof find_invalid_step.

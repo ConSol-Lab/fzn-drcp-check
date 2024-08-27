@@ -9,15 +9,23 @@ let parse_proof _ =
 let parse_model _ =
   { Checker_extracted.constraints = []; Checker_extracted.variables = [] }
 
+(** Convert a `nat` extracted from Coq to an OCaml integer. *)
+let rec nat_to_int = function
+  | Checker_extracted.O -> 0
+  | Checker_extracted.S n -> 1 + nat_to_int n
+
 let check_proof model proof =
   if not (Sys.file_exists model) then `Error (false, model ^ ": not a file")
   else if not (Sys.file_exists proof) then `Error (false, proof ^ ": not a file")
   else
     let parsed_proof = parse_proof proof in
     let parsed_model = parse_model model in
-    if Checker_extracted.proof_checker parsed_proof parsed_model then
-      `Ok (print_endline "Proof is valid!")
-    else `Ok (print_endline "Proof is invalid!")
+    match Checker_extracted.find_invalid_step parsed_proof parsed_model with
+    | Some (step_nr, _) ->
+        `Ok
+          (Printf.printf "Proof is invalid! Rejected proof step %d\n"
+             (nat_to_int step_nr))
+    | None -> `Ok (print_endline "Proof is valid!")
 
 let model_t =
   let doc = "The FZN file describing the model." in
