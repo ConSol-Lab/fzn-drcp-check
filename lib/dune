@@ -1,6 +1,6 @@
 (coq.extraction
   (prelude extraction)
-  (extracted_modules myproject_extracted)
+  (extracted_modules checker_extracted)
   (theories Checker))
 
 (library

@@ -3,9 +3,11 @@ Require Import ExtrOcamlString.
 
 From Coq Require Extraction.
 
-From Checker Require Import StringEqual.
+From Checker Require Import ConstraintProblem.
+From Checker Require Import Proof.
+From Checker Require Import ProofChecker.
 
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
 
-Extraction "myproject_extracted" strings_are_equal.
+Extraction "checker_extracted" Checker.ConstraintProblem.ConstraintProblem Checker.Proof.Proof proof_checker.

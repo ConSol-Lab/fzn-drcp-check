@@ -27,5 +27,5 @@ Theorem linear_inference_checker_correct :
     linear_checker inference constraint = true ->
     is_valid_linear_inference inference constraint.
 Proof.
-Admitted.
+  Admitted.
 
