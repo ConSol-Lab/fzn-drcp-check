@@ -6,6 +6,7 @@ Require Import Checker.Inference.
 Require Import Checker.Atomic.
 Require Import Checker.Nogood.
 Require Import List.
+Require Import Logic.FunctionalExtensionality.
 Open Scope Z_scope.
 Import ListNotations.
 
@@ -37,7 +38,7 @@ Definition satisfies_linear (cons : LinearConstraint) (sol : Assignment) : bool 
 
 Definition is_valid_linear_inference 
   (inference : list Atomic) (constraint : LinearConstraint) : Prop := 
-  forall (sol : Assignment), Is_true (satisfies_linear constraint sol).
+  forall (sol : Assignment), Is_true (satisfies_linear constraint sol) -> satisfies_nogood inference sol = Some true.
 
 Definition scaled_upper_bound (w : Z) (x : Var) :=
   w * if w >? 0 then var_upper_bound x else var_lower_bound x.
@@ -197,30 +198,97 @@ Proof.
     + apply Htail.
 Qed.
 
-Definition evaluate_optimistic_linear (x : list (Z * Var)) (inference : list Atomic) :=
+Fixpoint evaluate_optimistic_linear (x : list (Z * Var)) (inference : list Atomic) :=
   match x with
   | [] => 0
   | (coef, v) :: xs =>
       evaluate_optimistic_scaled_list coef v (
         filter (fun atomic => eqb v (var atomic)) inference
-      )
+      ) + evaluate_optimistic_linear xs inference
+  end.
+
+
+Definition test_atomic_assignment (atomic : Atomic) (sol : Assignment) :=
+  match (find_value sol (var atomic)) with
+  | Some v => test_atomic atomic v
+  | None => false
   end.
 
 
 Theorem evaluate_optimistic_linear_falsifies : forall
   (x : list (Z * Var)) (inference : list Atomic) (sol : Assignment) (ev : Z),
   evaluate_linear x sol = Some ev ->
-  Is_true (satisfies_nogood inference sol) ->
+  (forall (atomic : Atomic), In atomic inference -> Is_true (test_atomic_assignment atomic sol)) ->
   ev <= evaluate_optimistic_linear x inference.
 Proof.
-  intros x inference sol ev Heval Hunsat.
+  intros x inference sol ev Heval Hsat.
   generalize dependent ev.
   induction x ; simpl ; intros ev Heval.
   - inversion Heval.
     reflexivity.
-  - admit.
-Admitted.
-
+  - destruct a as [coef v].
+    destruct (find_value sol v) as [found_val|] eqn:Hfind.
+    + destruct (evaluate_linear x sol) as [rest|].
+      * inversion Heval.
+        apply Z.add_le_mono.
+        -- apply valid_scaled_atomic_list ;
+           unfold find_value in Hfind;
+           destruct (find (fun x => eqb (variable x) v)) as [var|] eqn:Hfind_var;
+           inversion Hfind.
+           ++ rewrite H1.
+              apply find_some in Hfind_var.
+              destruct Hfind_var as [Hvar_in Heqvar].
+              apply Is_true_eq_left, eqb_eq in Heqvar.
+              assert (Hin: Is_true (is_in (variable var) found_val) -> Is_true (is_in v found_val)). {
+                rewrite Heqvar.
+                intros H.
+                apply H.
+              }
+              apply Hin.
+              specialize (consistency_prop sol) as Hcons.
+              apply Is_true_eq_true in Hcons.
+              rewrite forallb_forall in Hcons.
+              specialize (Hcons var).
+              apply Hcons in Hvar_in.
+              unfold consistent in Hvar_in.
+              inversion Hfind.
+              apply Is_true_eq_left in Hvar_in.
+              apply Hvar_in.
+           ++ intros atomic Hatomic_filter.
+              assert (Hatomic: In atomic inference). {
+                apply filter_In in Hatomic_filter.
+                destruct Hatomic_filter as [Hin _].
+                apply Hin.
+              }
+              apply Hsat in Hatomic.
+              unfold test_atomic_assignment in Hatomic.
+              destruct (find_value sol (Atomic.var atomic)) as [sol_val|] eqn:Hsol.
+              ** unfold find_value in Hsol.
+                 destruct (find (fun x => eqb (variable x) (Atomic.var atomic))) as [atomic_var|] eqn:Hatomic_var;
+                 inversion Hsol as [Hassigned].
+                 apply filter_In in Hatomic_filter.
+                 destruct Hatomic_filter as [_ Heq_var].
+                 apply Is_true_eq_left, eqb_eq in Heq_var.
+                 assert (Heqb_rw: forall (t : VariableAssignment), eqb (variable t) (Atomic.var atomic) = eqb (variable t) v). {
+                   intros t.
+                   rewrite Heq_var.
+                   reflexivity.
+                 }
+                 assert (Hfn_rw: (fun t : VariableAssignment => eqb (variable t) (Atomic.var atomic)) = (fun t : VariableAssignment => eqb (variable t) v)). {
+                   apply functional_extensionality, Heqb_rw.
+                 }
+                 rewrite Hfn_rw in Hatomic_var.
+                 rewrite Hatomic_var in Hfind_var.
+                 inversion Hfind_var as [Hvar_def_eq].
+                 rewrite <- Hvar_def_eq, Hassigned.
+                 apply Hatomic.
+              ** simpl in Hatomic.
+                 exfalso.
+                 apply Hatomic.
+        -- apply IHx. reflexivity.
+      * discriminate.
+    + discriminate.
+Qed.
 
 
 
@@ -232,12 +300,72 @@ Definition linear_checker
     expr_upper_bound <? bound constraint.
 
 
+Lemma unsat_nogood : (forall (atomic : Atomic) (i : list Atomic) (s : Assignment), satisfies_nogood i s = Some false -> In atomic (map atomic_not i) -> Is_true (test_atomic_assignment atomic s)).
+Proof.
+  intros atomic i.
+  generalize dependent atomic.
+  induction i ; simpl ; intros.
+  - exfalso.
+    apply H0.
+  - destruct (find_value s (var a)) as [s_val|] eqn:Hs_val.
+    + destruct (test_atomic a s_val) eqn:Ha_test.
+      * discriminate.
+      * destruct H0 as [Hfound|Htail].
+        -- unfold test_atomic_assignment. 
+           assert (Hvareq: var a = var atomic). {
+             rewrite <- Hfound.
+             destruct (comparator a) eqn:Hcmp ;
+             unfold atomic_not ;
+             rewrite Hcmp ;
+             reflexivity.
+           }
+           rewrite <- Hvareq, Hs_val, <- Hfound, atomic_not_involution, Ha_test.
+           reflexivity.
+        -- apply IHi.
+           ++ apply H.
+           ++ apply Htail.
+    + discriminate.
+Qed.
+
+
 Theorem linear_inference_checker_correct : 
   forall (inference : list Atomic) (constraint : LinearConstraint),
     linear_checker inference constraint = true ->
     is_valid_linear_inference inference constraint.
 Proof.
-  intros.
-  admit.
+  unfold is_valid_linear_inference, satisfies_linear, linear_checker.
+  intros inference constraint Hchk sol Hnogood.
+  destruct (evaluate_linear (terms constraint) sol) as [ev|] eqn:Heval.
+  - destruct (satisfies_nogood inference sol) as [sat|] eqn:Hsat. destruct sat.
+    + reflexivity.
+    + exfalso.
+      assert (Hfalse: forall (atomic : Atomic), In atomic (map atomic_not inference) -> Is_true (test_atomic_assignment atomic sol)). {
+        intros.
+        apply unsat_nogood with (i := inference) (s := sol).
+        apply Hsat.
+        apply H.
+      }
+      specialize (evaluate_optimistic_linear_falsifies
+        (terms constraint)
+        (map atomic_not inference)
+        sol ev
+        Heval
+        Hfalse
+      ).
+      intros Hev_bound.
+      remember (evaluate_optimistic_linear (terms constraint) (map atomic_not inference)) as opt_ev.
+      apply Is_true_eq_true, Z.geb_ge, Z.ge_le in Hnogood.
+      specialize (Z.le_trans (bound constraint) ev opt_ev Hnogood Hev_bound) as Hcons_bound.
+      apply Z.ltb_lt in Hchk.
+      apply Z.lt_irrefl with opt_ev.
+      apply Z.lt_le_trans with (bound constraint).
+      * apply Hchk.
+      * apply Hcons_bound.
+    + exfalso.
+      (* TODO How to handle incomplete assignments? *)
+      admit.
+  - simpl in Hnogood.
+    exfalso.
+    apply Hnogood.
 Admitted.
 

@@ -1,4 +1,5 @@
 Require Import ZArith.
+Require Import Nat.
 Require Import String.
 Require Import Checker.Variable.
 Require Import Checker.Atomic.
@@ -11,10 +12,10 @@ Definition find_invalid_step
       var := {| 
         name := "a"; 
         lower_bound := 1; 
-        size := exist _ 5 (Nat.neq_succ_0 4) 
+        size := 5
       |} 
     in
-      Some (5, inference nil {| var := interval var; comparator := less_equal; value := 5 |}).
+      Some ((Z.to_nat 5), inference nil {| var := interval var; comparator := less_equal; value := 5 |}).
 
 Definition is_valid_proof
   (proof : Proof) (problem : ConstraintProblem) : Prop := True.

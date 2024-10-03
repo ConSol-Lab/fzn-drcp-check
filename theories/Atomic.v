@@ -53,9 +53,17 @@ Theorem gt_succ : forall (n m : Z), n + 1 <= m <-> n < m.
 Proof.
   intros.
   split.
-  - admit.
-  - admit.
-Admitted.
+  - intros Hp1.
+    apply Zle_lt_succ in Hp1.
+    rewrite Z.add_1_r in Hp1.
+    apply Z.succ_lt_mono in Hp1.
+    apply Hp1.
+  - intros Hnm.
+    rewrite Z.add_1_r.
+    apply Zlt_le_succ, Hnm.
+Qed.
+
+
 
 Theorem atomic_not_involution : forall (x : Atomic) (v : Z),
   test_atomic (atomic_not x) v = negb (test_atomic x v).
@@ -88,10 +96,17 @@ Proof.
       apply Z.lt_irrefl in contra.
       apply contra.
     + reflexivity.
-  - (* This is a symmetric case, but I do not understand how to
-       factor it out in a separate lemma *)
-    admit.
+  - rewrite Z.geb_leb, <- Z.ltb_antisym.
+    apply Bool.eq_bool_prop_intro.
+    split ; intros ; apply Bool.Is_true_eq_true in H ; apply Bool.Is_true_eq_left.
+    + apply Z.leb_le in H.
+      apply Z.ltb_lt.
+      apply gt_succ, Z.le_add_le_sub_r, H.
+    + apply Z.ltb_lt in H.
+      apply Z.leb_le.
+      apply gt_succ, Z.le_add_le_sub_r in H.
+      apply H.
   - rewrite Bool.negb_involutive.
     reflexivity.
   - reflexivity.
-Admitted.
+Qed.
