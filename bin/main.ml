@@ -1,18 +1,11 @@
 open Cmdliner
 open Fzn_drcp_check
 
-(* let explode_string s = List.init (String.length s) (String.get s) *)
-
-let parse_proof _ =
-  { Checker_extracted.steps = []; conclusion0 = Checker_extracted.Unsat }
-
-let parse_model _ =
-  { Checker_extracted.constraints = []; Checker_extracted.variables = [] }
+let parse_proof _ = { Checker.steps = []; conclusion0 = Checker.Unsat }
+let parse_model _ = { Checker.constraints = []; Checker.variables = [] }
 
 (** Convert a `nat` extracted from Coq to an OCaml integer. *)
-let rec nat_to_int = function
-  | Checker_extracted.O -> 0
-  | Checker_extracted.S n -> 1 + nat_to_int n
+let rec nat_to_int = function Checker.O -> 0 | Checker.S n -> 1 + nat_to_int n
 
 let check_proof model proof =
   if not (Sys.file_exists model) then `Error (false, model ^ ": not a file")
@@ -20,7 +13,7 @@ let check_proof model proof =
   else
     let parsed_proof = parse_proof proof in
     let parsed_model = parse_model model in
-    match Checker_extracted.find_invalid_step parsed_proof parsed_model with
+    match Checker.find_invalid_step parsed_proof parsed_model with
     | Some (step_nr, _) ->
         `Ok
           (Printf.printf "Proof is invalid! Rejected proof step %d\n"
