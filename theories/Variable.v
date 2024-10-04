@@ -149,22 +149,8 @@ Proof.
   apply Hub.
 Qed.
 
-Record VariableAssignment := {
-  variable : Var ;
-  assigned : Z
-}.
-
-Definition consistent (x : VariableAssignment) := is_in (variable x) (assigned x).
-
 Record Assignment := {
-  mapping : list VariableAssignment ;
-  consistency_prop : Is_true (forallb consistent mapping)
+  find_value : Var -> Z ;
+  consistency_proof : forall (v : Var), Is_true (is_in v (find_value v))
 }.
-
-Definition find_value (sol : Assignment) (var : Var) :=
-  match find (fun x => eqb (variable x) var) (mapping sol) with
-  | Some a => Some (assigned a)
-  | None => None
-  end.
-
 

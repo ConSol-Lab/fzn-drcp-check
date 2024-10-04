@@ -41,6 +41,18 @@ Definition atomic_not (x : Atomic) :=
   |}
   end.
 
+
+Theorem atomic_not_variable_eq : forall (atomic : Atomic),
+  var atomic = var (atomic_not atomic).
+Proof.
+  intros.
+  destruct (comparator atomic) eqn:Hcmp ;
+  unfold atomic_not ;
+  rewrite Hcmp ;
+  reflexivity.
+Qed.
+
+
 Definition test_atomic (x : Atomic) (v : Z) :=
   match comparator x with 
   | less_equal => v <=? value x

@@ -6,15 +6,11 @@ Open Scope Z_scope.
 
 Fixpoint satisfies_nogood (x : list Atomic) (sol : Assignment) :=
   match x with
-  | nil => Some false
+  | nil => false
   | a :: xs =>
-      let maybe_value := find_value sol (var a) in
-      match maybe_value with
-      | Some v =>
-          if test_atomic a v
-          then Some true
-          else satisfies_nogood xs sol
-      | None => None
-      end
+      let val := (find_value sol) (var a) in
+      if test_atomic a val
+      then true
+      else satisfies_nogood xs sol
   end.
 
