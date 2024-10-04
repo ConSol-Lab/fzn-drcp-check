@@ -19,9 +19,5 @@ Record ConstraintProblem :=
 Definition satisfies_constraint (c : Constraint) (sol : Assignment) :=
   match c with
   | linear_leq lin => satisfies_linear lin sol
-  | nogood atomics =>
-      match satisfies_nogood atomics sol with
-      | Some val => val
-      | None => false
-      end
+  | nogood atomics => satisfies_nogood atomics sol
   end.
