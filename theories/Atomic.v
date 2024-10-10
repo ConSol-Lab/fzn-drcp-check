@@ -1,7 +1,8 @@
 Require Import ZArith.
 Open Scope Z_scope.
-Require Import Checker.Variable.
 Require Import List.
+Require Import Bool.
+Require Import Checker.Variable.
 Import ListNotations.
 
 Inductive AtomicComparator :=
@@ -60,6 +61,64 @@ Definition test_atomic (x : Atomic) (v : Z) :=
   | not_equal => negb (v =? value x)
   | equal => v =? value x
   end.
+
+
+Definition contradiction_binary (lhs : Atomic) (rhs : Atomic) : bool :=
+  if eqb (var lhs) (var rhs) then
+  let lhs_val := value lhs in
+  let rhs_val := value rhs in
+  match (comparator lhs), (comparator rhs) with
+  | less_equal, greater_equal => lhs_val <? rhs_val
+  | less_equal, equal => lhs_val <? rhs_val
+  | greater_equal, less_equal => lhs_val >? rhs_val
+  | greater_equal, equal => lhs_val >? rhs_val
+  | equal, greater_equal => lhs_val <? rhs_val
+  | equal, less_equal => lhs_val >? rhs_val
+  | equal, equal => negb (lhs_val =? rhs_val)
+  | equal, not_equal => lhs_val =? rhs_val
+  | not_equal, equal => lhs_val =? rhs_val
+  | _, _ => false
+  end
+  else false.
+
+
+Theorem contradiction_at_most_one :
+  forall (x : Z) (lhs rhs : Atomic), 
+  Is_true (contradiction_binary lhs rhs) ->
+  ~Is_true (test_atomic lhs x) \/ ~Is_true (test_atomic rhs x).
+Proof.
+  unfold contradiction_binary, test_atomic.
+  intros x lhs rhs.
+  destruct (eqb (var lhs) (var rhs)).
+  - destruct (comparator lhs) ; destruct (comparator rhs) ; simpl ; intros.
+    + contradiction.
+    + apply Is_true_eq_true, Z.ltb_lt in H.
+      admit.
+    + contradiction.
+    + apply Is_true_eq_true, Z.ltb_lt in H.
+      admit.
+    + apply Is_true_eq_true, Z.gtb_gt in H.
+      admit.
+    + contradiction.
+    + contradiction.
+    + apply Is_true_eq_true, Z.gtb_gt in H.
+      admit.
+    + contradiction.
+    + contradiction.
+    + contradiction.
+    + apply Is_true_eq_true, Z.eqb_eq in H.
+      admit.
+    + apply Is_true_eq_true, Z.gtb_gt in H.
+      admit.
+    + apply Is_true_eq_true, Z.ltb_lt in H.
+      admit.
+    + apply Is_true_eq_true, Z.eqb_eq in H.
+      admit.
+    + admit.
+  - contradiction.
+Admitted.
+
+
 
 Theorem gt_succ : forall (n m : Z), n + 1 <= m <-> n < m.
 Proof.
