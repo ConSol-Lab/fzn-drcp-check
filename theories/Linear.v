@@ -201,9 +201,6 @@ Fixpoint evaluate_optimistic_linear (x : list (Z * Var)) (inference : list Atomi
   end.
 
 
-Definition test_atomic_assignment (atomic : Atomic) (sol : Assignment) :=
-  test_atomic atomic ((find_value sol) (var atomic)).
-
 Theorem evaluate_optimistic_linear_falsifies : forall
   (x : list (Z * Var)) (inference : list Atomic) (sol : Assignment),
   (forall (atomic : Atomic), In atomic inference -> Is_true (test_atomic_assignment atomic sol)) ->
@@ -240,27 +237,6 @@ Definition linear_checker
     (map atomic_not inference) in
     expr_lower_bound >? bound constraint.
 
-
-Lemma unsat_nogood : (forall (atomic : Atomic) (i : list Atomic) (s : Assignment),
-  satisfies_nogood i s = false ->
-  In atomic (map atomic_not i) ->
-  Is_true (test_atomic_assignment atomic s)).
-Proof.
-  intros atomic i.
-  generalize dependent atomic.
-  induction i ; simpl ; intros.
-  - exfalso.
-    apply H0.
-  - destruct (test_atomic a (find_value s (var a))) eqn:Ha_test.
-    discriminate.
-    destruct H0 as [Hfound|Htail].
-    + unfold test_atomic_assignment.
-      rewrite <- Hfound, <- atomic_not_variable_eq, atomic_not_involution, Ha_test.
-      reflexivity.
-    + apply IHi.
-      * apply H.
-      * apply Htail.
-Qed.
 
 
 Theorem linear_inference_checker_correct : 
