@@ -3,8 +3,3 @@
  (name main)
  (package fzn_drcp_check)
  (libraries fzn_drcp_check fzn_drcp_check_parsing cmdliner))
-
-(menhir
-  (modules litmap_parser))
-
-(ocamllex litmap_lexer)
