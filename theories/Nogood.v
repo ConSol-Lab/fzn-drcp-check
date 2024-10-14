@@ -207,7 +207,7 @@ Proof.
 Qed.
 
 Theorem valid_rup_on_negation :
-  forall (clause_seq : list Clause) (nogood : list Atomic),
+  forall (clause_seq : list Clause) (nogood : Clause),
   Is_true (rup clause_seq (map atomic_not nogood)) ->
   is_valid_nogood nogood clause_seq.
 Proof.
