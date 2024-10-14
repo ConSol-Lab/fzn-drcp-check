@@ -19,4 +19,9 @@
  (name fzn_drcp_check)
  (depends ocaml dune))
 
+(package
+ (name fzn_drcp_check_parsing)
+ (depends ocaml dune))
+
+
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

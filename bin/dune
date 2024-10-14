@@ -1,7 +1,8 @@
 (executable
  (public_name drcp_checker_cli)
  (name main)
- (libraries fzn_drcp_check cmdliner))
+ (package fzn_drcp_check)
+ (libraries fzn_drcp_check fzn_drcp_check_parsing cmdliner))
 
 (menhir
   (modules litmap_parser))
