@@ -1,7 +1,7 @@
 open Cmdliner
 open Fzn_drcp_check
+open Proofs
 
-let parse_proof _ = { Checker.steps = []; conclusion0 = Checker.Unsat }
 let parse_model _ = { Checker.constraints = []; Checker.variables = [] }
 
 (** Convert a `nat` extracted from Coq to an OCaml integer. *)

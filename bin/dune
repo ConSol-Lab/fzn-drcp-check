@@ -1,4 +1,9 @@
 (executable
- (public_name fzn_drcp_check)
+ (public_name drcp_checker_cli)
  (name main)
  (libraries fzn_drcp_check cmdliner))
+
+(menhir
+  (modules litmap_parser))
+
+(ocamllex litmap_lexer)
