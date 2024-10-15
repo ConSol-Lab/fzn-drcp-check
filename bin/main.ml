@@ -1,10 +1,10 @@
 open Cmdliner
 open Fzn_drcp_check
-open Fzn_drcp_check_parsing
 open Conversion
 
 let read_proof proof_file =
-  let parsed_proof = parse_proof proof_file in
+  let parsed_proof = Fzn_drcp_check_parsing.parse_proof proof_file in
+  Printf.printf "len: %d\n" (List.length parsed_proof.steps);
   convert_proof parsed_proof
 
 let parse_model _ = { Checker.constraints = []; Checker.variables = [] }
