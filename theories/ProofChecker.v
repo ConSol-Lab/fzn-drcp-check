@@ -31,7 +31,7 @@ Definition validate_step
 
 (* TODO How to implement the conclusion validator? *)
 Definition validate_conclusion
-  (proof_conclusion : Conclusion) (problem : ConstraintProblem) := false.
+  (proof_conclusion : Conclusion) (problem : ConstraintProblem) := true.
   (* let target := match proof_conclusion with *)
   (* | unsat => nil *)
   (* | optimal bound => bound :: nil *)
@@ -77,9 +77,10 @@ Lemma unsat_no_invalid_step_implies_valid :
     is_valid_conclusion (conclusion proof) problem.
 Proof.
   unfold is_valid_conclusion, satisfies_conclusion, validate.
-  intros proof problem Eunsat Evalid sol cons Hin Hsat.
+  intros proof problem Eunsat Evalid sol con Hin Hsat.
   exfalso.
   generalize dependent sol.
+  generalize dependent con.
   rewrite Eunsat in Evalid.
   generalize dependent problem.
   induction (steps proof) as [|proof_head proof_tail IHproof].
@@ -87,17 +88,17 @@ Proof.
     admit.
   - intros.
     simpl in Evalid.
-    destruct (validate_step proof_head problem) eqn:Evalid_step ; simpl in Evalid ; inversion Evalid as [Etail].
+    destruct (validate_step proof_head problem) eqn:Evalid_step_packed ;
+    simpl in Evalid ; inversion Evalid as [Etail].
     unfold inc_step_index in Etail.
     remember 
     {|
       variables := variables problem ;
       constraints := (nogood (clausal_form proof_head)) :: (constraints problem)
     |} as problem_append eqn:Eappend.
-    destruct (validate_unpacked proof_tail unsat problem_append) eqn:Evalid_unpacked ; inversion Etail.
-    apply IHproof with (problem := problem_append) (sol := sol).
-    (* TODO This proof has to be much more elaborate, but everything short-circuits to false anyway *)
-    + apply Evalid_unpacked.
+    destruct (validate_unpacked proof_tail unsat problem_append) eqn:Evalid_step ; inversion Etail.
+    apply IHproof with (problem := problem_append) (sol := sol) (con := con).
+    + apply Evalid_step.
     + rewrite Eappend.
       simpl.
       right.
