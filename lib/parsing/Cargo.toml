@@ -9,7 +9,7 @@ crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 ocaml = "^1.0.1"
-drcp-format = { path = "../../../pumpkin/drcp-format" }
+drcp-format = { path = "/home/ksidorov/RustRoverProjects/Pumpkin/drcp-format" }
 
 [build-dependencies]
 ocaml-build = "^1.0.0"
