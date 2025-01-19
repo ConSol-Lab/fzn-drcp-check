@@ -1,7 +1,7 @@
 (coq.extraction
   (prelude extraction)
   (extracted_modules checker)
-  (theories Checker))
+  (theories  Checker))
 
 (library
  (name fzn_drcp_check))

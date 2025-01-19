@@ -1,5 +1,5 @@
 Require Import Bool.
-Require Import Checker.Variable.
+Require Checker.Variable.
 Require Import Checker.Atomic.
 Require Import ZArith.
 Require Import List.
@@ -8,26 +8,53 @@ Open Scope Z_scope.
 
 Definition Clause := list Atomic.
 
-Fixpoint satisfies_nogood (x : Clause) (sol : Assignment) :=
+Fixpoint eqb (x : Clause) (y : Clause) :=
+  match x, y with
+  | nil, nil => true
+  | _ :: _, nil => false
+  | nil, _ => false
+  | x :: xs, y :: ys => andb (Atomic.eqb x y) (eqb xs ys)
+  end.
+
+Theorem eqb_eq : forall (x y : Clause), Is_true (eqb x y) -> x = y.
+Proof.
+  intros.
+  generalize dependent y.
+  induction x ;
+  intros y H ;
+  simpl in H ;
+  destruct y ;
+  simpl ;
+  try easy.
+  apply andb_prop_elim in H.
+  destruct H as [eq_head eq_tail].
+  apply eqb_eq in eq_head.
+  apply IHx in eq_tail.
+  rewrite eq_head, eq_tail.
+  reflexivity.
+Qed.
+
+
+Fixpoint satisfies_nogood (x : Clause) (sol : Checker.Variable.Assignment) :=
   match x with
   | nil => false
   | a :: xs =>
-  let val := (find_value sol) (var a) in
+  let val := (Checker.Variable.find_value sol) (var a) in
       if test_atomic a val
       then true
       else satisfies_nogood xs sol
   end.
 
 
-Theorem unsat_nogood : (forall (atomic : Atomic) (i : list Atomic) (s : Assignment),
-  satisfies_nogood i s = false ->
+Theorem unsat_nogood : (forall (atomic : Atomic) (i : list Atomic) (s : Checker.Variable.Assignment),
+satisfies_nogood i s = false ->
   In atomic (map atomic_not i) ->
   Is_true (test_atomic_assignment atomic s)).
 Proof.
   intros atomic i.
   generalize dependent atomic.
 induction i ; simpl ; intros ; try contradiction.
-  destruct (test_atomic a (find_value s (var a))) eqn:Ha_test.
+  destruct (test_atomic a (Checker.Variable.find_value s (var a))) eqn:Ha_test.
   discriminate.
   destruct H0 as [Hfound|Htail].
   - unfold test_atomic_assignment.
@@ -39,46 +66,60 @@ induction i ; simpl ; intros ; try contradiction.
 Qed.
 
 
-Definition satisfies_all_nogoods (xs : list Clause) (sol : Assignment) :=
+Definition satisfies_all_nogoods (xs : list Clause) (sol : Checker.Variable.Assignment) :=
   forallb (fun x => satisfies_nogood x sol) xs.
 
 Definition is_valid_nogood
   (inference : Clause) (clause_seq : list Clause) : Prop := 
-  forall (sol : Assignment),
+  forall (sol : Checker.Variable.Assignment),
   Is_true (satisfies_all_nogoods clause_seq sol) ->
   Is_true (satisfies_nogood inference sol).
 
-Definition contradiction (literals : list Atomic) : bool :=
-  let contra_checker :=
-    fun given => existsb (fun other => contradiction_binary given other) literals
-  in
-  existsb contra_checker literals.
+Definition contradiction (predicates : list Atomic) : bool :=
+  let contradiction_var_pred := 
+    fun p => 
+    let v := var p in
+    contradiction_variable (filter (fun q => Checker.Variable.eqb (var q) v) predicates) v (Checker.Variable.range v)
+  in existsb contradiction_var_pred predicates.
+
+(* Definition contradiction (literals : list Atomic) : bool := *)
+(*   let contra_checker := *)
+(*     fun given => existsb (fun other => contradiction_binary given other) literals *)
+(*   in *)
+(*   existsb contra_checker literals. *)
 
 Lemma no_solutions_if_contradict :
-  forall (assumptions : list Atomic) (sol : Assignment),
+  forall (assumptions : list Atomic) (sol : Checker.Variable.Assignment),
   contradiction assumptions = true -> 
   (forall (a : Atomic), In a assumptions -> Is_true (test_atomic_assignment a sol)) -> False.
 Proof.
   unfold contradiction.
-  intros.
-  apply existsb_exists in H.
-  destruct H as [x [Hxin H]].
-  apply existsb_exists in H.
-  destruct H as [y [Hyin contra]].
-  apply Is_true_eq_left in contra.
-  apply contradiction_at_most_one with (x := find_value sol (var x))
-    in contra as contra_at_most_one.
-  unfold contradiction_binary in contra.
-  destruct (eqb (var x) (var y)) eqn:Evar ; try contradiction.
-  apply Is_true_eq_left, eqb_eq in Evar.
-  destruct contra_at_most_one.
-  - specialize (H0 x Hxin) as Hsat.
-    unfold test_atomic_assignment in Hsat.
-    contradiction.
-  - specialize (H0 y Hyin) as Hsat.
-    rewrite Evar in H.
-    unfold test_atomic_assignment in Hsat.
-    contradiction.
+  intros assumptions sol Hcontra Htest.
+  apply existsb_exists in Hcontra.
+  destruct Hcontra as [x [Hxin Hcontra]].
+  remember (var x) as v.
+  remember (filter (fun q => Checker.Variable.eqb (var q) v) assumptions) as var_assumptions.
+  unfold test_atomic_assignment in Htest.
+  remember (Checker.Variable.find_value sol v) as xval.
+  assert (Hvtest: forall a : Atomic, In a var_assumptions -> Is_true (test_atomic a xval)). {
+    intros a Hvarin.
+    specialize (Htest a).
+    rewrite Heqvar_assumptions in Hvarin.
+    apply filter_In in Hvarin.
+    destruct Hvarin as [Hain Hvarin].
+    apply Is_true_eq_left, Checker.Variable.eqb_eq in Hvarin.
+    rewrite Hvarin, <- Heqxval in Htest.
+    apply Htest, Hain.
+  }
+  assert (Hvnot: (exists (p : Atomic), In p var_assumptions /\ ~Is_true (test_atomic p xval))). {
+    apply contradiction_implies_not_all with (v := v).
+    - rewrite Heqxval.
+      apply Checker.Variable.consistency_proof.
+    - apply Is_true_eq_left, Hcontra.
+  }
+  destruct Hvnot as [p [Hpin Heval_false]].
+  specialize (Hvtest p Hpin).
+  contradiction.
 Qed.
 
 
@@ -86,7 +127,7 @@ Definition simplify (clause : Clause) (assumptions : list Atomic) : Clause :=
   filter (fun lit => negb (contradiction (lit :: assumptions))) clause.
 
 
-Theorem simplify_equiv : forall (clause : Clause) (assumptions : list Atomic) (sol : Assignment),
+Theorem simplify_equiv : forall (clause : Clause) (assumptions : list Atomic) (sol : Checker.Variable.Assignment),
   Is_true (satisfies_nogood clause sol) ->
   (forall (a : Atomic), In a assumptions -> Is_true (test_atomic_assignment a sol)) ->
   Is_true (satisfies_nogood (simplify clause assumptions) sol).
@@ -99,7 +140,7 @@ Proof.
   destruct (contradiction (clause_head :: assumptions)) eqn:Econtra_clause_assumption ; simpl.
   - apply IHclause_left.
     unfold satisfies_nogood in Hnogood.
-    destruct (test_atomic clause_head (find_value sol (var clause_head))) eqn:Eclause_head_test ; simpl .
+    destruct (test_atomic clause_head (Checker.Variable.find_value sol (var clause_head))) eqn:Eclause_head_test ; simpl .
     + exfalso.
       apply no_solutions_if_contradict with (assumptions := clause_head :: assumptions) (sol := sol).
       * apply Econtra_clause_assumption.
@@ -113,7 +154,7 @@ Proof.
         -- apply Hsat, H.
     + fold satisfies_nogood in Hnogood.
       apply Hnogood.
-  - destruct (test_atomic clause_head (find_value sol (var clause_head))) eqn:Eclause_head_test ; simpl ; try exact I.
+  - destruct (test_atomic clause_head (Checker.Variable.find_value sol (var clause_head))) eqn:Eclause_head_test ; simpl ; try exact I.
     apply IHclause_left.
     unfold satisfies_nogood in Hnogood.
     rewrite Eclause_head_test in Hnogood.
@@ -144,7 +185,7 @@ Fixpoint rup
   end.
 
 Lemma satisfy_unit_clause :
-  forall (assumptions : list Atomic) (clause : Clause) (sol : Assignment) (unit : Atomic),
+  forall (assumptions : list Atomic) (clause : Clause) (sol : Checker.Variable.Assignment) (unit : Atomic),
   Is_true (satisfies_nogood clause sol) ->
   find_unit clause assumptions = Some unit -> 
   (forall (a : Atomic), In a assumptions -> Is_true (test_atomic_assignment a sol)) ->
@@ -162,7 +203,7 @@ Proof.
   }
   simpl in Hunit.
   unfold test_atomic_assignment.
-  remember (test_atomic unit (find_value sol (var unit))) as t.
+  remember (test_atomic unit (Checker.Variable.find_value sol (var unit))) as t.
   destruct t.
   - apply Hunit.
   - contradiction.
@@ -170,7 +211,7 @@ Qed.
 
 
 Lemma no_solutions_if_rup :
-  forall (clause_seq : list Clause) (assumptions : list Atomic) (sol : Assignment),
+  forall (clause_seq : list Clause) (assumptions : list Atomic) (sol : Checker.Variable.Assignment),
   Is_true (rup clause_seq assumptions) ->
   Is_true (satisfies_all_nogoods clause_seq sol) ->
   (forall (a : Atomic), In a assumptions -> Is_true (test_atomic_assignment a sol)) -> False.

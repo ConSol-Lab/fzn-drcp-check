@@ -11,6 +11,22 @@ Inductive AtomicComparator :=
   | not_equal
   | equal.
 
+Definition cmp_eqb (x : AtomicComparator) (y : AtomicComparator) :=
+  match x, y with 
+  | less_equal, less_equal => true
+  | greater_equal, greater_equal => true
+  | not_equal, not_equal => true
+  | equal, equal => true
+  | _, _ => false
+  end.
+
+Lemma cmp_eqb_eq : forall (x y : AtomicComparator),
+  Is_true (cmp_eqb x y) -> x = y.
+Proof.
+  intros.
+  destruct x ; destruct y ; try easy.
+Qed.
+
 Record Atomic :=
   {
     var : Var;
@@ -18,13 +34,38 @@ Record Atomic :=
     value : Z;
   }.
 
+Definition eqb (x : Atomic) (y : Atomic) :=
+  (eqb (var x) (var y)) &&
+  ((value x) =? (value y)) &&
+  (cmp_eqb (comparator x) (comparator y)).
+
+Lemma eqb_eq : forall (x y : Atomic),
+  Is_true (eqb x y) -> x = y.
+Proof.
+  unfold eqb.
+  intros.
+  apply andb_prop_elim in H.
+  destruct H as [H Hcmp].
+  apply andb_prop_elim in H.
+  destruct H as [Hvar Hvalue].
+  apply eqb_eq in Hvar.
+  apply Is_true_eq_true, Z.eqb_eq in Hvalue.
+  apply cmp_eqb_eq in Hcmp.
+  destruct x ; destruct y.
+  simpl in Hvar.
+  simpl in Hvalue.
+  simpl in Hcmp.
+  rewrite Hvar, Hvalue, Hcmp.
+  reflexivity.
+Qed.
+
 Definition atomic_not (x : Atomic) :=
   match comparator x with
   | less_equal => {|
     var := var x ;
     comparator := greater_equal ;
     value := value x + 1
-|}
+  |}
   | greater_equal =>  {|
     var := var x ;
     comparator := less_equal ;

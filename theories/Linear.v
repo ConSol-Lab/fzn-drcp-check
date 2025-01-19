@@ -196,7 +196,7 @@ Fixpoint evaluate_optimistic_linear (x : list (Z * Var)) (inference : list Atomi
   | [] => 0
   | (coef, v) :: xs =>
       evaluate_optimistic_scaled_list coef v (
-        filter (fun atomic => eqb v (var atomic)) inference
+        filter (fun atomic => Checker.Variable.eqb v (var atomic)) inference
       ) + evaluate_optimistic_linear xs inference
   end.
 
@@ -223,7 +223,7 @@ Proof.
         unfold test_atomic_assignment in Hatomic.
         apply filter_In in Hatomic_filter.
         destruct Hatomic_filter as [_ Heq_var].
-        apply Is_true_eq_left, eqb_eq in Heq_var.
+        apply Is_true_eq_left, Checker.Variable.eqb_eq in Heq_var.
         rewrite Heq_var.
         apply Hatomic.
     + apply IHx.

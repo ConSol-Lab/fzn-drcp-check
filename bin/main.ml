@@ -18,12 +18,11 @@ let check_proof model proof =
   else
     let parsed_proof = read_proof proof in
     let parsed_model = parse_model model in
-    match Checker.find_invalid_step parsed_proof parsed_model with
-    | Some (step_nr, _) ->
-        `Ok
-          (Printf.printf "Proof is invalid! Rejected proof step %d\n"
-             (nat_to_int step_nr))
-    | None -> `Ok (print_endline "Proof is valid!")
+    match Checker.validate parsed_model parsed_proof with
+    | false -> `Ok
+      (Printf.printf "Proof is invalid; placeholder for the proof step: %d"
+        (nat_to_int Checker.O))
+    | true -> `Ok (print_endline "Proof is valid")
 
 let model_t =
   let doc = "The FZN file describing the model." in

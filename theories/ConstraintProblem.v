@@ -7,8 +7,7 @@ Require Import List.
 Open Scope Z_scope.
 
 Inductive Constraint :=
-  | linear_leq (constraint : LinearConstraint)
-  | nogood (atomics : list Atomic).
+  | linear_leq (constraint : LinearConstraint).
 
 Record ConstraintProblem := 
   {
@@ -19,5 +18,7 @@ Record ConstraintProblem :=
 Definition satisfies_constraint (c : Constraint) (sol : Assignment) :=
   match c with
   | linear_leq lin => satisfies_linear lin sol
-  | nogood atomics => satisfies_nogood atomics sol
   end.
+
+Definition satisfies_problem (csp : ConstraintProblem) (sol : Assignment) :=
+  forallb (fun c => satisfies_constraint c sol) (constraints csp).
