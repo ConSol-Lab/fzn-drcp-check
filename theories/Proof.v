@@ -8,6 +8,7 @@ Require Import List.
 Import Coq.Lists.List.ListNotations.
 
 Inductive InferenceRule :=
+  | trivial
   | linear.
 
 Inductive Step := 
@@ -33,11 +34,13 @@ Record Proof :=
 
 Definition validate_inference (fact : Clause) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
+  | trivial =>
+    existsb (fun c : Constraint => satisfies_constraint c sol)
   | linear =>
-      match hint with
-      | [linear_leq c] => linear_checker fact c
-      | _ => false
-      end
+    match hint with
+    | [linear_leq c] => linear_checker fact c
+    | _ => false
+    end
   end.
 
 Lemma validate_inference_soundness : forall (fact : Clause) (hint : list Constraint) (rule : InferenceRule) (sol : Assignment),

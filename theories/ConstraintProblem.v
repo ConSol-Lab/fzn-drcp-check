@@ -9,6 +9,16 @@ Open Scope Z_scope.
 Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint).
 
+Definition affected_variables (c : Constraint) :=
+  match c with
+  | linear_leq lin =>
+      map (fun x =>
+        match x with
+        | (_, v) => v
+        end
+      ) (terms lin)
+  end.
+
 Record ConstraintProblem := 
   {
     variables : list Var;
