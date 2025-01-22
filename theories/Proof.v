@@ -36,11 +36,7 @@ Definition validate_inference (fact : Clause) (hint : list Constraint) (rule : I
   match rule with
   | trivial =>
       existsb
-        (fun c =>
-          match construct_trivial_solution c fact with
-          | Some sol => satisfies_constraint c sol
-          | None => false
-          end)
+        (fun c => false)
         hint
   | linear =>
       match hint with
@@ -57,7 +53,10 @@ Proof.
   intros fact hint rule sol Hsat Hvalid.
   unfold validate_inference in Hvalid.
   destruct rule; simpl in Hvalid.
-  - 
+  - intros.
+    apply Is_true_eq_true, existsb_exists in Hvalid.
+    destruct Hvalid as [x [Hin Hcontra]].
+    discriminate Hcontra.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     simpl in Hsat.
     apply Is_true_eq_true, linear_inference_checker_correct in Hvalid.
