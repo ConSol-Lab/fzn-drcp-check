@@ -163,11 +163,17 @@ Proof.
 Qed.
 
 
+Inductive clause_type :=
+  | unit (unit_lit : Atomic)
+  | undef
+  | falsified.
 
-Definition find_unit (clause : Clause) (assumptions : list Atomic) : option Atomic :=
+
+Definition find_unit (clause : Clause) (assumptions : list Atomic) : clause_type :=
   match simplify clause assumptions with
-  | unit :: nil => Some unit
-  | _ => None
+  | nil => falsified
+  | lit :: nil => unit lit
+  | _ => undef
   end.
 
 Fixpoint rup 
@@ -179,34 +185,100 @@ Fixpoint rup
   | nil => false
   | clause :: remaining =>
       match find_unit clause true_literals with
-      | Some x => rup remaining (x :: true_literals)
-      | None => false
+      | unit lit => rup remaining (lit :: true_literals)
+      | undef => false
+      | falsified => true
       end
   end.
 
 Lemma satisfy_unit_clause :
-  forall (assumptions : list Atomic) (clause : Clause) (sol : Checker.Variable.Assignment) (unit : Atomic),
+  forall (assumptions : list Atomic) (clause : Clause) (sol : Checker.Variable.Assignment) (lit : Atomic),
   Is_true (satisfies_nogood clause sol) ->
-  find_unit clause assumptions = Some unit -> 
+  find_unit clause assumptions = unit lit -> 
   (forall (a : Atomic), In a assumptions -> Is_true (test_atomic_assignment a sol)) ->
-  Is_true (test_atomic_assignment unit sol).
+  Is_true (test_atomic_assignment lit sol).
 Proof.
   unfold find_unit.
   intros.
   destruct (simplify clause assumptions) as [|head [|tail]] eqn:simplified ;
   inversion H0.
   rewrite H3 in simplified.
-  assert (Hunit: Is_true (satisfies_nogood (unit :: nil) sol)). { 
+  assert (Hunit: Is_true (satisfies_nogood (lit :: nil) sol)). { 
     rewrite <- simplified.
     apply simplify_equiv, H1.
     apply H.
   }
   simpl in Hunit.
   unfold test_atomic_assignment.
-  remember (test_atomic unit (Checker.Variable.find_value sol (var unit))) as t.
+  remember (test_atomic lit (Checker.Variable.find_value sol (var lit))) as t.
   destruct t.
   - apply Hunit.
   - contradiction.
+Qed.
+
+Lemma unsat_falsified_clause :
+  forall (assumptions : list Atomic) (clause : Clause) (sol : Checker.Variable.Assignment),
+  find_unit clause assumptions = falsified -> 
+  (forall (a : Atomic), In a assumptions -> Is_true (test_atomic_assignment a sol)) ->
+  Is_true (satisfies_nogood clause sol) ->
+  False.
+Proof.
+  unfold find_unit.
+  intros assumptions clause sol Hfalsified Hassumptions Hsat.
+  destruct (simplify clause assumptions) as [|head [|tail]] eqn:simplified ;
+  inversion Hfalsified.
+  unfold simplify in simplified.
+  assert (Hcontra: forall lit : Atomic, In lit clause -> Is_true (contradiction (lit :: assumptions))). { 
+    intros lit Hin.
+    destruct (contradiction (lit :: assumptions)) eqn:Econtra ;
+    simpl ;
+    try reflexivity.
+    apply in_nil with (a := lit).
+    rewrite <- simplified.
+    apply filter_In.
+    split.
+    - apply Hin.
+    - rewrite Econtra.
+      reflexivity.
+  }
+  induction clause.
+  - simpl in Hsat.
+    contradiction.
+  - apply IHclause.
+    + simpl in simplified.
+      destruct (contradiction (a :: assumptions)) eqn:Econtra ;
+      simpl in simplified ;
+      try apply simplified.
+      specialize (Hcontra a).
+      rewrite Econtra in Hcontra.
+      simpl in Hcontra.
+      exfalso.
+      apply Hcontra.
+      left.
+      reflexivity.
+    + simpl in Hsat.
+      destruct (test_atomic a (Checker.Variable.find_value sol (var a))) eqn:Eatest ;
+      try apply Hsat.
+      specialize (Hcontra a).
+      simpl in Hcontra.
+      exfalso.
+      apply no_solutions_if_contradict with (assumptions := a :: assumptions) (sol := sol).
+      * apply Is_true_eq_true, Hcontra.
+        left.
+        reflexivity.
+      * simpl.
+        intros.
+      destruct H.
+      -- rewrite <- H.
+         unfold test_atomic_assignment.
+         rewrite Eatest.
+         reflexivity.
+      -- apply Hassumptions, H.
+    + intros.
+      apply Hcontra.
+      simpl.
+      right.
+      apply H.
 Qed.
 
 
@@ -227,9 +299,9 @@ Proof.
   - apply no_solutions_if_contradict with (assumptions := assumptions) (sol := sol).
     + apply contra.
     + apply H1.
-  - destruct (find_unit clause assumptions) as [unit|] eqn:is_unit;
+  - destruct (find_unit clause assumptions) as [lit | |] eqn:is_unit;
     simpl ; try contradiction.
-    apply IHclause_seq with (sol := sol) (assumptions := unit :: assumptions).
+    apply IHclause_seq with (sol := sol) (assumptions := lit :: assumptions).
     + apply andb_prop_elim in H0.
       destruct H0 as [_ H0].
       apply H0.
@@ -245,6 +317,15 @@ Proof.
         -- apply is_unit.
         -- apply H1.
       * apply H1, H2.
+    + apply unsat_falsified_clause with
+      (assumptions := assumptions)
+      (clause := clause)
+      (sol := sol).
+      * apply is_unit.
+      * apply H1.
+      * apply andb_prop_elim in H0.
+        destruct H0 as [H0 _].
+        apply H0.
 Qed.
 
 Theorem valid_rup_on_negation :

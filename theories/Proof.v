@@ -28,16 +28,16 @@ Definition conclusion_holds (csp : ConstraintProblem) (conclusion : Conclusion) 
 Record Proof := 
   {
     steps : list Step;
-  conclusion : Conclusion;
-}.
+    conclusion : Conclusion;
+  }.
 
 Definition validate_inference (fact : Clause) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
   | linear =>
       match hint with
       | [linear_leq c] => linear_checker fact c
-| _ => false
-end
+      | _ => false
+      end
   end.
 
 Lemma validate_inference_soundness : forall (fact : Clause) (hint : list Constraint) (rule : InferenceRule) (sol : Assignment),
@@ -101,6 +101,7 @@ Fixpoint validate_kb (csp : ConstraintProblem) (s : list Step) (c : Conclusion) 
 
 Definition validate (csp : ConstraintProblem) (p : Proof) :=
   validate_kb csp (steps p) (conclusion p) nil nil.
+
 
 Lemma if_else_rewrite : forall (b : bool), (if b then false else false) = false. 
 Proof.
