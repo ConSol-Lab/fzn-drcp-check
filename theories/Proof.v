@@ -35,12 +35,18 @@ Record Proof :=
 Definition validate_inference (fact : Clause) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
   | trivial =>
-    existsb (fun c : Constraint => satisfies_constraint c sol)
+      existsb
+        (fun c =>
+          match construct_trivial_solution c fact with
+          | Some sol => satisfies_constraint c sol
+          | None => false
+          end)
+        hint
   | linear =>
-    match hint with
-    | [linear_leq c] => linear_checker fact c
-    | _ => false
-    end
+      match hint with
+      | [linear_leq c] => linear_checker fact c
+      | _ => false
+      end
   end.
 
 Lemma validate_inference_soundness : forall (fact : Clause) (hint : list Constraint) (rule : InferenceRule) (sol : Assignment),
@@ -51,6 +57,7 @@ Proof.
   intros fact hint rule sol Hsat Hvalid.
   unfold validate_inference in Hvalid.
   destruct rule; simpl in Hvalid.
+  - 
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     simpl in Hsat.
     apply Is_true_eq_true, linear_inference_checker_correct in Hvalid.
