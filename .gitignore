@@ -1,2 +1,11 @@
 # Build artifacts
 _build/
+**/*.lia.cache
+**/*.aux
+**/*.coq.d
+**/*.vo
+**/*.vok
+**/*.vos
+**/*.glob
+**/Makefile.coq
+**/Makefile.coq.conf

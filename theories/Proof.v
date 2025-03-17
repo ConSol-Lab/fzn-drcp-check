@@ -1,5 +1,7 @@
 Require Import Checker.Atomic.
 Require Import Checker.Linear.
+Require Import Checker.Cumulative.
+Require Import Checker.CumulativeCheck.
 Require Import Checker.Nogood.
 Require Import Checker.Variable.
 Require Import Checker.ConstraintProblem.
@@ -9,7 +11,8 @@ Import Coq.Lists.List.ListNotations.
 
 Inductive InferenceRule :=
   | trivial
-  | linear.
+  | linear
+  | cumulative.
 
 Inductive Step := 
   | inference (fact : Clause) (hint : list nat) (rule : InferenceRule)
@@ -43,6 +46,11 @@ Definition validate_inference (fact : Clause) (hint : list Constraint) (rule : I
       | [linear_leq c] => linear_checker fact c
       | _ => false
       end
+  | cumulative =>
+      match hint with
+      | [cumulative_c c] => cumulative_checker fact c
+      | _ => false
+      end
   end.
 
 Lemma validate_inference_soundness : forall (fact : Clause) (hint : list Constraint) (rule : InferenceRule) (sol : Assignment),
@@ -69,6 +77,11 @@ Proof.
     apply Hsat.
     left.
     reflexivity.
+  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    apply cumulative_checker_valid with (constr := constraint); try assumption.
+    specialize (Hsat (cumulative_c constraint)).
+    apply Hsat.
+    simpl. left. reflexivity.
 Qed.
 
 

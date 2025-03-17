@@ -66,6 +66,7 @@ induction i ; simpl ; intros ; try contradiction.
 Qed.
 
 
+
 Definition satisfies_all_nogoods (xs : list Clause) (sol : Checker.Variable.Assignment) :=
   forallb (fun x => satisfies_nogood x sol) xs.
 

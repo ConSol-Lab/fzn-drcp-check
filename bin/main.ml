@@ -1,4 +1,4 @@
-open Cmdliner
+(* open Cmdliner
 open Fzn_drcp_check
 open Conversion
 
@@ -40,3 +40,5 @@ let cmd =
   Cmd.v info Term.(ret (const check_proof $ model_t $ proof_t))
 
 let () = exit (Cmd.eval cmd)
+
+*)

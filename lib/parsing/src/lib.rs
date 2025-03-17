@@ -84,7 +84,7 @@ impl<'a> From<SourceInference<'a>> for Inference {
     fn from(value: SourceInference<'a>) -> Self {
         Inference {
             premises: value.premises.into_iter().map(Into::into).collect(),
-            conclusion: value.propagated.into(),
+            conclusion: value.propagated.unwrap().into(),
         }
     }
 }
