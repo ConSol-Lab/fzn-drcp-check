@@ -7,6 +7,21 @@ Require Import Coq.Lists.List.
 Require Import Coq.Bool.Bool.
 Require Import Lia.
 
+Require Coq.MSets.MSetAVL.
+Require Coq.MSets.MSetProperties.
+Require Coq.Structures.OrdersEx.
+
+(* ################################### *)
+(* ####### MSet instantiations ####### *)
+
+Module sstr := MSetAVL.Make OrdersEx.String_as_OT.
+Module sint := MSetAVL.Make OrdersEx.Z_as_OT.
+Module Z_String_as_OT := OrdersEx.PairOrderedType OrdersEx.Z_as_OT OrdersEx.String_as_OT.
+Module sintstr := MSetAVL.Make Z_String_as_OT.
+Module sstr_prps := MSetProperties.Properties sstr.
+Module sint_prps := MSetProperties.Properties sint.
+Module sintstr_prps := MSetProperties.Properties sintstr.
+
 (* the integer is the lower bound, upper bond is lb + the N *)
 
 Definition zn_interval := (Z * N)%type.

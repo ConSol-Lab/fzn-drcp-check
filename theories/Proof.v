@@ -2,6 +2,7 @@ Require Import Checker.Atomic.
 Require Import Checker.Linear.
 Require Import Checker.Cumulative.
 Require Import Checker.CumulativeCheck.
+Require Import Checker.AllDifferentCheck.
 Require Import Checker.Nogood.
 Require Import Checker.Variable.
 Require Import Checker.ConstraintProblem.
@@ -12,7 +13,9 @@ Import Coq.Lists.List.ListNotations.
 Inductive InferenceRule :=
   | trivial
   | linear
-  | cumulative.
+  | cumulative
+  | alldifferent
+  .
 
 Inductive Step := 
   | inference (fact : Clause) (hint : list nat) (rule : InferenceRule)
@@ -51,6 +54,11 @@ Definition validate_inference (fact : Clause) (hint : list Constraint) (rule : I
       | [cumulative_c c] => cumulative_checker fact c
       | _ => false
       end
+  | alldifferent =>
+    match hint with
+    | [alldifferent_c c] => alldifferent_checker fact c
+    | _ => false
+    end
   end.
 
 Lemma validate_inference_soundness : forall (fact : Clause) (hint : list Constraint) (rule : InferenceRule) (sol : Assignment),
@@ -80,6 +88,12 @@ Proof.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply cumulative_checker_valid with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
+    apply Hsat.
+    simpl. left. reflexivity.
+  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    specialize (Hsat (alldifferent_c constraint)).
+    apply Is_true_eq_left.
+    apply alldifferent_checker_valid with (constr := constraint); apply Is_true_eq_true; try assumption.
     apply Hsat.
     simpl. left. reflexivity.
 Qed.
