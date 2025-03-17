@@ -46,6 +46,11 @@ Fixpoint satisfies_nogood (x : Clause) (sol : Checker.Variable.Assignment) :=
   end.
 
 
+Definition inference_negated (inference : list Atomic) (sol : Checker.Variable.Assignment) :=
+  forall atomic, In atomic (map atomic_not inference) ->
+    Is_true (test_atomic_assignment atomic sol).
+
+
 Theorem unsat_nogood : (forall (atomic : Atomic) (i : list Atomic) (s : Checker.Variable.Assignment),
 satisfies_nogood i s = false ->
   In atomic (map atomic_not i) ->
@@ -63,6 +68,14 @@ induction i ; simpl ; intros ; try contradiction.
   - apply IHi.
     + apply H.
     + apply Htail.
+Qed.
+
+Lemma neg_atomic : forall sol inference, satisfies_nogood inference sol = false -> inference_negated inference sol.
+Proof.
+  intros sol inference Hsat.
+  unfold inference_negated. intros atomic.
+  apply unsat_nogood.
+  exact Hsat.
 Qed.
 
 

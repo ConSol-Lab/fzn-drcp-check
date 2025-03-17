@@ -7,7 +7,8 @@ Require Import Checker.Nogood.
 Require Import Checker.Variable.
 
 Definition construct_trivial_solution (c : Constraint) (fact : Clause) : option Assignment :=
-  let naive_mapping := fun v => 
+  None.
+  (* let naive_mapping := fun v => 
     match find (fun lit =>
       andb
         (eqb (var lit) v)
@@ -33,5 +34,5 @@ Definition construct_trivial_solution (c : Constraint) (fact : Clause) : option 
       end ;
       consistency_proof := admit
     |}
-  else None.
+  else None. *)
 
