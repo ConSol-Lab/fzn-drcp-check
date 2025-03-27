@@ -62,7 +62,7 @@ Definition usage_sum (l : list Activity) : N :=
 Open Scope Z_scope.
 Definition is_active_at (start_time : Z) (p_time : N) (t : Z) : bool :=
   let end_time := (start_time + (Z.of_N p_time)) in
-    (start_time <=? t) && (t <=? end_time).
+    (start_time <=? t) && (t <? end_time).
 
 Definition activities_at_t (l : list Activity) (t : Z) : list Activity :=
   filter (fun a => is_active_at a.(start) a.(p_time) t) l

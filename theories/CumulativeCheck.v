@@ -72,7 +72,7 @@ Proof.
 Qed.
 
 Open Scope N_scope.
-Lemma sufficient_false :
+Lemma exceeds_at_t_dec_false :
   forall (c : CumulativeConstraint) (a : Assignment),
   (exists t, 
     (c.(horizon_start) <= t <= c.(horizon_end))%Z
@@ -104,7 +104,7 @@ Lemma active_at :
   forall t (activities : list Activity),
     forall a lb ub, In a activities ->
       lb <= a.(start) <= ub ->
-      ub <= t <= (lb + (Z.of_N a.(p_time)))
+      ub <= t < (lb + (Z.of_N a.(p_time)))
       ->
       In a (activities_at_t activities t).
 Proof.
@@ -121,7 +121,7 @@ Proof.
 Qed.
 
 Definition mandatory_active (lb : Z) (ub : Z) (t : Z) (p_time : N) :=
-  (ub <=? t) && (t <=? (lb + (Z.of_N p_time))).
+  (ub <=? t) && (t <? (lb + (Z.of_N p_time))).
 
 
 Definition constraint_to_intervals (c : CumulativeConstraint) : list (string * zn_interval * (N * N)) :=
@@ -168,11 +168,11 @@ Fixpoint find_overloaded_t_with_mandatory (capacity : N) (ts : list Z) (activiti
   end
 .
 
-Definition i_mandatory_active_at (t : Z) (i : (string * zn_interval * (N * N))) := 
+(* Definition i_mandatory_active_at (t : Z) (i : (string * zn_interval * (N * N))) := 
   match i with
   | (_, (lb, size), (p_time, _)) =>
      mandatory_active lb (lb + Z.of_N size) t p_time = true
-  end.
+  end. *)
 
 Definition interval_to_usage (i : (string * zn_interval * (N * N))) : N :=
   match i with
@@ -208,12 +208,109 @@ Proof.
   - reflexivity.
 Qed. 
 
+Definition resource_profile_t (capacity : N) (activities : list (string * zn_interval * (N * N))) (t : Z) : (Z * N) :=
+  match res_sum capacity (activities_bounds_active_at t activities) with
+  (_, usage, _) => (t, usage)
+  end
+.
+
+Definition resource_profile (capacity : N) (activities : list (string * zn_interval * (N * N))) (times : list Z) := 
+  map (resource_profile_t capacity activities) times
+.
+
+Lemma resource_profile_correct :
+  forall capacity activities times usage t,
+    In (t, usage) (resource_profile capacity activities times) ->
+      In t times /\
+      xn_sum (activities_bounds_active_at t activities) >= usage.
+Proof.
+  intros c activities times usage t.
+  intros Hin.
+  unfold resource_profile in Hin.
+  rewrite in_map_iff in Hin.
+  destruct Hin as [t' [Hprofile Hintimes]].
+  unfold resource_profile_t in Hprofile.
+  specialize (res_sum_semantics c (activities_bounds_active_at t' activities)) as Hres_sum.
+  destruct (res_sum c
+  (activities_bounds_active_at t'
+  activities)) as [[summed sum_result] b].
+  inversion Hprofile. subst t'; subst sum_result; clear Hprofile.
+  remember (activities_bounds_active_at t activities) as active; clear Heqactive.
+  split.
+  - exact Hintimes.
+  - clear Hintimes. destruct b.
+    + destruct Hres_sum as [Hisusage]. lia.
+    + destruct Hres_sum as [Husage [_ [Hsub _]]].
+      rewrite <- Husage.
+      specialize (xn_sum_sub_list summed active Hsub) as Hsub_sum.
+      lia.
+Qed.
+
+Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : string * zn_interval * (N * N)) (time : Z) : bool :=
+  match activity with
+  | (_, _, (_, usage)) =>
+    match activity_bounds_is_active time activity with
+    | nil => true
+    | _ => profile_usage + usage <? capacity
+    end
+  end
+.
+
+Open Scope nat_scope.
+Fixpoint has_hole_of_size (l : list bool) (size : nat) : bool :=
+  if size =? 0
+    then true
+    else
+      match l with
+      | nil => false
+      | b :: l' =>
+        if b
+          then has_hole_of_size l' (pred size)
+          else has_hole_of_size l' size
+      end
+.
+
+Open Scope Z_scope.
+Definition make_active_list_f (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : list bool :=
+  match activity with
+  | (_, (lb, size), _) =>
+    match profile_entry with
+    | (t, profile_usage) =>
+      if (t >=? lb) && (t <=? (lb + Z.of_N size))
+        then (can_be_active_at_t capacity profile_usage activity t) :: nil
+        else nil
+    end
+  end
+.
+
+Definition make_active_list (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : list bool :=
+  flat_map (make_active_list_f capacity activity) profile.
+
+Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : bool :=
+  match activity with
+  | (_, _, (duration, _)) =>
+    negb (has_hole_of_size (make_active_list capacity profile activity) (N.to_nat duration))
+  end.
+
+Definition var_empty_domain (v : Var) (sol : Assignment) :=
+  exists n m,
+    n < m
+      /\
+    m <= sol.(find_value) v <= n.
+
+Definition ex_var_empty_domain (sol : Assignment) :=
+  exists (v : Var),
+    var_empty_domain v sol.
+
 Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
+  let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
   match inferred_cumulative_bounds constraint inference with
   | None => false
   | Some bounds => 
-    match find_overloaded_t_with_mandatory (constraint.(capacity)) (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) bounds with
-    | None => false
+    match find_overloaded_t_with_mandatory (constraint.(capacity)) times bounds with
+    | None => 
+      let r_profile := resource_profile (constraint.(capacity)) bounds times in
+      existsb (cannot_schedule_activity_w_profile (constraint.(capacity)) r_profile) bounds 
     | Some _ => true
     end
   end
@@ -228,7 +325,7 @@ Proof.
 Qed.
 
 Open Scope Z_scope.
-Lemma checker_true_finds_overloaded_t :
+(* Lemma checker_true_finds_overloaded_t :
   forall fact sol constr,
   inference_negated fact sol ->
   cumulative_checker fact constr = true
@@ -299,7 +396,8 @@ Proof.
             exact Hinapplied.
           -- simpl. unfold mandatory_active in Hmand.
             apply andb_true_iff in Hmand.
-            repeat rewrite Z.leb_le in Hmand.
+            rewrite Z.leb_le in Hmand.
+            rewrite Z.ltb_lt in Hmand.
             exact Hmand. 
         * unfold activities_bounds_active_at. 
           (* TODO: try and get rid of this, but it only really matters for performance *)
@@ -308,20 +406,47 @@ Proof.
     }
     { discriminate Hchecked. }
   - discriminate Hchecked.
+Qed. *)
+
+
+
+(* Definition empty_domain (x : string) (sol : Assignment) :=
+  exists n m,
+    n < m ->
+      forall v,
+        var_name v = x ->
+          (sol.(find_value) v) >= n
+
+. *)
+
+
+
+Lemma empty_domain_is_false :
+  forall sol,
+    ex_var_empty_domain sol -> False.
+Proof.
+  intros sol. unfold not. intros Hempty.
+  unfold ex_var_empty_domain in Hempty; unfold var_empty_domain in Hempty.
+  destruct Hempty as [v [n [m Hempty]]].
+  lia.
 Qed.
 
 Lemma checker_not_cumulative :
   forall fact sol constr,
-  Is_true (cumulative_checker fact constr)
+  Is_true (cumulative_decide constr sol)
+  -> Is_true (cumulative_checker fact constr)
   -> inference_negated fact sol
-  -> cumulative_decide constr sol = false.
+  -> False.
 Proof.
   intros fact sol constr.
-  intros Hchecked Hneg.
-  apply sufficient_false.
+  intros Hconstr Hchecked Hneg.
   apply Is_true_eq_true in Hchecked.
-  apply checker_true_finds_overloaded_t with (fact := fact); assumption.
-Qed.
+  
+
+  (* apply sufficient_false.
+  apply Is_true_eq_true in Hchecked.
+  apply checker_true_finds_overloaded_t with (fact := fact); assumption. *)
+Admitted.
 
 Lemma is_true_false_not :
   forall b, Is_true b -> b = false -> False.
@@ -348,10 +473,8 @@ Proof.
   intros Hcumul Hchecked.
   apply is_true_not_false.
   intros Hsat.
-  apply is_true_false_not with (b := cumulative_decide constr sol); try assumption.
-  apply checker_not_cumulative with (fact := fact).
-  - exact Hchecked.
-  - apply neg_atomic. exact Hsat.
+  apply neg_atomic in Hsat.
+  apply checker_not_cumulative with (fact := fact) (sol := sol) (constr := constr); assumption.
 Qed.
 
 

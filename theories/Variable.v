@@ -247,3 +247,4 @@ Record Assignment := {
   consistency_proof : forall (v : Var), Is_true (is_in v (find_value v));
   find_value_eq_name : forall (v1 v2 : Var), var_name v1 = var_name v2 -> find_value v1 = find_value v2
 }.
+

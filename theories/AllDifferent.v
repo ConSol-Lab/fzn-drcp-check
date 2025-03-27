@@ -78,5 +78,5 @@ Definition alldifferent_decide (constraint : AllDifferentConstraint) (a : Assign
 
 
 
-Definition ex_confl_set (st : state) (vs : vars) := 
-(exists (confl_vars : vars), sstr.Subset confl_vars vs /\ dom_size (vars_union_domain st confl_vars) < vars_len confl_vars).
+(* Definition ex_confl_set (st : state) (vs : vars) := 
+(exists (confl_vars : vars), sstr.Subset confl_vars vs /\ dom_size (vars_union_domain st confl_vars) < vars_len confl_vars). *)

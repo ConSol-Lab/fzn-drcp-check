@@ -15,12 +15,16 @@ Definition alldifferent_checker (inference : list Atomic) (constraint : AllDiffe
   end
 .
 
+Definition ex_confl_set (st : state) (vs : sstr.t) := 
+(exists (confl_vars : vars), sstr.Subset confl_vars vs /\ dom_size (vars_union_domain st confl_vars) < vars_len confl_vars).
+
 Lemma checker_negated_is_conflict :
   forall fact sol constr,
   alldifferent_checker fact constr = true ->
   inference_negated fact sol -> 
   alldifferent_decide constr sol = false.
 Proof.
+  intros fact sol constr Hcheck Hnegated.
 Admitted.
 
 Lemma valid_if_invalid_checked_is_conflict :
@@ -50,4 +54,7 @@ Proof.
   intros fact sol constr.
   apply valid_if_invalid_checked_is_conflict.
   intros Hchecked Hfact.
-  apply alldifferent_checker_valid.
+  apply checker_negated_is_conflict with (fact := fact).
+  - exact Hchecked.
+  - apply neg_atomic. exact Hfact.
+Qed.

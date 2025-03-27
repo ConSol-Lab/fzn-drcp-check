@@ -385,3 +385,181 @@ Proof.
         -- exact Hatoms_applied_in.
         -- exact Hatoms_applied_proof.
 Qed.
+
+(* 
+
+
+Definition hole_domain := (option Z * option Z * sint.t)%type.
+
+Definition consistent_hole_domain (d : hole_domain) :=
+  match d with
+  | (lb, ub, holes) =>
+    match lb with
+    | Some lb => forall n, sint.In n holes -> n > lb
+      /\
+      match ub with
+      | Some ub => lb <= ub
+      | None => True
+      end
+    | None => True
+    end
+      /\
+    match ub with
+    | Some ub => forall n, sint.In n holes -> n < ub
+    | None => True
+    end
+  end.
+
+Definition val_in_hole_domain (y : Z) (d : hole_domain) :=
+  match d with
+  | (lb, ub, holes) =>
+    ~ sint.In y holes 
+      /\
+    match lb with
+    | Some lb => y >= lb
+    | None => True
+    end
+      /\
+    match ub with
+    | Some ub => y <= ub
+    | None => True
+    end
+  end.
+
+Definition fixed_to_list := sint.t.
+
+Definition lt_ub (x : Z) (ub : option Z) :=
+  match ub with
+  | Some ub => x <? ub
+  | None => true
+  end.
+
+Definition gt_lb (x : Z) (lb : option Z) :=
+  match lb with
+  | Some lb => x >? lb
+  | None => true
+  end.
+
+Definition update_hole_domain_w_atomic (d : hole_domain * fixed_to_list) (a : AtomicComparator) (x : Z) : (hole_domain * fixed_to_list) :=
+  match d with
+  | ((lb, ub, holes), fixed) =>
+    match a with 
+    | less_equal => 
+      if lt_ub x ub
+        then ((lb, Some x, holes), fixed)
+        else d
+    | greater_equal => 
+      if gt_lb x lb
+        then ((Some x, ub, holes), fixed)
+        else d
+    | not_equal =>
+      ((lb, ub, sint.add x holes), fixed)
+    | equal => ((lb, ub, holes), sint.add x fixed)
+    end
+  end.
+
+Definition atom_match_name_update_hole_dom (a : Atomic) (name : string) (d : hole_domain * fixed_to_list) : option (hole_domain * fixed_to_list) :=
+  if (var_name a.(var) =? name)%string
+  then Some (update_hole_domain_w_atomic d a.(comparator) a.(value))
+  else None.
+
+Fixpoint apply_atomics_dom (x : string) (d : hole_domain * fixed_to_list) (atoms : list Atomic) (applied : list Atomic) : (list Atomic * (hole_domain * fixed_to_list)) :=
+  match atoms with
+  | nil => (applied, d)
+  | a :: atoms' =>
+    match atom_match_name_update_hole_dom a x d with
+    | Some d_new => apply_atomics_dom x d_new atoms' (a :: applied)
+    | None => apply_atomics_dom x d atoms' applied
+    end
+  end
+.
+
+Definition atom_is (x : string) (val : Z) (a : Atomic) (cmp : AtomicComparator) :=
+  (var_name a.(var)) = x
+    /\
+  a.(comparator) = cmp
+    /\
+  a.(value) = val.
+
+Definition has_atoms (x : string) (atoms : list Atomic) (d : hole_domain * fixed_to_list) :=
+match d with
+| ((lb, ub, holes), fixed) =>
+  match lb with
+  | Some lb => exists (a : Atomic),
+    (In a atoms)
+      /\
+    atom_is x lb a greater_equal
+  | None => True
+  end
+    /\
+  match ub with
+  | Some ub => exists (a : Atomic),
+    (In a atoms)
+      /\
+    atom_is x ub a less_equal
+  | None => True
+  end
+    /\
+  (forall n, sint.In n holes ->
+    exists (a : Atomic),
+    (In a atoms)
+      /\
+    atom_is x n a not_equal)
+    /\
+  (forall n, sint.In n fixed ->
+    exists (a : Atomic),
+    (In a atoms)
+      /\
+    atom_is x n a equal)
+end.
+
+Lemma apply_dom_correct :
+  forall x atoms d applied_before applied d_out,
+    has_atoms x applied_before d ->
+    apply_atomics_dom x d atoms applied_before = (applied, d_out) ->
+    has_atoms x (atoms ++ applied_before) d_out.
+Proof.
+  intros x. induction atoms.
+  - intros d applied_before applied d_out.
+    intros Hbefore.
+    intros Hres. simpl in Hres.
+    inversion Hres.
+    subst applied_before; subst d_out; clear Hres.
+    destruct d as [d fixed].
+    destruct d as [[lb ub] holes]. simpl.
+    unfold has_atoms in Hbefore.
+    destruct Hbefore as [Hlb [Hub [Hholes Hfixed]]].
+    repeat split.
+    + destruct lb; try reflexivity.
+      exact Hlb.
+    + destruct ub; try reflexivity.
+    exact Hub.
+    + exact Hholes.
+    + exact Hfixed.
+  - intros d applied_before applied d_out.
+    intros Hbefore Hres.
+    simpl in Hres.
+    destruct (atom_match_name_update_hole_dom a x d) eqn:Hupdatesome.
+    {
+      unfold atom_match_name_update_hole_dom in Hupdatesome.
+      destruct (var_name (var a) =? x)%string.
+      2: discriminate Hupdatesome.
+      inversion Hupdatesome as [Hupdate]; clear Hupdatesome.
+      unfold update_hole_domain_w_atomic in Hupdate.
+      destruct d as [[[lbb ubb] holesb] fixedb].
+      destruct (comparator a) eqn:Hcomp.
+      - destruct (lt_ub (value a) ubb).
+        + subst p.
+          unfold has_atoms.
+          destruct d_out as [[[lb ub] holes] fixed].
+          repeat split.
+          * destruct lb; try reflexivity.
+            specialize (IHatoms (lbb, ubb, holesb, fixedb) applied_before )
+
+
+      unfold has_atoms.
+     
+     repeat split.
+     - destruct lb; try reflexivity.
+
+    } *)
