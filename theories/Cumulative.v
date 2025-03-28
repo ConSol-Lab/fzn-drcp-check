@@ -6,13 +6,20 @@ Require Lia.
 Require Import Checker.Utility.
 Require Import Checker.Variable.
 
+Definition has_unique_vars (l : list (Var * N * N)) :=
+  forall v1 v2 p u,
+    In (v1, p, u) l ->
+    var_name v1 = var_name v2 ->
+    v1 = v2.
+
 Record CumulativeConstraint :=
   {
     capacity: N;
     vs: list (Var * N * N);
     horizon_start : Z;
     horizon_end : Z;
-    horizon_consistent : horizon_start <= horizon_end
+    horizon_consistent : horizon_start <= horizon_end;
+    unique_vars : has_unique_vars vs
   }.
 
 Record Activity := mkAct {
@@ -94,3 +101,4 @@ Definition cumulative_decide (constraint : CumulativeConstraint) (a : Assignment
     )
     (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end))
 .
+

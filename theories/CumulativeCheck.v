@@ -246,6 +246,147 @@ Proof.
       lia.
 Qed.
 
+Open Scope Z_scope.
+Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :=
+  match a with
+  | (x, (a_lb, a_size), (p_time, usage)) =>
+    (exists (v : Var),
+      var_name v = x)
+      /\
+    forall (v : Var),
+      var_name v = x
+        ->
+      (In (v, p_time, usage) c.(vs)
+        /\
+      a_lb <= sol.(find_value) v <= (a_lb + Z.of_N a_size))
+  end.
+      
+
+Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
+  forall a, In a bounds -> task_in_constraint a c sol.
+
+
+Lemma resource_profile_correct_bounds :
+  forall (c : CumulativeConstraint) inference sol bounds,
+    inference_negated inference sol
+    -> inferred_cumulative_bounds c inference = Some bounds
+    -> valid_bounds bounds c sol.
+Proof.
+  intros c inference sol bounds.
+  intros Hneg Hbounds.
+  unfold inferred_cumulative_bounds in Hbounds.
+  unfold valid_bounds.
+  intros a.
+  intros Hinbounds. specialize (apply_atomics_correct (N * N) ((constraint_to_intervals c)) (map atomic_not inference) bounds Hbounds a Hinbounds) as Happly.
+    destruct a as [[x [lb a_size]] [p u]] eqn:Ha.
+    destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
+    unfold task_in_constraint.
+    unfold constraint_to_intervals in Hinis.
+    rewrite in_map_iff in Hinis.
+    destruct Hinis as [[[v v_process] v_usage] [Hv Hvinc]].
+    destruct v.
+    inversion Hv. subst x; subst lb_init; subst size_init; subst v_process; subst v_usage; clear Hv.
+    split.
+    - exists (interval var). simpl. reflexivity.
+    - intros v' Hname_eq.
+      specialize (c.(unique_vars) (interval var) v' p u Hvinc) as Hunique.
+      rewrite Hname_eq in Hunique. simpl in Hunique.
+      assert (name var = name var) as Hvv' by reflexivity.
+      apply Hunique in Hvv'; subst v'.
+      split.
+      + exact Hvinc.
+      + apply atomic_proof_correct with (lb_init := (lower_bound var)) (size_init := (N.of_nat (size var))) (atoms := atoms_applied) (x := name var); try easy.
+        intros atom Hinapplied.
+        apply Hneg.
+        apply Hatomsin.
+        exact Hinapplied.
+Qed.
+
+Definition c_var_with_x (x : string) (elt : (Var * N * N)) :=
+  match elt with
+  | (v, _, _) =>
+    (x =? var_name v)%string
+  end.
+
+Definition x_start_time (x : string) (c : CumulativeConstraint) (sol : Assignment) : Z :=
+  match (find (c_var_with_x x) c.(vs)) with
+  | None => Z0
+  | Some (v, _, _) => sol.(find_value) v
+  end.
+
+Lemma task_in_constraint_start_time_eq :
+forall a c sol,
+  match a with
+  | (x, _, (p, u)) =>
+    task_in_constraint a c sol ->
+    forall (v : Var),
+      var_name v = x
+      -> x_start_time x c sol = sol.(find_value) v
+  end.
+Proof.
+  intros a c sol.
+  destruct a as [[x [lb a_size]] [p u]] eqn:Ha.
+  intros Htask.
+  intros v Hname.
+  specialize sol.(find_value_eq_name) as Heq_value.
+  unfold x_start_time.
+  destruct (find (c_var_with_x x) (vs c)) as [[[v' v_p'] v_u'] |] eqn:Hfind.
+  - apply find_some in Hfind.
+    apply Heq_value.
+    destruct Hfind as [_ Hvar_eq].
+    unfold c_var_with_x in Hvar_eq.
+    rewrite String.eqb_eq in Hvar_eq.
+    rewrite Hname. rewrite <- Hvar_eq. reflexivity.
+  - exfalso. apply find_none with (x := (v, p, u)) in Hfind.
+    + unfold c_var_with_x in Hfind.
+      rewrite String.eqb_neq in Hfind. rewrite Hname in Hfind.
+      contradiction.
+    + unfold task_in_constraint in Htask.
+      destruct Htask as [[v' Hnamev'] Htask].
+      apply Htask. exact Hname.
+Qed. 
+        
+Lemma task_in_constraint_active_period :
+  forall a c sol,
+    match a with
+    | (x, (lb, size), (p_time, _)) =>
+      task_in_constraint a c sol ->
+        exists s,
+          lb <= s <= lb + Z.of_N size
+            /\
+          forall t, 
+            s <= t < s + Z.of_N p_time
+            -> is_active_at (x_start_time x c sol) p_time t = true
+    end.
+Proof.
+  intros a c sol.
+  specialize (task_in_constraint_start_time_eq a c sol) as Hstart_eq_all.
+  destruct a as [[x [lb a_size]] [p u]] eqn:Ha.
+  intros Htask.
+  assert (task_in_constraint
+  (x, (lb, a_size), (p, u)) c sol) as Hstart_eq by assumption.
+  unfold task_in_constraint in Htask.
+  destruct Htask as [[v Hv] Htask].
+  apply Hstart_eq_all with (v := v) in Hstart_eq; try assumption; clear Hstart_eq_all.
+  apply Htask in Hv; clear Htask.
+  destruct Hv as [Hvin Hbound].
+  exists (find_value sol v).
+  split.
+  - exact Hbound.
+  - intros t Ht.
+    unfold is_active_at.
+    rewrite andb_true_iff.
+    rewrite Z.leb_le.
+    rewrite Z.ltb_lt.
+    rewrite Hstart_eq.
+    exact Ht.
+Qed.
+  
+Lemma 
+
+
+
+Open Scope N_scope.
 Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : string * zn_interval * (N * N)) (time : Z) : bool :=
   match activity with
   | (_, _, (_, usage)) =>
@@ -255,6 +396,14 @@ Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : str
     end
   end
 .
+
+Lemma can_be_active_not_active :
+  forall c profile_usage,
+    
+
+(* Lemma can_be_active_at_t_correct :
+  forall c profile_usage activity t, *)
+
 
 Open Scope nat_scope.
 Fixpoint has_hole_of_size (l : list bool) (size : nat) : bool :=
@@ -269,6 +418,8 @@ Fixpoint has_hole_of_size (l : list bool) (size : nat) : bool :=
           else has_hole_of_size l' size
       end
 .
+
+ 
 
 Open Scope Z_scope.
 Definition make_active_list_f (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : list bool :=
@@ -441,6 +592,92 @@ Proof.
   intros fact sol constr.
   intros Hconstr Hchecked Hneg.
   apply Is_true_eq_true in Hchecked.
+  unfold cumulative_checker in Hchecked.
+  destruct (inferred_cumulative_bounds constr fact) as [bounds |] eqn:Hbounds.
+  2: discriminate Hchecked.
+  specialize (overload_props constr.(capacity) (ZRange.build_range constr.(horizon_start) constr.(horizon_end)) bounds) as Hoverload.
+  destruct (find_overloaded_t_with_mandatory (capacity constr)
+  (ZRange.build_range (horizon_start constr)
+  (horizon_end constr)) bounds) as [[[t usages_t] _] |].
+  {
+    enough (cumulative_decide constr sol = false).
+    {
+    rewrite H in Hconstr. apply Hconstr.
+    }
+    apply exceeds_at_t_dec_false.
+    exists t.
+    destruct Hoverload as [Hsum Hinhorz].
+    split.
+    - rewrite ZRange.build_range_correct.
+      + exact Hinhorz.
+      + exact constr.(horizon_consistent).
+    - clear Hinhorz; clear Hchecked; clear usages_t.
+      unfold usage_sum.
+      apply xn_sum_sub_list_gtn with (l1 := (activities_bounds_active_at t bounds)).
+      + clear Hsum.
+        apply sub_list_if_in_nodup.
+        * intros a Hin.
+          rewrite in_map_iff.
+          assert (In a (activities_bounds_active_at t bounds)) as Hin2 by assumption.
+          unfold activities_bounds_active_at in Hin.
+          rewrite nodup_In in Hin.
+          rewrite in_flat_map in Hin.
+          destruct Hin as [a' [Hinbounds Hinres]].
+          destruct a' as [[x [lb size]] [p u]] eqn:Ha'.
+          unfold activity_bounds_is_active in Hinres.
+          destruct (interval_to_bounds (lb, size)) as [lb' ub] eqn:Hibounds. unfold interval_to_bounds in Hibounds; inversion Hibounds; subst lb'; symmetry in H1; clear Hibounds.
+          destruct (mandatory_active lb ub t p) eqn:Hmand.
+          2: destruct Hinres.
+          simpl in Hinres. destruct Hinres; try contradiction. subst a.
+          unfold inferred_cumulative_bounds in Hbounds.
+          rewrite <- Ha' in Hinbounds.
+          specialize (apply_atomics_correct (N * N) ((constraint_to_intervals constr)) (map atomic_not fact) bounds Hbounds a' Hinbounds) as Happly.
+          rewrite Ha' in Happly; clear Hinbounds; clear Ha'; clear a'.
+          destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
+          unfold constraint_to_intervals in Hinis.
+          rewrite in_map_iff in Hinis.
+          destruct Hinis as [[[v p'] u'] [His Hinc]].
+          destruct v; inversion His.
+          subst p'; subst u'.
+          exists (mkAct x (sol.(find_value) (interval var)) p u). split.
+          { simpl. subst x. reflexivity. }
+          apply active_at with (lb := lb) (ub := ub).
+          -- unfold activity_list. unfold activity_list_inner. rewrite in_map_iff.
+            exists (interval var, p, u).
+            split.
+            ++ unfold activity_list_inner_f. subst x.
+            reflexivity.
+            ++ exact Hinc.
+          -- simpl. subst ub.
+            apply atomic_proof_correct with (x := x) (atoms := atoms_applied) (lb_init := lb_init) (size_init := size_init); try assumption.
+            intros atom Hinapplied.
+            apply Hneg.
+            apply Hatomsin.
+            exact Hinapplied.
+          -- simpl. unfold mandatory_active in Hmand.
+            apply andb_true_iff in Hmand.
+            rewrite Z.leb_le in Hmand.
+            rewrite Z.ltb_lt in Hmand.
+            exact Hmand. 
+        * unfold activities_bounds_active_at. 
+          (* TODO: try and get rid of this, but it only really matters for performance *)
+          apply NoDup_nodup.
+      + exact Hsum.
+    }
+    { 
+      clear Hoverload.
+      apply existsb_exists in Hchecked.
+      destruct Hchecked as [a [Hbound Hcannot_sched]].
+      specialize (apply_atomics_correct (N * N) ((constraint_to_intervals constr)) (map atomic_not fact) bounds Hbounds a Hbound) as Happly.
+      destruct a as [[x [lb size]] [p u]] eqn:Ha.
+      destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
+      unfold cannot_schedule_activity_w_profile in Hcannot_sched.
+      rewrite negb_true_iff in Hcannot_sched.
+
+      rewrite <- Ha in *.
+      
+
+    }
   
 
   (* apply sufficient_false.
