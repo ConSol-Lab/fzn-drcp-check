@@ -2,6 +2,7 @@
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
 Require Import Coq.Lists.List.
+Require Import Coq.Sorting.Sorted.
 Require Import Bool.
 Require Import String.
 Require Import Checker.Nogood.
@@ -250,15 +251,10 @@ Open Scope Z_scope.
 Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :=
   match a with
   | (x, (a_lb, a_size), (p_time, usage)) =>
-    (exists (v : Var),
-      var_name v = x)
-      /\
-    forall (v : Var),
-      var_name v = x
-        ->
-      (In (v, p_time, usage) c.(vs)
+    exists start_time,
+      a_lb <= start_time <= (a_lb + Z.of_N a_size)
         /\
-      a_lb <= sol.(find_value) v <= (a_lb + Z.of_N a_size))
+      In (mkAct x start_time p_time usage) (activity_list c sol)
   end.
       
 
@@ -286,8 +282,21 @@ Proof.
     destruct Hinis as [[[v v_process] v_usage] [Hv Hvinc]].
     destruct v.
     inversion Hv. subst x; subst lb_init; subst size_init; subst v_process; subst v_usage; clear Hv.
+    exists (sol.(find_value) (interval var)).
     split.
-    - exists (interval var). simpl. reflexivity.
+    - apply atomic_proof_correct with (lb_init := (lower_bound var)) (size_init := (N.of_nat (size var))) (atoms := atoms_applied) (x := name var); try easy.
+      intros atom Hinapplied.
+      apply Hneg.
+      apply Hatomsin.
+      exact Hinapplied.
+    - unfold activity_list. unfold activity_list_inner. rewrite in_map_iff.
+      exists (interval var, p, u).
+      split.
+      + unfold activity_list_inner_f. reflexivity.
+      + exact Hvinc.
+Qed.
+(*     
+    exists (interval var). simpl. reflexivity.
     - intros v' Hname_eq.
       specialize (c.(unique_vars) (interval var) v' p u Hvinc) as Hunique.
       rewrite Hname_eq in Hunique. simpl in Hunique.
@@ -300,7 +309,7 @@ Proof.
         apply Hneg.
         apply Hatomsin.
         exact Hinapplied.
-Qed.
+Qed. *)
 
 Definition c_var_with_x (x : string) (elt : (Var * N * N)) :=
   match elt with
@@ -314,7 +323,7 @@ Definition x_start_time (x : string) (c : CumulativeConstraint) (sol : Assignmen
   | Some (v, _, _) => sol.(find_value) v
   end.
 
-Lemma task_in_constraint_start_time_eq :
+(* Lemma task_in_constraint_start_time_eq :
 forall a c sol,
   match a with
   | (x, _, (p, u)) =>
@@ -344,7 +353,7 @@ Proof.
     + unfold task_in_constraint in Htask.
       destruct Htask as [[v' Hnamev'] Htask].
       apply Htask. exact Hname.
-Qed. 
+Qed.  *)
         
 Lemma task_in_constraint_active_period :
   forall a c sol,
@@ -356,13 +365,49 @@ Lemma task_in_constraint_active_period :
             /\
           forall t, 
             s <= t < s + Z.of_N p_time
-            -> is_active_at (x_start_time x c sol) p_time t = true
+            -> is_active_at s p_time t = true
     end.
 Proof.
   intros a c sol.
-  specialize (task_in_constraint_start_time_eq a c sol) as Hstart_eq_all.
   destruct a as [[x [lb a_size]] [p u]] eqn:Ha.
   intros Htask.
+  unfold task_in_constraint in Htask.
+  destruct Htask as [s [Hbound Hactivity]].
+  exists s.
+  split.
+  - exact Hbound.
+  - intros t. intros Ht.
+    unfold is_active_at.
+    lia.
+Qed.
+
+Definition active_list (start_time : Z) (p_time : N) (times : list Z) : list bool :=
+  map (is_active_at start_time p_time) times.
+
+Definition is_succ (n : Z) (m : Z) :=
+  m = Z.succ n.
+
+Definition succ_seq (l : list Z) :=
+  StronglySorted is_succ l.
+  
+Lemma hole :
+  forall s lb size times,
+    (
+      lb <= s <= lb + Z.of_N size
+        /\
+      forall t, 
+        s <= t < s + Z.of_N p_time
+          -> 
+        is_active_at s p_time t = true
+    )
+      ->
+    (
+
+    )   
+    
+    
+
+  (* specialize (task_in_constraint_start_time_eq a c sol) as Hstart_eq_all.
   assert (task_in_constraint
   (x, (lb, a_size), (p, u)) c sol) as Hstart_eq by assumption.
   unfold task_in_constraint in Htask.
@@ -380,7 +425,7 @@ Proof.
     rewrite Z.ltb_lt.
     rewrite Hstart_eq.
     exact Ht.
-Qed.
+Qed. *)
   
 Lemma 
 

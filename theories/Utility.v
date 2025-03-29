@@ -1,5 +1,7 @@
 From Coq Require Lists.List.
+From Coq Require Sorting.Sorted.
 Require Coq.ZArith.ZArith.
+Require Coq.NArith.NArith.
 Require Coq.Logic.FinFun.
 Require Lia.
 
@@ -152,9 +154,11 @@ End NatEx.
 
 Module ZRange.
   Import ZArith.
+  Import NArith.
   Import FinFun.
   Import List.
   Import Lia.
+  Import Sorted.
 
 Lemma not_sn_le_n :
   forall n,
@@ -255,12 +259,213 @@ Qed.
 Definition build_range (start_incl : Z) (end_incl : Z) : list Z :=
   shift_list start_incl (build_list_helper (Z.abs_nat (end_incl - start_incl))).
 
-Lemma build_range_correct : 
-  forall s e,
-    s <= e ->
-      forall n, s <= n <= e <-> In n (build_range s e).
+Definition is_succ (n : Z) (m : Z) :=
+  n = Z.succ m.
+
+Definition succ_seq (l : list Z) :=
+  Sorted is_succ l.
+
+Definition is_range (s : Z) (e : Z) (l : list Z) :=
+  s <= e
+    /\
+  (forall n, s <= n <= e <-> In n l)
+    /\
+  succ_seq l.
+
+
+Fixpoint build_range2_rec (s : Z) (n : nat) : list Z :=
+  match n with
+  | O => s :: nil
+  | S n' => (s + Z.of_nat n) :: (build_range2_rec s n')
+  end.
+
+Definition build_range2 (s : Z) (n : nat) : list Z :=
+  match n with
+  | O => nil
+  | S n' => build_range2_rec s n'
+  end.
+
+Lemma build_range2_s :
+  forall l size,
+  build_range2 l (S size) = (l + Z.of_nat size) :: build_range2 l size.
 Proof.
-  intros s e Hslte n.
+  intros l size.
+  unfold build_range2.
+  destruct size.
+  - simpl. assert (l + 0 = l) by lia. rewrite H. reflexivity.
+  - simpl. reflexivity. 
+Qed.
+
+Lemma build_range_interval :
+  forall s size,
+    (size >= 1)%nat ->
+    (forall n : Z,
+    s <= n <= s + Z.of_nat size - 1 <->
+    In n (build_range2 s size)).
+Proof.
+  intros s size Hsize.
+  induction size.
+  - exfalso. lia.
+  - destruct (size =? 0)%nat eqn:H0.
+    {
+      rewrite Nat.eqb_eq in H0; subst size; clear Hsize.
+      simpl in *; clear IHsize.
+      assert (s + 1 - 1 = s).
+      { lia. }
+      rewrite H; clear H.
+      intros n.
+      split.
+      - intros H.
+        assert (n = s).
+        { lia. }
+        subst s.
+        left. reflexivity.
+      - intros H.
+        destruct H; try contradiction.
+        subst s.
+        split; reflexivity.
+    }
+    intros n.
+    assert (size >= 1)%nat as IH.
+    { rewrite Nat.eqb_neq in H0. lia. }
+    clear H0; apply IHsize with (n := n) in IH; clear IHsize; clear Hsize.
+    assert (s + Z.of_nat (S size) - 1 = s + Z.of_nat size).
+    { lia. }
+    rewrite H; clear H.
+    split.
+    -- intros H. rewrite build_range2_s.
+      destruct (n =? s + Z.of_nat size) eqn:Hs.
+      ++ rewrite Z.eqb_eq in Hs; subst n.
+        simpl. left. reflexivity.
+      ++ rewrite Z.eqb_neq in Hs.
+        assert (s <= n <= s + Z.of_nat size - 1) as IHn by lia.
+        rewrite IH in IHn; clear IH.
+        simpl. right. exact IHn.
+    -- intros H. rewrite build_range2_s in H.
+      destruct H as [Hn | Hin].
+      ++ subst n. clear IH. lia.
+      ++ rewrite <- IH in Hin; clear IH.
+        lia.
+Qed.
+
+Lemma build_range_correct : 
+  forall l size,
+      (size >= 1)%nat ->
+      is_range l (l + Z.of_nat size - 1) (build_range2 l size).
+Proof.
+  intros l size Hsize.
+  unfold is_range.
+  split.
+  - lia.
+  - induction size.
+    + exfalso. lia.
+    + split.
+      { apply build_range_interval. exact Hsize. }
+      destruct (size =? 0)%nat eqn:H0.
+      {
+        rewrite Nat.eqb_eq in H0; subst size; clear Hsize.
+        simpl in *; clear IHsize.
+        unfold succ_seq. 
+        apply Sorted_cons.
+        - apply Sorted_nil.
+        - apply HdRel_nil.
+      }
+      destruct (size =? 1)%nat eqn:H1.
+      { 
+        rewrite Nat.eqb_eq in H1; subst size; clear Hsize.
+        simpl in *; clear IHsize.
+        unfold succ_seq.
+        apply Sorted_cons.
+        - apply Sorted_cons.
+          + apply Sorted_nil.
+          + apply HdRel_nil.
+        - apply HdRel_cons.
+          unfold is_succ. 
+          reflexivity.
+      }
+      assert (size >= 2)%nat as Hsize2.
+      { rewrite Nat.eqb_neq in H0. rewrite Nat.eqb_neq in H1. lia. }
+      assert (size >= 1)%nat as IH by lia.
+      clear H0; clear H1; apply IHsize in IH; clear IHsize; clear Hsize.
+
+      (* specialize (build_range_interval l size IH) as Hinterval.
+      assert (size >= 1)%nat as Hsize1 by assumption. *)
+      
+      destruct IH as [_ IHsucc].
+      rewrite build_range2_s.
+      assert (exists size', S (S size') = size).
+      { exists (pred (pred size)). lia. }
+      destruct H as [size' Hsize'].
+      unfold succ_seq.
+      apply Sorted_cons.
+      * apply IHsucc.
+      * rewrite <- Hsize'.
+        rewrite build_range2_s.
+        apply HdRel_cons.
+        unfold is_succ. lia.
+
+      rewrite <- Hsize'.
+      rewrite build_range2_s.
+      unfold succ_seq.
+      rewrite Sorted_LocallySorted_iff.
+      apply LSorted_consn.
+      * unfold succ_seq in IHsucc.
+      apply 
+      apply Sorted_cons.
+      * apply IHsucc.
+      * apply HdRel_cons.
+
+
+
+
+      simpl.
+      split.
+      * intros Hn.
+
+    + destruct (size =? 1)%nat eqn:H1.
+      {
+        rewrite Nat.eqb_eq in H1. subst size.
+        clear Hsize.
+        simpl in *.
+        assert (l + 2 - 1 = l + 1).
+        { lia. }
+        rewrite H; clear H.
+        assert (l + 1 - 1 = l).
+        { lia. }
+        rewrite H in IHsize; clear H.
+        assert (1 >= 1)%nat as IH.
+        { lia. }
+        apply IHsize in IH; clear IHsize.
+        split.
+        - intros Hn.
+          split.
+          + destruct (n =? l) eqn:Hnl.
+            -- rewrite Z.eqb_eq in Hnl; subst n.
+              right. left. reflexivity.
+            -- rewrite Z.eqb_neq in Hnl; clear IH.
+              left. lia.
+          + unfold succ_seq.
+            apply SSorted_cons.
+            -- apply SSorted_cons.
+              ++ apply SSorted_nil.
+              ++ rewrite Forall_nil_iff. reflexivity.
+            -- rewrite Forall_forall.
+              intros k.
+              intros Hkin.
+              simpl in Hkin; destruct Hkin; try contradiction; subst k.
+              unfold is_succ.
+              reflexivity.
+        - intros [Hnl Hsucc].
+          destruct Hnl as [Hnlplus | [Hnl | Hfalse]].
+          + subst n. lia.
+          + subst n. lia.
+          + destruct Hfalse.
+      }
+      assert (size >= 1)%nat as IH.
+      {
+       rewrite Nat.eqb_neq in H1. apply Nat.ge in 
+      }
+
   unfold build_range.
   specialize (shift_correct s (Z.abs_nat (e - s)) (e - s)) as Hshift.
   assert (e = e - s + s) as He.
