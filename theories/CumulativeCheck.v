@@ -3,6 +3,7 @@ Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
 Require Import Coq.Lists.List.
 Require Import Coq.Sorting.Sorted.
+Require Import Arith.PeanoNat.
 Require Import Bool.
 Require Import String.
 Require Import Checker.Nogood.
@@ -88,8 +89,11 @@ Proof.
   exfalso. unfold cumulative_decide in Hdecide.
   rewrite forallb_forall in Hdecide.
   specialize (Hdecide t).
-  rewrite ZRange.build_range_correct in Hhorizon.
-  2: apply c.(horizon_consistent).
+  specialize c.(horizon_consistent) as Hrange.
+  apply (ZRange.build_range_correct (horizon_start c) (horizon_end c)) in Hrange.
+  unfold ZRange.is_range in Hrange.
+  destruct Hrange as [_ [Ht _]].
+  rewrite Ht in Hhorizon.
   apply Hdecide in Hhorizon as Husagelt.
   clear Hhorizon; clear Hdecide.
   rewrite N.leb_le in Husagelt.
@@ -381,29 +385,652 @@ Proof.
     lia.
 Qed.
 
+Open Scope nat_scope.
+
+(* Fixpoint has_n_true (n : nat) (reset : nat) (current : nat) (l : list bool) : bool :=
+  match l with
+  | nil => n <=? current
+  | b :: l' =>
+    if b
+      then has_n_true n reset (S current) l'
+      else has_n_true n reset reset l'
+  end
+.
+
+Fixpoint max_n_true (reset : nat) (current : nat) (l : list bool) : nat :=
+  match l with
+  | nil => current
+  | b :: l' =>
+    if b
+      then max_n_true reset (S current) l'
+      else max current (max_n_true reset reset l') 
+  end
+.
+
+Lemma max_n_true_lt_has_n_true :
+  forall n reset l current,
+    reset <= n
+      ->
+    has_n_true n reset current l = false
+      ->
+    max_n_true reset current l <= n \/ .
+Proof.
+  intros n reset l current.
+  intros Hreset.
+  generalize dependent current; generalize dependent l.
+  induction l.
+  - intros current Hhasn.
+    simpl in *.
+    rewrite <- not_true_iff_false in Hhasn.
+    rewrite Nat.leb_le in Hhasn.
+    lia.
+  - simpl. destruct a.
+    + intros current Hhasn.
+      apply IHl. exact Hhasn.
+    + intros current Hhasn.
+      assert (max_n_true reset reset l <= n).
+      { apply IHl. exact Hhasn. }
+      assert (current <= n).
+      {
+        
+      } *)
+
+(* Note: we don't care if it traverses the whole list when it finds a valid one, since that is only in the error path. In general it will have to traverse the whole list to ensure there is a conflict since we expect to validate many more inferences than we reject *)
+Fixpoint has_n_true (n : nat) (current : nat) (l : list bool) : bool :=
+  match l with
+  | true :: l' => has_n_true n (S current) l'
+  | false :: l' => (n <=? current) || (has_n_true n 0 l')
+  | nil => n <=? current
+  end
+.
+
+Lemma fold_ind {X} :
+  forall (Acc:Type)(P : list X -> Acc -> Type)(f : X -> Acc -> Acc)(i : Acc)(s:list X),
+  P nil i ->
+  (forall x a s',
+    P s' a -> P (x :: s') (f x a)) ->
+  P s (fold_right f i s).
+Proof.
+  intros Acc P f i s Hnil Hstep.
+  induction s as [| x s IH].
+  - simpl. exact Hnil.
+  - simpl. specialize (Hstep x (fold_right f i s)).
+    apply Hstep.
+    exact IH.
+Qed.
+
+Open Scope N_scope.
+Definition max_n_foldf (b : bool) (acc : (N * N)) : (N * N) :=
+  match acc with 
+  | (current, max) =>
+    match b with
+    | true => (current + 1, max)
+    | false => (0, if (max <? current) then current else max)
+    end
+  end.
+
+
+
+Definition max_n_fold (l : list bool) :=
+  fold_right max_n_foldf (0, 0) l.
+
+
+
+(* Lemma fold_ind_left {X} :
+  forall (Acc:Type)(P : list X -> Acc -> Type)(f : Acc -> X -> Acc)(i : Acc)(s:list X),
+  P nil i ->
+  (forall x a s',
+    P s' a -> P (x :: s') (f a x)) ->
+  P s (fold_left f s i).
+Proof.
+  intros Acc P f i s Hnil Hstep.
+  induction s as [| x s IH].
+  - simpl. exact Hnil.
+  - simpl. specialize (Hstep x (fold_left f s i)).
+    apply Hstep.
+    exact IH.
+Qed. *)
+
+Open Scope nat_scope.
+Fixpoint run_size (l : list bool) : nat :=
+  match l with
+  | nil => O
+  | false :: l' => O
+  | true :: l' => S (run_size l')
+  end.
+
+(* Fixpoint run_size_rest (l : list bool) : (nat * list bool) :=
+  match l with
+  | nil => (O, nil)
+  | false :: l' => O
+  | true :: l' => S (run_size l')
+  end. *)
+
+Definition run_at (n : nat) (l : list bool) : nat :=
+  run_size (skipn n l). 
+
+Fixpoint max_n_true (current : nat) (l : list bool) : nat :=
+  match l with
+  | nil => current
+  | b :: l' =>
+    if b
+      then max_n_true (S current) l'
+      else max current (max_n_true 0 l') 
+  end
+.
+
+Lemma l_ind {X} :
+   forall P : list X -> Type,
+   P nil ->
+   (forall l', P l' -> forall x,  P (x :: l')) ->
+   forall l, P l.
+Proof.
+  intros P Hnil Hstep.
+  induction l.
+  - apply Hnil.
+  - apply Hstep. exact IHl.
+Qed.
+
+Lemma has_0_true :
+  forall l start,
+    has_n_true 0 start l = true.
+Proof.
+  induction l.
+  - intros. simpl. reflexivity.
+  - intros start. simpl.
+    destruct a.
+    + apply IHl.
+    + reflexivity.
+Qed.
+
+(* Fixpoint has_n_true (n : nat) (current : nat) (l : list bool) : bool :=
+  match l with
+  | nil => n <=? current
+  | b :: l' =>
+    if b
+      then has_n_true n (S current) l'
+      else has_n_true n 0 l'
+  end
+. *)
+
+(* Lemma max_n_true_lt_has_n_true :
+  forall l n current,
+    has_n_true n current l = false
+      ->
+    run_size l <=  *)
+
+Lemma max_n_true_lt_has_n_true :
+  forall l n current,
+    has_n_true n current l = false
+      ->
+    max_n_true current l <= n.
+Proof.
+  induction l.
+  - intros n current Hhasn.
+    simpl in *.
+    rewrite <- not_true_iff_false in Hhasn. rewrite Nat.leb_le in Hhasn.
+    lia.
+  - simpl. destruct a.
+    + intros n current Hhasn.
+      apply IHl.
+      exact Hhasn.
+      (* intros n Hhasn.
+      specialize (IHl (pred n)). *)
+      (* assert (has_n_true (pred n) 0 l = false).
+      {
+        (* Does not hold in general! *)
+      } *)
+      (* specialize (IHl n (S current)).
+      apply IHl in Hhasn.
+      destruct 
+      apply IHl. exact Hhasn. *)
+    + intros n current Hhasn.
+      rewrite orb_false_iff in Hhasn.
+      destruct Hhasn as [Hncurrent Hhasn].
+      rewrite <- not_true_iff_false in Hncurrent.
+      rewrite Nat.leb_le in Hncurrent.
+      assert (max_n_true 0 l <= n).
+      { apply IHl. exact Hhasn. }
+      lia.
+Qed.
+
+Admitted. 
+      (* intros n current Hhasn.
+      assert (max_n_true 0 l <= n).
+      { apply IHl. exact Hhasn. }
+      assert (current <= n).
+      {
+        
+      } *) 
+
+
+Lemma max_run_lt_start :
+  forall l s1 s2,
+  s1 <= s2
+    ->
+  max_n_true s1 l <= max_n_true s2 l.
+Proof.
+  induction l.
+  - intros s1 s2 H. simpl. exact H.
+  - intros s1 s2 H. simpl. destruct a.
+    + apply IHl. lia.
+    + clear IHl. lia.
+Qed.
+
+(* Lemma max_run_is_max :
+  forall l current,
+  max_n_true current l >= max (run_size l + current) (max_n_true current (tl l)).
+Proof.
+  induction l.
+  - intros current.
+    simpl. lia.
+  - intros current. simpl.
+    destruct a.
+    + specialize (IHl (S current)).
+      admit.
+    + simpl.
+      
+      symmetry.
+      destruct ((S (run_size l) + current) <=? (max_n_true current l)) eqn:Hlt.
+      * assert .  *)
+  (* intros l current.
+  enough (max_n_true current l <= max_n_true (S current) (tl l)).
+  - lia.
+  - generalize dependent current.
+    induction l.
+    + intros current. simpl. lia.
+    + intros current. simpl.
+      destruct a.
+      * reflexivity.
+      * enough (max_n_true 0 l <= max_n_true 1 l)
+  induction l.
+  - intros current. simpl. lia.
+  - intros current. *)
+
+
+
+Fixpoint max_runs (l : list bool) : nat :=
+  match l with
+  | nil => O
+  | _ :: l' => max (run_size l) (max_runs l')
+  end
+.
+
+Lemma run_size_le_pre :
+  forall l start,
+    run_size l <= max_n_true start l.
+Proof.
+
+Lemma nth_false_run_lt :
+  forall l n,
+    (exists k,
+      k <= n /\ nth k l false = false)
+      <->
+    run_size l <= n.
+Proof.
+  induction l.
+  - intros n. split.
+    + intros. simpl. lia.
+    + intros Hnil. simpl in Hnil.
+      exists 0.
+      split.
+      * exact Hnil.
+      * simpl. reflexivity.
+  - intros n. 
+    split.
+    + simpl. intros Hk.
+      destruct Hk as [k [Hkn Hkfalse]].
+      destruct a.
+      * destruct k; try discriminate Hkfalse.
+        specialize (IHl (pred n)).
+        assert (exists k, k <= pred n /\ nth k l false = false).
+        {
+         exists k.
+         split.
+         - lia.
+         - exact Hkfalse. 
+        }
+        rewrite IHl in H.
+        lia.
+      * lia.
+    + simpl. destruct a.
+      * intros Hrun.
+        assert (run_size l <= pred n) by lia.
+        rewrite <- IHl in H.
+        destruct H as [k [Hkn Hkfalse]].
+        exists (S k).
+        split.
+        -- lia.
+        -- exact Hkfalse.
+      * intros H; clear H.
+        exists 0.
+        split.
+        -- lia.
+        -- reflexivity.
+Qed.
+      
+Lemma run_size_le :
+  forall l start,
+    run_size l + start <= max_n_true start l.
+Proof.
+  induction l.
+  - intros start. simpl. reflexivity.
+  - simpl. destruct a.
+    + intros start.
+      specialize (IHl start).
+
+      (* destruct (max_n_true start l <? start) eqn:Hlstart.
+      { rewrite Nat.ltb_lt in Hlstart. exfalso. lia. }
+      rewrite <- not_true_iff_false in Hlstart.
+      rewrite Nat.ltb_lt in Hlstart.
+      assert (run_size l <= (max_n_true start l) - start) by lia.
+      rewrite <- nth_false_run_lt in H.
+      destruct H as [k [Hkmaxn Hkfalse]]. *)
+
+
+      (* destruct (max_n_true start l <=? (pred start)) eqn:Hlstart.
+      * rewrite Nat.leb_le in Hlstart. exfalso.
+        
+        remember (run_size l) as n; remember (max_n_true start l) as m;
+        clear Heqn; clear Heqm.
+        assert (n + start <= start). *)
+
+      admit.
+    + intros start. lia.
+Admitted.
+
+Open Scope N_scope.
+Definition pprop (l : list bool) (acc : (N * N)) :=
+  match acc with
+  | (current, max) =>
+    N.of_nat (max_runs l) <= max
+
+  end.
+
+(* Lemma max_runs_max_lin :
+  forall l,
+    (N.of_nat (max_runs l) <= snd (max_n_fold l))%N.
+Proof.
+  intros l.
+  assert (pprop l (max_n_fold l)).
+  {
+    unfold max_n_fold.
+    apply fold_ind; unfold pprop in *.
+    - simpl. reflexivity.
+    - clear l; intros x a l.
+      destruct a as [current max].
+      intros Hmax.
+      destruct (max_n_foldf x (current, max)) as [current' max'] eqn:Hfold.
+      simpl in *.
+      destruct x eqn:Hx.
+      + inversion Hfold.
+        subst current'; subst max'; clear Hfold.
+        admit.
+      + destruct (max <? current) eqn:Hmaxcurr.
+        * inversion Hfold.
+          subst max'; subst current'; clear Hfold.
+          rewrite N.ltb_lt in Hmaxcurr.
+          lia.
+        * inversion Hfold.
+        subst max'; subst current'; clear Hfold.
+        rewrite <- not_true_iff_false in Hmaxcurr.
+        rewrite N.ltb_lt in Hmaxcurr.
+        lia.
+  }
+  intros l. *)
+  
+
+Open Scope nat_scope.
+Lemma max_runs_max_lin :
+  forall l start,
+    max_runs l <= max_n_true start l.
+Proof.
+  induction l.
+  - intros start.
+    simpl. lia.
+  - intros start.
+    simpl.
+    destruct a.
+    + destruct (max_runs l <=? S (run_size l)) eqn:Hmax.
+      * assert (max (S (run_size l))
+      (max_runs l) = S (run_size l)).
+        {
+          apply max_l. rewrite <- Nat.leb_le. exact Hmax.
+        }
+        rewrite H; clear H; clear Hmax; clear IHl.
+        specialize (run_size_le l (S start)) as Hrun.
+        lia.
+      * assert (max (S (run_size l))
+      (max_runs l) = (max_runs l)).
+        {
+          apply max_r.
+          rewrite <- not_true_iff_false in Hmax.
+          rewrite Nat.leb_le in Hmax.
+          lia.
+        }
+        rewrite H; clear H; clear Hmax.
+        apply IHl.
+    + assert (max_runs l <= max_n_true 0 l) by (apply IHl).
+      lia.
+Qed.
+        
+
+
+Definition has_run (l: list bool) (size : nat) :=
+  exists n,
+    nth n l false = true
+      /\
+    forall k,
+      n <= k <= n + size
+        ->
+      nth k l false = true.
+
+
+
+
+Lemma has_n_true_false :
+  forall n l start,
+    start <= n
+      ->
+    has_n_true n start l = false
+      ->
+    max_n_true start l < n.
+Proof.
+  intros n l.
+  induction l.
+  - intros start Hstartle Hntrue. 
+    unfold has_n_true in Hntrue. unfold max_n_true.
+    rewrite <- not_true_iff_false in Hntrue.
+    rewrite Nat.leb_le in Hntrue.
+    lia.
+  - intros start Hstartle Hntrue.
+    simpl in *.
+    destruct (start =? n) eqn:Hnstart.
+    + rewrite Nat.eqb_eq in Hnstart.
+      subst start; clear Hstartle.
+      destruct a.
+      * 
+    + rewrite Nat.eqb_neq in Hnstart.
+      destruct a.
+      * apply IHl.
+        -- lia.
+        -- exact Hntrue.
+      * enough (max_n_true 0 l < n).
+        -- lia.
+        -- apply IHl.
+          ++ lia.
+          ++ exact Hntrue.
+Qed.
+
+    + admit.
+    + induction l.
+      * simpl in *.
+
+    destruct (stmax_n_foldart =? n) eqn:Hnstart.
+
+    + apply IHl.
+      * 
+    apply IHl.
+    + exact Hntrue.
+    + induction l.
+      * simpl in *.
+        apply IHl in Hntrue.
+    
+
+Inductive N_True : list bool -> nat -> nat -> Prop :=
+  | N_True_0 (l : list bool) : N_True l 0 0
+  | N_True_cons_true (current max : nat) (l' : list bool) (H : N_True l' current max) : N_True (true :: l') (S current) (if (current =? max) then S max else max)
+  | N_True_cons_false (current max : nat) (l' : list bool) (H : N_True l' current max) : N_True (false :: l') 0 max.
+  
+  
+Lemma has_n_true_N_True :
+  forall l max current,
+    current <= max
+      ->
+    has_n_true max l current = true
+      ->
+    N_True l current max.
+Proof.
+  intros l max current Hmaxlecurr Hntrue.
+  induction current; induction max; induction l.
+  - apply N_True_0.
+  - apply N_True_0.
+  - unfold has_n_true in Hntrue.
+    destruct (S max <=? 0) eqn:Hmax0.
+    + exfalso; clear IHmax. rewrite Nat.leb_le in Hmax0.
+      lia.
+    + discriminate Hntrue.
+  - unfold has_n_true in Hntrue.
+    destruct (S max <=? 0) eqn:Hmax0.
+    + exfalso; clear IHmax; clear IHl. rewrite Nat.leb_le in Hmax0.
+      lia.
+    + clear Hmax0; clear Hmaxlecurr.
+      destruct a.
+      * destruct l.
+        -- assert (max = 0).
+          { destruct (S max <=? 1) eqn:Hmax; try discriminate Hntrue.
+            rewrite Nat.leb_le in Hmax. clear IHmax; clear IHl; lia. }
+          subst max; clear Hntrue.
+          assert (0 <= 0) as H0 by reflexivity.
+          apply IHmax in H0.
+          ++ inversion H0.
+
+          
+
+
+
+Open Scope Z_scope.
+(* Lemma hole2 :
+  forall range range_l range_e (f : Z -> bool) length start,
+    range_l <= start
+      ->
+    range_e <= start + Z.of_nat length
+      ->
+    ZRange.is_range range_l range_e range 
+      ->
+    (forall x, 
+      start <= x <= start + Z.of_nat length
+        <->
+      f x = true
+    )
+      ->
+    has_hole_of_size (map f range) 0 length = true.
+Proof.
+  induction range.
+  - intros range_l range_e f length start.
+    intros Hrange_l Hrange_e Hrange Hftrue.
+    simpl.
+    unfold ZRange.is_range in Hrange.
+    destruct Hrange as [Hle [Hn _]].
+    assert (range_l <= range_l <= range_e) as Htonil.
+    { lia. }
+    rewrite Hn in Htonil. destruct Htonil.
+  - intros range_l range_e f length start.
+    intros Hrange_l Hrange_e Hrange Hftrue.
+    induction length.
+    + simpl. reflexivity.
+    + simpl.
+      unfold ZRange.is_range in Hrange.
+      destruct Hrange as [Hle [Hrangein Hsucc]].
+      assert (In a (a :: range)) as Hainarange.
+      { left. reflexivity. }
+      rewrite <- Hrangein in Hainarange.
+      destruct ((start <=? a) && (a <=? start + Z.of_nat (S length))) eqn:Ha.
+      * rewrite andb_true_iff in Ha; repeat rewrite Z.leb_le in Ha.
+        rewrite Hftrue in Ha. rewrite Ha.
+
+
+    (* specialize (IHrange range_l range_e f length start Hrange_l Hrange_e). *)
+    destruct (range_l =? range_e) eqn:Hlr.
+    {
+     rewrite Z.eqb_eq in Hlr; subst range_e.
+     unfold ZRange.is_range in Hrange.
+     simpl.
+     destruct Hrange as [_ [Hn Hsucc]].
+     specialize (IHrange range_l range_l f length start Hrange_l Hrange_e).
+
+    }
+    simpl.
+    assert (ZRange.is_range range_l (range_e - 1) range).
+    {
+      clear IHrange.
+      unfold ZRange.is_range in Hrange.
+      destruct Hrange as [Hrangele [Hnin Hsucc]].
+      unfold ZRange.is_range.
+      split; try assumption.
+      split.
+      - intros n.
+        split.
+        + intros Hnbetween.
+          rewrite Hnin in Hnbetween.
+    } *)
+
+
+
 Definition active_list (start_time : Z) (p_time : N) (times : list Z) : list bool :=
   map (is_active_at start_time p_time) times.
-
-Definition is_succ (n : Z) (m : Z) :=
-  m = Z.succ n.
-
-Definition succ_seq (l : list Z) :=
-  StronglySorted is_succ l.
   
-Lemma hole :
-  forall s lb size times,
+
+(* Lemma hole :
+  forall (p : nat) s lb size times range_l range_e,
+    range_l <= lb
+    ->
+    range_e >= lb + Z.of_N size
+    ->
     (
       lb <= s <= lb + Z.of_N size
         /\
       forall t, 
-        s <= t < s + Z.of_N p_time
+        s <= t < s + Z.of_nat p
           -> 
-        is_active_at s p_time t = true
+        is_active_at s (N.of_nat p) t = true
     )
       ->
-    (
+    ZRange.is_range range_l range_e times
+      ->
+    has_hole_of_size (active_list s (N.of_nat p) times) p = true.
+Proof.
+  induction p as [| p IH].
+  - intros s lb size times range_l range_e.
+    intros Hrange_l Hrange_e Hactive Hrange.
+    unfold N.of_nat in *; unfold Z.of_nat in *.
+    unfold has_hole_of_size.
+    destruct (active_list s 0 times); reflexivity.
+  - intros s lb size times range_l range_e. 
+    intros Hrange_l Hrange_e Hactive Hrange.
 
-    )   
+  induction (N.to_nat p_time) as [|] eqn:Hp_time.
+  - assert (p_time = 0%N).
+    { clear Hactive; clear Hrange; lia. }
+    subst p_time; clear Hp_time.
+    unfold has_hole_of_size.
+    destruct (active_list s 0 times); reflexivity.
+  - assert (p_time = (N.of_nat n) + 1)%N.
+    { clear Hrange; clear IHn; clear Hactive; lia. }
+    subst p_time. *)
+
+
+
     
     
 
@@ -427,7 +1054,6 @@ Lemma hole :
     exact Ht.
 Qed. *)
   
-Lemma 
 
 
 
@@ -442,27 +1068,6 @@ Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : str
   end
 .
 
-Lemma can_be_active_not_active :
-  forall c profile_usage,
-    
-
-(* Lemma can_be_active_at_t_correct :
-  forall c profile_usage activity t, *)
-
-
-Open Scope nat_scope.
-Fixpoint has_hole_of_size (l : list bool) (size : nat) : bool :=
-  if size =? 0
-    then true
-    else
-      match l with
-      | nil => false
-      | b :: l' =>
-        if b
-          then has_hole_of_size l' (pred size)
-          else has_hole_of_size l' size
-      end
-.
 
  
 
@@ -485,7 +1090,7 @@ Definition make_active_list (capacity : N) (profile : list (Z * N)) (activity : 
 Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : bool :=
   match activity with
   | (_, _, (duration, _)) =>
-    negb (has_hole_of_size (make_active_list capacity profile activity) (N.to_nat duration))
+    negb (has_n_true (N.to_nat duration) (make_active_list capacity profile activity) 0)
   end.
 
 Definition var_empty_domain (v : Var) (sol : Assignment) :=
@@ -653,9 +1258,11 @@ Proof.
     exists t.
     destruct Hoverload as [Hsum Hinhorz].
     split.
-    - rewrite ZRange.build_range_correct.
-      + exact Hinhorz.
-      + exact constr.(horizon_consistent).
+    - specialize (ZRange.build_range_correct (horizon_start constr) (horizon_end constr) (horizon_consistent constr)) as Hrange.
+      unfold ZRange.is_range in Hrange.
+      destruct Hrange as [_ [Hrange _]].
+      rewrite Hrange.
+      exact Hinhorz.
     - clear Hinhorz; clear Hchecked; clear usages_t.
       unfold usage_sum.
       apply xn_sum_sub_list_gtn with (l1 := (activities_bounds_active_at t bounds)).

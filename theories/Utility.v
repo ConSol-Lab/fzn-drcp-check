@@ -171,7 +171,7 @@ Proof.
 Qed.
 
 
-Fixpoint build_list_helper (n : nat) : list nat :=
+(* Fixpoint build_list_helper (n : nat) : list nat :=
   match n with
   | 0 => 0 :: nil
   | S n' => n :: (build_list_helper n')
@@ -253,11 +253,11 @@ Proof.
     lia.
   - intros Hex. destruct Hex as [x [Hx]].
     lia.
-Qed.
+Qed. *)
 
 (* Alternative: replace this by something that proves termination: see e.g. http://adam.chlipala.net/cpdt/html/Cpdt.GeneralRec.html https://stackoverflow.com/questions/10292421/error-in-defining-ackermann-in-coq *)
-Definition build_range (start_incl : Z) (end_incl : Z) : list Z :=
-  shift_list start_incl (build_list_helper (Z.abs_nat (end_incl - start_incl))).
+(* Definition build_range (start_incl : Z) (end_incl : Z) : list Z :=
+  shift_list start_incl (build_list_helper (Z.abs_nat (end_incl - start_incl))). *)
 
 Definition is_succ (n : Z) (m : Z) :=
   n = Z.succ m.
@@ -265,6 +265,7 @@ Definition is_succ (n : Z) (m : Z) :=
 Definition succ_seq (l : list Z) :=
   Sorted is_succ l.
 
+Open Scope Z_scope.
 Definition is_range (s : Z) (e : Z) (l : list Z) :=
   s <= e
     /\
@@ -273,24 +274,27 @@ Definition is_range (s : Z) (e : Z) (l : list Z) :=
   succ_seq l.
 
 
-Fixpoint build_range2_rec (s : Z) (n : nat) : list Z :=
+Fixpoint build_range_rec (s : Z) (n : nat) : list Z :=
   match n with
   | O => s :: nil
-  | S n' => (s + Z.of_nat n) :: (build_range2_rec s n')
+  | S n' => (s + Z.of_nat n) :: (build_range_rec s n')
   end.
 
-Definition build_range2 (s : Z) (n : nat) : list Z :=
+Definition build_range_size (s : Z) (n : nat) : list Z :=
   match n with
   | O => nil
-  | S n' => build_range2_rec s n'
+  | S n' => build_range_rec s n'
   end.
 
-Lemma build_range2_s :
+Definition build_range (s : Z) (e : Z) : list Z :=
+  build_range_size s (Z.to_nat (e - s + 1)).
+
+Lemma build_range_s :
   forall l size,
-  build_range2 l (S size) = (l + Z.of_nat size) :: build_range2 l size.
+  build_range_size l (S size) = (l + Z.of_nat size) :: build_range_size l size.
 Proof.
   intros l size.
-  unfold build_range2.
+  unfold build_range_size.
   destruct size.
   - simpl. assert (l + 0 = l) by lia. rewrite H. reflexivity.
   - simpl. reflexivity. 
@@ -301,7 +305,7 @@ Lemma build_range_interval :
     (size >= 1)%nat ->
     (forall n : Z,
     s <= n <= s + Z.of_nat size - 1 <->
-    In n (build_range2 s size)).
+    In n (build_range_size s size)).
 Proof.
   intros s size Hsize.
   induction size.
@@ -333,7 +337,7 @@ Proof.
     { lia. }
     rewrite H; clear H.
     split.
-    -- intros H. rewrite build_range2_s.
+    -- intros H. rewrite build_range_s.
       destruct (n =? s + Z.of_nat size) eqn:Hs.
       ++ rewrite Z.eqb_eq in Hs; subst n.
         simpl. left. reflexivity.
@@ -341,17 +345,17 @@ Proof.
         assert (s <= n <= s + Z.of_nat size - 1) as IHn by lia.
         rewrite IH in IHn; clear IH.
         simpl. right. exact IHn.
-    -- intros H. rewrite build_range2_s in H.
+    -- intros H. rewrite build_range_s in H.
       destruct H as [Hn | Hin].
       ++ subst n. clear IH. lia.
       ++ rewrite <- IH in Hin; clear IH.
         lia.
 Qed.
 
-Lemma build_range_correct : 
+Lemma build_range_size_correct : 
   forall l size,
       (size >= 1)%nat ->
-      is_range l (l + Z.of_nat size - 1) (build_range2 l size).
+      is_range l (l + Z.of_nat size - 1) (build_range_size l size).
 Proof.
   intros l size Hsize.
   unfold is_range.
@@ -370,6 +374,7 @@ Proof.
         - apply Sorted_nil.
         - apply HdRel_nil.
       }
+      (* I don't think this is actually necessary... *)
       destruct (size =? 1)%nat eqn:H1.
       { 
         rewrite Nat.eqb_eq in H1; subst size; clear Hsize.
@@ -387,12 +392,8 @@ Proof.
       { rewrite Nat.eqb_neq in H0. rewrite Nat.eqb_neq in H1. lia. }
       assert (size >= 1)%nat as IH by lia.
       clear H0; clear H1; apply IHsize in IH; clear IHsize; clear Hsize.
-
-      (* specialize (build_range_interval l size IH) as Hinterval.
-      assert (size >= 1)%nat as Hsize1 by assumption. *)
-      
       destruct IH as [_ IHsucc].
-      rewrite build_range2_s.
+      rewrite build_range_s.
       assert (exists size', S (S size') = size).
       { exists (pred (pred size)). lia. }
       destruct H as [size' Hsize'].
@@ -400,82 +401,29 @@ Proof.
       apply Sorted_cons.
       * apply IHsucc.
       * rewrite <- Hsize'.
-        rewrite build_range2_s.
+        rewrite build_range_s.
         apply HdRel_cons.
         unfold is_succ. lia.
+Qed.
 
-      rewrite <- Hsize'.
-      rewrite build_range2_s.
-      unfold succ_seq.
-      rewrite Sorted_LocallySorted_iff.
-      apply LSorted_consn.
-      * unfold succ_seq in IHsucc.
-      apply 
-      apply Sorted_cons.
-      * apply IHsucc.
-      * apply HdRel_cons.
-
-
-
-
-      simpl.
-      split.
-      * intros Hn.
-
-    + destruct (size =? 1)%nat eqn:H1.
-      {
-        rewrite Nat.eqb_eq in H1. subst size.
-        clear Hsize.
-        simpl in *.
-        assert (l + 2 - 1 = l + 1).
-        { lia. }
-        rewrite H; clear H.
-        assert (l + 1 - 1 = l).
-        { lia. }
-        rewrite H in IHsize; clear H.
-        assert (1 >= 1)%nat as IH.
-        { lia. }
-        apply IHsize in IH; clear IHsize.
-        split.
-        - intros Hn.
-          split.
-          + destruct (n =? l) eqn:Hnl.
-            -- rewrite Z.eqb_eq in Hnl; subst n.
-              right. left. reflexivity.
-            -- rewrite Z.eqb_neq in Hnl; clear IH.
-              left. lia.
-          + unfold succ_seq.
-            apply SSorted_cons.
-            -- apply SSorted_cons.
-              ++ apply SSorted_nil.
-              ++ rewrite Forall_nil_iff. reflexivity.
-            -- rewrite Forall_forall.
-              intros k.
-              intros Hkin.
-              simpl in Hkin; destruct Hkin; try contradiction; subst k.
-              unfold is_succ.
-              reflexivity.
-        - intros [Hnl Hsucc].
-          destruct Hnl as [Hnlplus | [Hnl | Hfalse]].
-          + subst n. lia.
-          + subst n. lia.
-          + destruct Hfalse.
-      }
-      assert (size >= 1)%nat as IH.
-      {
-       rewrite Nat.eqb_neq in H1. apply Nat.ge in 
-      }
-
+Lemma build_range_correct : 
+  forall s e,
+      s <= e
+        ->
+      is_range s e (build_range s e).
+Proof.
+  intros s e.
+  intros Hse.
   unfold build_range.
-  specialize (shift_correct s (Z.abs_nat (e - s)) (e - s)) as Hshift.
-  assert (e = e - s + s) as He.
-  { lia. }
-  rewrite He at 1.
-  apply Hshift.
+  specialize (build_range_size_correct s (Z.to_nat (e - s + 1))) as Hsize_correct.
+  assert ((s + Z.of_nat (Z.to_nat (e - s +
+  1)) - 1) = e) by lia.
+  rewrite H in Hsize_correct; clear H.
+  apply Hsize_correct; clear Hsize_correct.
   lia.
 Qed.
 
-Lemma build_range_nodup :
+(* Lemma build_range_nodup :
   forall s e,
     NoDup (build_range s e).
 Proof.
@@ -485,6 +433,6 @@ Proof.
   apply Injective_map_NoDup.
   - apply shift_inj.
   - apply list_helper_correct.
-Qed.
+Qed. *)
 
 End ZRange.
