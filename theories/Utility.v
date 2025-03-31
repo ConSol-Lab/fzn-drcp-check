@@ -265,6 +265,35 @@ Definition is_succ (n : Z) (m : Z) :=
 Definition succ_seq (l : list Z) :=
   Sorted is_succ l.
 
+Lemma succ_seq_sorted_le (l : list Z) :
+  succ_seq l -> StronglySorted Z.gt l.
+Proof.
+  intros Hsucc.
+  assert (Sorted Z.gt l).
+  {
+    unfold succ_seq in Hsucc.
+    induction l.
+    - apply Sorted_nil.
+    - inversion Hsucc; subst a0; subst l0.
+      apply IHl in H1.
+      apply Sorted_cons.
+      + exact H1.
+      + inversion H2.
+        * apply HdRel_nil.
+        * apply HdRel_cons.
+          clear Hsucc; clear IHl; clear H1; clear H2; clear H0.
+          unfold is_succ in H.
+          lia.
+  }
+  apply Sorted_StronglySorted.
+  - unfold Relations_1.Transitive.
+    intros.
+    (* TODO: replace with the actual lemma *)
+    lia.
+  - exact H.
+Qed.
+  
+
 Open Scope Z_scope.
 Definition is_range (s : Z) (e : Z) (l : list Z) :=
   s <= e
@@ -272,6 +301,179 @@ Definition is_range (s : Z) (e : Z) (l : list Z) :=
   (forall n, s <= n <= e <-> In n l)
     /\
   succ_seq l.
+
+Lemma is_range_length :
+  forall l s e,
+    is_range s e l
+      ->
+    length l = S (Z.to_nat (e - s)).
+Proof.
+  induction l.
+  - intros s e Hrange.
+    unfold is_range in Hrange.
+    destruct Hrange as [Hse_le [Hn _]].
+    assert (s <= s <= e) by lia.
+    rewrite Hn in H. destruct H.
+  - intros s e.
+    intros Hrange.
+    destruct l as [| a' l].
+    + simpl in *.
+      destruct (s =? e) eqn:Hse.
+      {
+        rewrite Z.eqb_eq in Hse; subst e.
+        clear Hrange; clear IHl.
+        lia.
+      }
+      rewrite Z.eqb_neq in Hse.
+      clear IHl.
+      destruct Hrange as [Hse_le [Hn Hsucc]].
+      assert (s <= s <= e) as Hsse by lia.
+      assert (s <= e <= e) as Hsee by lia.
+      rewrite Hn in Hsse.
+      rewrite Hn in Hsee.
+      destruct Hsse as [Hsse | Hsse]; try destruct Hsse.
+      destruct Hsee as [Hsee | Hsee]; try destruct Hsee.
+      contradiction.
+    + destruct l as [| a'' l].
+      { admit. }
+      (* destruct (a =? a') eqn:Haa'.
+      {
+        clear IHl.
+        exfalso. 
+        rewrite Z.eqb_eq in Haa'.
+        subst a'.
+        destruct Hrange as [_ [_ Hsucc]].
+        inversion Hsucc; subst a0; subst l0.
+        inversion H2; subst b; subst l0.
+        unfold is_succ in H0.
+        clear Hsucc; clear H1; clear H2.
+        lia.
+      }
+      rewrite Z.eqb_neq in Haa'. *)
+      assert (is_range s (e - 1) l).
+      {
+        clear IHl.
+        unfold is_range in *.
+        destruct Hrange as [Hse [Hin Hsucc]].
+        destruct (a =? e) eqn:Hae.
+        2: { 
+          rewrite Z.eqb_neq in Hae. 
+          assert (In a (a :: a' :: a'' :: l)) as Hain.
+          { simpl. left. reflexivity. }
+          rewrite <- Hin in Hain.
+          assert (s <= e <= e) as Hsee by lia.
+          rewrite Hin in Hsee.
+          unfold succ_seq in Hsucc.
+          apply succ_seq_sorted_le in Hsucc.
+          inversion Hsucc; subst a0; subst l0.
+          exfalso.
+          rewrite Forall_forall in H2.
+          assert (In e (a' :: a'' :: l)).
+          { destruct Hsee; try contradiction. exact H. }
+          apply H2 in H.
+          clear Hin; clear Hsucc; clear H1; clear H2; clear Hsee.
+          lia.
+        }
+        rewrite Z.eqb_eq in Hae; subst a.
+        assert (a' = e - 1).
+        {
+          inversion Hsucc.
+          inversion H2.
+          unfold is_succ in H4.
+          rewrite H4.
+          lia.
+        }
+        subst a'.
+        assert (In a'' (e :: e - 1 :: a'' :: l)).
+        { simpl; right; right; left; reflexivity. }
+        rewrite <- Hin in H.
+        assert (a'' = e - 2).
+        {
+          inversion Hsucc.
+          inversion H2.
+          inversion H7.
+          unfold is_succ in H9.
+          lia.
+        }
+        subst a''.
+        split.
+        * lia.
+        * split.
+          { 
+            intros n. split.
+            - intros Hn. 
+              assert (s <= n <= e) as Hne by lia.
+              rewrite Hin in Hne.
+              destruct Hne as [Hne | Hne]; try lia.
+              destruct Hne as [Hne | Hne]; try lia.
+              destruct Hne as [Hne | Hne]; try lia.
+        
+        destruct (a' =? e - 1) eqn:Hae'.
+        2: { 
+          rewrite Z.eqb_neq in Hae'. 
+          
+          unfold 
+          assert (In a' (e :: a' :: l)) as Hain.
+          { simpl. right. left. reflexivity. }
+          rewrite <- Hin in Hain.
+          assert (s <= s <= e) as Hsse by lia.
+          rewrite Hin in Hsse.
+          exfalso.
+
+          rewrite Hin in Hsee.
+          unfold succ_seq in Hsucc.
+          apply succ_seq_sorted_le in Hsucc.
+          inversion Hsucc; subst a0; subst l0.
+          exfalso.
+          rewrite Forall_forall in H2.
+          assert (In e (a' :: l)).
+          { destruct Hsee; try contradiction. exact H. }
+          apply H2 in H.
+          clear Hin; clear Hsucc; clear H1; clear H2; clear Hsee.
+          lia.
+        }
+
+
+
+        destruct (s =? e) eqn:Hse_eq.
+        {
+          rewrite Z.eqb_eq in Hse_eq; subst e; clear Hse.
+          exfalso.
+          assert (a <> a').
+          {
+            unfold succ_seq in Hsucc.
+            inversion Hsucc; subst a0; subst l0.
+            inversion H2; subst b; subst l0.
+            unfold is_succ in H0.
+            rewrite H0.
+            lia.
+          }
+          assert (In a (a :: a' :: l)) as Hain.
+          { simpl. left. reflexivity. }
+          assert (In a' (a :: a' :: l)) as Hain'.
+          { simpl. right. left. reflexivity. }
+          rewrite <- Hin in Hain.
+          rewrite <- Hin in Hain'.
+          clear Hin; clear Hsucc.
+          lia. 
+        }
+        rewrite Z.eqb_neq in Hse_eq.
+        split.
+        - clear Hin; clear Hsucc. lia.
+        - split.
+          + intros n.
+            split.
+            * intros Hn.
+
+
+
+    }
+  
+  
+  induction l.
+  - 
+  - simpl.
+
 
 
 Fixpoint build_range_rec (s : Z) (n : nat) : list Z :=
@@ -434,5 +636,21 @@ Proof.
   - apply shift_inj.
   - apply list_helper_correct.
 Qed. *)
+
+Open Scope nat_scope.
+Fixpoint has_n_true (n : nat) (l : list bool) (current : nat) : bool :=
+  if (n <=? current)
+    then true
+    else
+      match l with
+      | nil => false
+      | b :: l' =>
+        if b
+          then has_n_true n l' (S current) 
+          else has_n_true n l' 0 
+      end
+.
+
+Inductive 
 
 End ZRange.
