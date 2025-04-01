@@ -225,10 +225,7 @@ Definition resource_profile (capacity : N) (activities : list (string * zn_inter
 .
 
 Definition is_as_range {A} (f : A -> Z) (s : Z) (e : Z) (l : list A) :=
-  ZRange.is_range s e (map f l)
-    /\
-  (forall n a, nth_error l n = Some a -> nth_error (map f l) n = Some (f a))
-  .
+  ZRange.is_range s e (map f l).
 
 
 Open Scope Z_scope.
@@ -254,65 +251,46 @@ Proof.
       reflexivity.
     }
     rewrite H.
-    split.
-    {
-      destruct times as [| a' times].
-      { simpl. exact Htimes_range. }
-      simpl.
-      rewrite H. 
-      apply ZRange.is_range_endpoints in Htimes_range as Haa'.
-      destruct Haa' as [Ha Ha'].
-      subst a; subst a'.
-      apply ZRange.is_range_implies_pred_range in Htimes_range as Hpred_range.
-      specialize (IHtimes s (e - 1) c act Hpred_range).
-      destruct IHtimes as [IHtimes _].
-      unfold resource_profile in IHtimes.
-      destruct IHtimes as [Hse [Hn Hsucc]].
-      split.
-      + lia.
-      + simpl in Hn. simpl in Hsucc.
-        rewrite H in Hn. rewrite H in Hsucc.
-        split.
-        {
-          intros n. split.
-          - intros Hsne.
-            destruct (n =? e) eqn:Hne.
-            { rewrite Z.eqb_eq in Hne; subst n.
-              simpl. left. reflexivity. }
-            rewrite Z.eqb_neq in Hne.
-            assert (s <= n <= e - 1) as Hsne1 by lia.
-            rewrite Hn in Hsne1.
-            destruct Hsne1.
-            + subst n. simpl. right. left. reflexivity.
-            + simpl. right. right. assumption.
-          - intros Hin.
-            destruct Hin as [He | Hin]. 
-            + subst n. lia.
-            + simpl in Hin. rewrite <- Hn in Hin.
-              lia.
-      }
-      unfold ZRange.succ_seq.
-      apply Sorted_cons.
-      * exact Hsucc.
-      * apply HdRel_cons.
-        unfold ZRange.is_succ.
-        lia.
-    }
-    intros n [entry_t u]. 
-    repeat rewrite nth_error_cons.
+    destruct times as [| a' times].
+    { simpl. exact Htimes_range. }
     simpl.
-    intros Hnth.
-    destruct n.
-    + unfold resource_profile_t in Hnth.
-      destruct (res_sum c (activities_bounds_active_at a act)) as [[l u'] b].
-      f_equal.
-      inversion Hnth. reflexivity.
-    + rewrite nth_error_map in Hnth.
-      rewrite nth_error_map.
-      rewrite nth_error_map.
-      rewrite Hnth.
-      simpl.
-      reflexivity.
+    rewrite H. 
+    apply ZRange.is_range_endpoints in Htimes_range as Haa'.
+    destruct Haa' as [Ha Ha'].
+    subst a; subst a'.
+    apply ZRange.is_range_implies_pred_range in Htimes_range as Hpred_range.
+    specialize (IHtimes s (e - 1) c act Hpred_range).
+    unfold resource_profile in IHtimes.
+    destruct IHtimes as [Hse [Hn Hsucc]].
+    split.
+    + lia.
+    + simpl in Hn. simpl in Hsucc.
+      rewrite H in Hn. rewrite H in Hsucc.
+      split.
+      {
+        intros n. split.
+        - intros Hsne.
+          destruct (n =? e) eqn:Hne.
+          { rewrite Z.eqb_eq in Hne; subst n.
+            simpl. left. reflexivity. }
+          rewrite Z.eqb_neq in Hne.
+          assert (s <= n <= e - 1) as Hsne1 by lia.
+          rewrite Hn in Hsne1.
+          destruct Hsne1.
+          + subst n. simpl. right. left. reflexivity.
+          + simpl. right. right. assumption.
+        - intros Hin.
+          destruct Hin as [He | Hin]. 
+          + subst n. lia.
+          + simpl in Hin. rewrite <- Hn in Hin.
+            lia.
+    }
+    unfold ZRange.succ_seq.
+    apply Sorted_cons.
+    * exact Hsucc.
+    * apply HdRel_cons.
+      unfold ZRange.is_succ.
+      lia.
 Qed.
 
 
@@ -359,8 +337,73 @@ Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : Cumulati
 Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
   forall a, In a bounds -> task_in_constraint a c sol.
 
+Open Scope N_scope.
 
-Lemma resource_profile_correct_bounds :
+
+Lemma valid_bounds_mandatory_sublist :
+  forall constr sol bounds t,
+  valid_bounds bounds constr sol
+    ->
+  sub_list xn_eq_dec (activities_bounds_active_at t bounds) ((map act_to_xn (activities_at_t (activity_list constr sol) t))).
+Proof.
+  intros constr sol bounds t.
+  intros Hvalid.
+  apply sub_list_if_in_nodup.
+  - intros a Hin.
+    rewrite in_map_iff.
+    pose proof Hin as Hin2.
+    unfold activities_bounds_active_at in Hin.
+    rewrite nodup_In in Hin.
+    rewrite in_flat_map in Hin.
+    destruct Hin as [a' [Hinbounds Hinres]].
+    destruct a' as [[x [lb size]] [p u]] eqn:Ha'.
+    unfold activity_bounds_is_active in Hinres.
+    destruct (interval_to_bounds (lb, size)) as [lb' ub] eqn:Hibounds. unfold interval_to_bounds in Hibounds; inversion Hibounds; subst lb'; symmetry in H1; clear Hibounds.
+    destruct (mandatory_active lb ub t p) eqn:Hmand.
+    2: destruct Hinres.
+    simpl in Hinres. destruct Hinres; try contradiction. subst a.
+    apply Hvalid in Hinbounds.
+    unfold task_in_constraint in Hinbounds.
+    destruct Hinbounds as [start [Hstart Hact]].
+    remember ({|
+      a_name := x;
+      start := start;
+      p_time := p;
+      usage := u
+    |}) as act.
+    exists act.
+    split.
+    + rewrite Heqact. unfold act_to_xn. simpl. reflexivity.
+    + unfold mandatory_active in Hmand.
+      unfold activities_at_t.
+      rewrite filter_In. split.
+      * exact Hact.
+      * unfold is_active_at. rewrite Heqact. simpl.
+        lia.
+  - unfold activities_bounds_active_at. 
+    (* TODO: try and get rid of this, but it only really matters for performance *)
+    apply NoDup_nodup.
+Qed.
+
+Lemma bounds_sum_implies_usage :
+  forall constr sol bounds usage t,
+  valid_bounds bounds constr sol
+    ->
+  xn_sum (activities_bounds_active_at t bounds) >= usage
+    ->
+  usage_sum (activities_at_t (activity_list constr sol) t) >= usage.
+Proof.
+  intros constr sol bounds usage t.
+  intros Hvalid Hsum.
+  unfold usage_sum.
+  apply xn_sum_sub_list_gen with (l1 := (activities_bounds_active_at t bounds)).
+  - apply valid_bounds_mandatory_sublist. exact Hvalid.
+  - exact Hsum.
+Qed.
+
+
+Open Scope Z_scope.
+Lemma inferred_cumulative_bounds_valid :
   forall (c : CumulativeConstraint) inference sol bounds,
     inference_negated inference sol
     -> inferred_cumulative_bounds c inference = Some bounds
@@ -966,7 +1009,7 @@ Qed.
 
 
 Lemma run_at_seq_fk_false {A} :
-  forall s e n i l (fz : A -> Z) (fb : A -> bool),
+  forall l s e n i (fz : A -> Z) (fb : A -> bool),
     (n >= 1)%nat
       ->
     (n <= length l)%nat
@@ -977,13 +1020,15 @@ Lemma run_at_seq_fk_false {A} :
       ->
     (run_at i (map fb l) < n)%nat
       ->
-    (exists a, 
+    (exists a,
       e - Z.of_nat i - Z.of_nat n + 1 <= fz a <= e - Z.of_nat i
+        /\
+      In a l
         /\
       fb a = false
     ).
 Proof.
-  intros s e n i l fz fb.
+  intros l s e n i fz fb.
   intros Hn1 Hnlen Hi Hasrange Hrun.
   assert (n <= length (skipn i l))%nat.
   { 
@@ -991,64 +1036,80 @@ Proof.
     lia.
   }
   rewrite length_skipn in H.
-  destruct Hasrange as [Hisrangemap Hnth].
   rewrite <- length_map with (f := fz) in H.
-  rewrite ZRange.is_range_length with (s := s) (e := e) in H; try assumption.
+  rewrite ZRange.is_range_length with (s := s) (e := e) in H.
+  2: apply Hasrange.
   rewrite <- (nth_false_run_lt (skipn i (map fb l)) n) in Hrun; try assumption.
   destruct Hrun as [k [Hkn Hkfalse]].
   assert ((i + k) < length l)%nat as Hnth_a by lia.
   apply nth_error_exists in Hnth_a.
   destruct Hnth_a as [a Hnth_a].
-  apply Hnth in Hnth_a as Hfza.
+  apply map_nth_error with (f := fz) in Hnth_a as Hfza.
   exists a.
   apply ZRange.range_nth_error with (s := s) (e := e) in Hfza.
   2: assumption.
   split.
   - lia.
-  - rewrite nth_skipn in Hkfalse.
-    assert (i + k < length (map fb l))%nat as Hfb.
-    { rewrite length_map. lia. }
-    apply nth_error_nth' with (d := false) in Hfb.
-    rewrite Hkfalse in Hfb.
-    apply map_nth_error with (f := fb) in Hnth_a.
-    rewrite Hnth_a in Hfb.
-    inversion Hfb.
-    reflexivity.
+  - split.
+    + apply nth_error_In in Hnth_a.
+      exact Hnth_a.
+    + rewrite nth_skipn in Hkfalse.
+      assert (i + k < length (map fb l))%nat as Hfb.
+      { rewrite length_map. lia. }
+      apply nth_error_nth' with (d := false) in Hfb.
+      rewrite Hkfalse in Hfb.
+      apply map_nth_error with (f := fb) in Hnth_a.
+      rewrite Hnth_a in Hfb.
+      inversion Hfb.
+      reflexivity.
 Qed.
-
-    
-
 
 Open Scope Z_scope.
 Definition active_list (start_time : Z) (p_time : N) (times : list Z) : list bool :=
   map (is_active_at start_time p_time) times.
 
 Open Scope N_scope.
-Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : string * zn_interval * (N * N)) (time : Z) : bool :=
-  match activity with
-  | (_, _, (_, usage)) =>
-    match activity_bounds_is_active time activity with
-    | nil => true
-    | _ => profile_usage + usage <? capacity
+
+(* A good optimization would be to somehow not go over the entire constraint horizon and to only check between the lower and upper bounds. *)
+Definition can_be_active_at_t (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : bool :=
+  match profile_entry with
+  | (t, profile_usage) =>
+  (* If it is mandatory active (not nil), we will have checked it already in the resource profile, so it's definitely fine *)
+    match activity_bounds_is_active t activity with
+    | nil => 
+      match activity with
+      | (_, _, (_, usage)) =>  
+        profile_usage + usage <=? capacity
+      end
+    | _ => true
     end
   end
 .
+
+Lemma can_be_active_at_t_false :
+  forall t profile_usage c x lb size p u,
+    can_be_active_at_t c (x, (lb, size), (p, u)) (t, profile_usage) = false
+      ->
+    activity_bounds_is_active t (x, (lb, size), (p, u)) = nil
+      /\
+    profile_usage + u > c.
+Proof.
+  intros t p_u c x lb size p u.
+  intros Hfalse.
+  unfold can_be_active_at_t in Hfalse.
+  destruct (activity_bounds_is_active t (x, (lb, size), (p, u))).
+  - split.
+    + reflexivity.
+    + rewrite <- not_true_iff_false in Hfalse.
+      rewrite N.leb_le in Hfalse.
+      lia.
+  - discriminate Hfalse.
+Qed.
 
 Open Scope Z_scope.
-Definition make_active_list_f (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : bool :=
-  match activity with
-  | (_, (lb, size), _) =>
-    match profile_entry with
-    | (t, profile_usage) =>
-      if (t >=? lb) && (t <=? (lb + Z.of_N size))
-        then can_be_active_at_t capacity profile_usage activity t
-        else false
-    end
-  end
-.
 
 Definition make_active_list (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : list bool :=
-  map (make_active_list_f capacity activity) profile.
+  map (can_be_active_at_t capacity activity) profile.
 
 Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : bool :=
   match activity with
@@ -1188,16 +1249,35 @@ Proof.
       clear Hoverload.
       apply existsb_exists in Hchecked.
       destruct Hchecked as [a [Hbound Hcannot_sched]].
-      specialize (apply_atomics_correct (N * N) ((constraint_to_intervals constr)) (map atomic_not fact) bounds Hbounds a Hbound) as Happly.
+      
+      (* specialize (apply_atomics_correct (N * N) ((constraint_to_intervals constr)) (map atomic_not fact) bounds Hbounds a Hbound) as Happly.
       destruct a as [[x [lb size]] [p u]] eqn:Ha.
-      destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
+      destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]]. *)
 
-      clear Hatomsin; clear Hatomproof; clear atoms_applied; clear Hbounds; clear Hneg.
+      apply inferred_cumulative_bounds_valid with (sol := sol) in Hbounds.
+      2: apply Hneg.
+      clear Hneg.
+      apply Hbounds in Hbound.
+      unfold task_in_constraint in Hbound.
+      destruct a as [[x [lb size]] [p u]] eqn:Ha.
+      destruct Hbound as [start [Hstart Hinactivity]].
+      remember ({|
+        a_name := x;
+        start := start;
+        p_time := p;
+        usage := u
+      |}) as act.
+      
+ 
+(* 
+      clear Hatomsin; clear Hatomproof; clear atoms_applied; clear Hbounds; clear Hneg. *)
 
       unfold cannot_schedule_activity_w_profile in Hcannot_sched.
       rewrite negb_true_iff in Hcannot_sched.
       specialize has_n_true_all_runs as Hruns.
       remember (ZRange.build_range (horizon_start constr) (horizon_end constr)) as times.
+      specialize (resource_profile_correct (capacity constr) bounds times) as Hr_profile_correct.
+
       remember (capacity constr) as c.
       remember (resource_profile c bounds times) as r_profile.
       rewrite <- Ha in Hcannot_sched.
@@ -1207,8 +1287,65 @@ Proof.
       rewrite Heqtimes in Hr_profile_range.
       specialize (Hr_profile_range Hbuild_range); clear Hbuild_range.
       rewrite <- Heqtimes in Hr_profile_range.
+      rewrite <- Heqr_profile in Hr_profile_range.     
 
       clear Heqtimes; clear Heqr_profile.
+
+      unfold make_active_list in Hruns.
+
+      remember (horizon_end constr) as h_end.
+      remember (horizon_start constr) as h_start.
+
+      remember (Z.to_nat (h_end - (start + Z.of_N p) + 1)) as i.
+
+      assert (start + Z.of_N p <= h_end).
+      { admit. }
+
+      apply (run_at_seq_fk_false r_profile) with (fb := (can_be_active_at_t c a)) (n := (N.to_nat p)) (i := i) in Hr_profile_range.
+
+      - clear Hruns.
+        destruct Hr_profile_range as [[t_false p_usage] [Ht [Hprofile Hfalse]]].
+
+        rewrite Ha in Hfalse.
+        apply can_be_active_at_t_false in Hfalse.
+        destruct Hfalse as [Hnotact Husage].
+        assert (~ In (x, u) (activities_bounds_active_at t_false bounds)).
+        { 
+          unfold activities_bounds_active_at. rewrite nodup_In.
+          rewrite in_flat_map.
+          unfold not.
+          intros [a_man [Ha_man_bounds Hman]].
+          apply Hbounds in Ha_man_bounds.
+          destruct (activity_bounds_is_active t_false a_man) eqn:H_is_active.
+          - destruct Hman.
+          - 
+        }
+
+        apply Hr_profile_correct in Hprofile; clear Hr_profile_correct.
+        destruct Hprofile as [_ Hboundssum].
+
+        apply bounds_sum_implies_usage with (constr := constr) (sol := sol) in Hboundssum.
+        2: apply Hbounds.
+
+        simpl in Ht.
+        assert (start <= t_false < start + Z.of_N p) as Hactive by lia.
+        clear Heqi; clear Ht.
+
+        assert (In act (activities_at_t (activity_list constr sol) t_false)) as Hact_active.
+        {
+          unfold activities_at_t. rewrite filter_In.
+          split.
+          - exact Hinactivity.
+          - unfold is_active_at. rewrite Heqact. simpl.
+            rewrite andb_true_iff.
+            rewrite Z.leb_le. rewrite Z.ltb_lt. exact Hactive.  
+        }
+
+
+
+        
+
+
 
     }
   

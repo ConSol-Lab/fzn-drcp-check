@@ -342,6 +342,63 @@ Proof.
   lia.
 Qed.
 
+Lemma xn_sum_sub_list_gen :
+  forall l1 l2 n, sub_list xn_eq_dec l1 l2 -> xn_sum l1 >= n -> xn_sum l2 >= n.
+Proof.
+  intros l1 l2 n.
+  intros Hsub Hl1n.
+  specialize (xn_sum_sub_list l1 l2 Hsub) as H.
+  lia.
+Qed.
+
+Lemma xn_sum_capacity_not_in :
+  forall l1 l2 n x xn, 
+    sub_list xn_eq_dec l1 l2
+      ->
+    xn_sum l2 <= n
+      ->
+    ~ (In (x, xn) l1)
+      ->
+    xn_sum l1 + xn > n
+      ->
+    ~ (In (x, xn) l2).
+Proof.
+  intros l1 l2 n x xn.
+  intros Hsub Hsum Hnotin Hgt.
+  destruct (in_dec xn_eq_dec (x, xn) l2) as [Hinl2 | Hninl2].
+  - exfalso.
+    assert (sub_list xn_eq_dec ((x, xn) :: l1) l2).
+    {
+      unfold sub_list.
+      intros a.
+      intros Hain.
+      simpl.
+      destruct Hain.
+      - subst a.
+        unfold sub_list in Hsub.
+        destruct (xn_eq_dec (x, xn) (x, xn)) as [Heq | Hneq].
+        + clear Heq. rewrite (count_occ_In xn_eq_dec) in Hinl2.
+          rewrite (count_occ_not_In xn_eq_dec) in Hnotin.
+          rewrite Hnotin.
+          lia.
+        + contradiction.
+      - destruct (xn_eq_dec (x, xn) a) as [Heq | Hneq].
+        + subst a. contradiction.
+        + apply Hsub. exact H. 
+    }
+    apply xn_sum_sub_list_gtn with (n := n) in H.
+    + contradiction.
+    + clear Hsub; clear Hsum; clear Hnotin; clear Hinl2; clear H.
+      unfold xn_sum in *.
+      simpl in *.
+      unfold n_sum in *.
+      simpl in *.
+      rewrite n_sum_add in *.
+      lia.
+  - exact Hninl2.
+Qed.
+
+
 Definition res_sum (capacity : N) (l : list (string * N)) :=
   res_sum_fold capacity l (nil, N0, true)
 .

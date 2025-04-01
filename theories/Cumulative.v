@@ -61,10 +61,11 @@ Proof.
   - apply String.string_dec.
 Qed.
 
+Definition act_to_xn (a : Activity) : (string * N) :=
+  (a.(a_name), a.(usage)).
+
 Definition usage_sum (l : list Activity) : N :=
-  xn_sum (map (fun a => 
-    (a.(a_name), a.(usage))
-  ) l).
+  xn_sum (map act_to_xn l).
 
 Open Scope Z_scope.
 Definition is_active_at (start_time : Z) (p_time : N) (t : Z) : bool :=
