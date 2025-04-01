@@ -225,7 +225,11 @@ Definition resource_profile (capacity : N) (activities : list (string * zn_inter
 .
 
 Definition is_as_range {A} (f : A -> Z) (s : Z) (e : Z) (l : list A) :=
-  ZRange.is_range s e (map f l).
+  ZRange.is_range s e (map f l)
+    /\
+  (forall n a, nth_error l n = Some a -> nth_error (map f l) n = Some (f a))
+  .
+
 
 Open Scope Z_scope.
 Lemma resource_profile_as_range :
@@ -250,40 +254,42 @@ Proof.
       reflexivity.
     }
     rewrite H.
-    destruct times as [| a' times].
-    { simpl. exact Htimes_range. }
-    simpl.
-    rewrite H. 
-    apply ZRange.is_range_endpoints in Htimes_range as Haa'.
-    destruct Haa' as [Ha Ha'].
-    subst a; subst a'.
-    apply ZRange.is_range_implies_pred_range in Htimes_range as Hpred_range.
-    specialize (IHtimes s (e - 1) c act Hpred_range).
-    unfold is_as_range in IHtimes.
-    unfold resource_profile in IHtimes.
-    destruct IHtimes as [Hse [Hn Hsucc]].
     split.
-    + lia.
-    + simpl in Hn. simpl in Hsucc.
-      rewrite H in Hn. rewrite H in Hsucc.
+    {
+      destruct times as [| a' times].
+      { simpl. exact Htimes_range. }
+      simpl.
+      rewrite H. 
+      apply ZRange.is_range_endpoints in Htimes_range as Haa'.
+      destruct Haa' as [Ha Ha'].
+      subst a; subst a'.
+      apply ZRange.is_range_implies_pred_range in Htimes_range as Hpred_range.
+      specialize (IHtimes s (e - 1) c act Hpred_range).
+      destruct IHtimes as [IHtimes _].
+      unfold resource_profile in IHtimes.
+      destruct IHtimes as [Hse [Hn Hsucc]].
       split.
-      {
-        intros n. split.
-        - intros Hsne.
-          destruct (n =? e) eqn:Hne.
-          { rewrite Z.eqb_eq in Hne; subst n.
-            simpl. left. reflexivity. }
-          rewrite Z.eqb_neq in Hne.
-          assert (s <= n <= e - 1) as Hsne1 by lia.
-          rewrite Hn in Hsne1.
-          destruct Hsne1.
-          + subst n. simpl. right. left. reflexivity.
-          + simpl. right. right. assumption.
-        - intros Hin.
-          destruct Hin as [He | Hin]. 
-          + subst n. lia.
-          + simpl in Hin. rewrite <- Hn in Hin.
-            lia.
+      + lia.
+      + simpl in Hn. simpl in Hsucc.
+        rewrite H in Hn. rewrite H in Hsucc.
+        split.
+        {
+          intros n. split.
+          - intros Hsne.
+            destruct (n =? e) eqn:Hne.
+            { rewrite Z.eqb_eq in Hne; subst n.
+              simpl. left. reflexivity. }
+            rewrite Z.eqb_neq in Hne.
+            assert (s <= n <= e - 1) as Hsne1 by lia.
+            rewrite Hn in Hsne1.
+            destruct Hsne1.
+            + subst n. simpl. right. left. reflexivity.
+            + simpl. right. right. assumption.
+          - intros Hin.
+            destruct Hin as [He | Hin]. 
+            + subst n. lia.
+            + simpl in Hin. rewrite <- Hn in Hin.
+              lia.
       }
       unfold ZRange.succ_seq.
       apply Sorted_cons.
@@ -291,10 +297,26 @@ Proof.
       * apply HdRel_cons.
         unfold ZRange.is_succ.
         lia.
+    }
+    intros n [entry_t u]. 
+    repeat rewrite nth_error_cons.
+    simpl.
+    intros Hnth.
+    destruct n.
+    + unfold resource_profile_t in Hnth.
+      destruct (res_sum c (activities_bounds_active_at a act)) as [[l u'] b].
+      f_equal.
+      inversion Hnth. reflexivity.
+    + rewrite nth_error_map in Hnth.
+      rewrite nth_error_map.
+      rewrite nth_error_map.
+      rewrite Hnth.
+      simpl.
+      reflexivity.
 Qed.
 
 
-
+Open Scope N_scope.
 Lemma resource_profile_correct :
   forall capacity activities times usage t,
     In (t, usage) (resource_profile capacity activities times) ->
@@ -918,6 +940,75 @@ Proof.
     lia.
 Qed.
 
+Lemma nth_error_exists {A} :
+  forall l n,
+    (n < length l)%nat
+      ->
+    exists (a : A), nth_error l n = Some a.
+Proof.
+  induction l.
+  - intros n Hn. simpl in Hn. lia.
+  - intros n Hlen.
+    destruct (n =? 0)%nat eqn:Hn0.
+    + rewrite Nat.eqb_eq in Hn0. subst n.
+      exists a. simpl. reflexivity.
+    + rewrite Nat.eqb_neq in Hn0.
+      destruct n; try contradiction.
+      specialize (IHl n).
+      simpl in Hlen.
+      assert (n < length l)%nat by lia.
+      apply IHl in H.
+      destruct H as [a' Hnth].
+      exists a'.
+      rewrite nth_error_S. simpl.
+      exact Hnth.
+Qed.
+
+
+Lemma run_at_seq_fk_false {A} :
+  forall s e n i l (fz : A -> Z) (fb : A -> bool),
+    (n >= 1)%nat
+      ->
+    (n <= length l)%nat
+      ->
+    (i <= length l - n)%nat
+      ->
+    is_as_range fz s e l
+      ->
+    (run_at i (map fb l) < n)%nat
+      ->
+    (exists a, 
+      e - Z.of_nat i - Z.of_nat n + 1 <= fz a <= e - Z.of_nat i
+        /\
+      fb a = false
+    ).
+Proof.
+  intros s e n i l fz fb.
+  intros Hn1 Hnlen Hi Hasrange Hrun.
+  assert (n <= length (skipn i l))%nat.
+  { 
+    rewrite length_skipn.
+    lia.
+  }
+  rewrite length_skipn in H.
+  destruct Hasrange as [Hisrangemap Hnth].
+  rewrite <- length_map with (f := fz) in H.
+  rewrite ZRange.is_range_length with (s := s) (e := e) in H; try assumption.
+  rewrite <- (nth_false_run_lt (skipn i (map fb l)) n) in Hrun; try assumption.
+  destruct Hrun as [k [Hkn Hkfalse]].
+  assert ((i + k) < length l)%nat as Hnth_a by lia.
+  apply nth_error_exists in Hnth_a.
+  destruct Hnth_a as [a Hnth_a].
+  apply Hnth in Hnth_a.
+  exists a.
+  apply ZRange.range_nth_error with (s := s) (e := e) in Hnth_a.
+  2: assumption.
+  split.
+  - lia.
+  - rewrite nth_skipn in Hkfalse.
+  
+    
+
 
 Open Scope Z_scope.
 Definition active_list (start_time : Z) (p_time : N) (times : list Z) : list bool :=
@@ -935,20 +1026,20 @@ Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : str
 .
 
 Open Scope Z_scope.
-Definition make_active_list_f (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : list bool :=
+Definition make_active_list_f (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : bool :=
   match activity with
   | (_, (lb, size), _) =>
     match profile_entry with
     | (t, profile_usage) =>
       if (t >=? lb) && (t <=? (lb + Z.of_N size))
-        then (can_be_active_at_t capacity profile_usage activity t) :: nil
-        else nil
+        then can_be_active_at_t capacity profile_usage activity t
+        else false
     end
   end
 .
 
 Definition make_active_list (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : list bool :=
-  flat_map (make_active_list_f capacity activity) profile.
+  map (make_active_list_f capacity activity) profile.
 
 Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : bool :=
   match activity with
@@ -1091,13 +1182,24 @@ Proof.
       specialize (apply_atomics_correct (N * N) ((constraint_to_intervals constr)) (map atomic_not fact) bounds Hbounds a Hbound) as Happly.
       destruct a as [[x [lb size]] [p u]] eqn:Ha.
       destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
+
+      clear Hatomsin; clear Hatomproof; clear atoms_applied; clear Hbounds; clear Hneg.
+
       unfold cannot_schedule_activity_w_profile in Hcannot_sched.
       rewrite negb_true_iff in Hcannot_sched.
-
       specialize has_n_true_all_runs as Hruns.
-      remember 
-      rewrite <- Ha in *.
-      
+      remember (ZRange.build_range (horizon_start constr) (horizon_end constr)) as times.
+      remember (capacity constr) as c.
+      remember (resource_profile c bounds times) as r_profile.
+      rewrite <- Ha in Hcannot_sched.
+      specialize (Hruns (N.to_nat p) (make_active_list c r_profile a) Hcannot_sched); clear Hcannot_sched.
+      specialize (resource_profile_as_range times (horizon_start constr) (horizon_end constr) c bounds) as Hr_profile_range.
+      specialize (ZRange.build_range_correct (horizon_start constr) (horizon_end constr) (horizon_consistent constr)) as Hbuild_range.
+      rewrite Heqtimes in Hr_profile_range.
+      specialize (Hr_profile_range Hbuild_range); clear Hbuild_range.
+      rewrite <- Heqtimes in Hr_profile_range.
+
+      clear Heqtimes; clear Heqr_profile.
 
     }
   

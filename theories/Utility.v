@@ -503,6 +503,44 @@ Proof.
       lia.
 Qed.
 
+Lemma nth_error_some_len_ltn {A} :
+  forall (l : list A) n a,
+    nth_error l n = Some a
+      ->
+    (n < length l)%nat.
+Proof.
+  induction l.
+  - intros. rewrite nth_error_nil in H. discriminate H.
+  - simpl. intros n a' Hnth.
+    destruct n.
+    + lia.
+    + rewrite nth_error_S in Hnth. simpl in Hnth.
+      apply IHl in Hnth.
+      lia.
+Qed.
+
+Lemma range_nth_error {A} :
+  forall (fz : A -> Z) l s e n a,
+    ZRange.is_range s e (map fz l)
+      ->
+    nth_error (map fz l) n = Some (fz a)
+      ->
+    fz a = e - Z.of_nat n.
+Proof.
+  intros fz l s e n a.
+  intros Hrange Hnth.
+  apply is_range_length in Hrange as Hlen.
+  assert (n < length (map fz l))%nat.
+  { apply nth_error_some_len_ltn in Hnth. assumption. }
+  apply (range_nth (map fz l) s e n Z0) in Hrange as Hrange_nth;
+  destruct Hrange as [Hse [Hin Hsucc]].
+  2: { lia. }
+  apply nth_error_nth with (d := Z0) in Hnth.
+  rewrite <- Hnth.
+  rewrite <- Hrange_nth.
+  reflexivity.
+Qed.
+
 Open Scope nat_scope.
 Lemma map_nth_len_lt {A B} :
   forall (f : A -> B) l n (d : A) (d' : B),
