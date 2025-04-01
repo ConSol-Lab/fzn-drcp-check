@@ -520,18 +520,6 @@ Fixpoint max_n_true (current : nat) (l : list bool) : nat :=
   end
 .
 
-Lemma l_ind {X} :
-   forall P : list X -> Type,
-   P nil ->
-   (forall l', P l' -> forall x,  P (x :: l')) ->
-   forall l, P l.
-Proof.
-  intros P Hnil Hstep.
-  induction l.
-  - apply Hnil.
-  - apply Hstep. exact IHl.
-Qed.
-
 Lemma has_0_true :
   forall l start,
     has_n_true_rec 0 start l = true.
@@ -564,7 +552,7 @@ Lemma max_n_true_lt_has_n_true :
   forall l n current,
     has_n_true_rec n current l = false
       ->
-    max_n_true current l <= n.
+    max_n_true current l < n.
 Proof.
   induction l.
   - intros n current Hhasn.
@@ -590,7 +578,7 @@ Proof.
       destruct Hhasn as [Hncurrent Hhasn].
       rewrite <- not_true_iff_false in Hncurrent.
       rewrite Nat.leb_le in Hncurrent.
-      assert (max_n_true 0 l <= n).
+      assert (max_n_true 0 l < n).
       { apply IHl. exact Hhasn. }
       lia.
 Qed.
@@ -599,7 +587,7 @@ Lemma run_size_lt_n :
   forall l n current,
     has_n_true_rec n current l = false
       ->
-    run_size l + current <= n.
+    run_size l + current < n.
 Proof.
   induction l.
   - intros n current Hhasn.
@@ -701,9 +689,9 @@ Qed.  *)
 
 Lemma max_runs_all :
   forall l n,
-    max_runs l <= n
+    max_runs l < n
       ->
-    (forall k, run_at k l <= n).
+    (forall k, run_at k l < n).
 Proof.
   intros l n Hmax.
   intros k.
@@ -716,13 +704,15 @@ Qed.
 
 Lemma nth_false_run_lt :
   forall l n,
-    (exists k,
-      k <= n /\ nth k l false = false)
+    n >= 1
+      ->
+    ((exists k,
+      k < n /\ nth k l false = false)
       <->
-    run_size l <= n.
+    run_size l < n).
 Proof.
   induction l.
-  - intros n. split.
+  - intros n Hn. split.
     + intros. simpl. lia.
     + intros Hnil. simpl in Hnil.
       exists 0.
@@ -735,8 +725,10 @@ Proof.
       destruct Hk as [k [Hkn Hkfalse]].
       destruct a.
       * destruct k; try discriminate Hkfalse.
-        specialize (IHl (pred n)).
-        assert (exists k, k <= pred n /\ nth k l false = false).
+        clear H; assert (n >= 2) as Hn2 by lia.
+        assert (pred n >= 1) as Hpn1 by lia.
+        specialize (IHl (pred n) Hpn1).
+        assert (exists k, k < pred n /\ nth k l false = false).
         {
          exists k.
          split.
@@ -748,14 +740,16 @@ Proof.
       * lia.
     + simpl. destruct a.
       * intros Hrun.
-        assert (run_size l <= pred n) by lia.
-        rewrite <- IHl in H.
+        clear H; assert (n >= 2) as Hn2 by lia.
+        assert (pred n >= 1) as Hpn1 by lia.
+        assert (run_size l < pred n) by lia.
+        rewrite <- (IHl (pred n) Hpn1) in H; clear IHl.
         destruct H as [k [Hkn Hkfalse]].
         exists (S k).
         split.
         -- lia.
         -- exact Hkfalse.
-      * intros H; clear H.
+      * intros Hlt0; clear Hlt0.
         exists 0.
         split.
         -- lia.
@@ -768,18 +762,20 @@ Lemma max_runs_max_lin :
   forall l n start,
     has_n_true_rec n start l = false
       -> 
-    max_runs l <= n.
+    max_runs l < n.
 Proof.
   induction l.
   - intros n start.
     intros Hhasn. simpl in *.
+    rewrite <- not_true_iff_false in Hhasn.
+    rewrite Nat.leb_le in Hhasn.
     lia.
   - simpl. destruct a.
     + intros n start Hhasn.
-      assert (max_runs l <= n).
+      assert (max_runs l < n).
       { apply IHl with (start := S start).
       exact Hhasn. }
-      enough (S (run_size l) <= n) as Hrun by lia.
+      enough (S (run_size l) < n) as Hrun by lia.
       clear H; clear IHl.
       specialize (run_size_lt_n l n (S start)) as H.
       apply H in Hhasn; clear H.
@@ -787,7 +783,7 @@ Proof.
     + intros n start Hhasn.
       rewrite orb_false_iff in Hhasn.
       destruct Hhasn as [Hnstart Hhasn].
-      assert (max_runs l <= n).
+      assert (max_runs l < n).
       {
        apply IHl with (start := 0).
        exact Hhasn.
@@ -802,7 +798,7 @@ Lemma has_n_true_all_runs :
   forall n l,
     has_n_true n l = false
       ->
-    (forall k, run_at k l <= n).
+    (forall k, run_at k l < n).
 Proof.
   intros n l Hhasn.
   intros k.
@@ -811,40 +807,124 @@ Proof.
   apply Hhasn.
 Qed.
 
+
+
 Open Scope Z_scope.
-Lemma run_at_seq :
+Lemma run_at_seq_no_bound :
   forall s e n i l (f : Z -> bool),
-    (i <= Z.to_nat (e - s))%nat
+    (n >= 1)%nat
+      ->
+    (n <= length l)%nat
+      ->
+    (i <= length l - n)%nat
       ->
     ZRange.is_range s e l
       ->
-    (run_at i (map f l) <= n)%nat
+    (run_at i (map f l) < n)%nat
       ->
     (exists k, 
-      s + Z.of_nat i <= k <= s + Z.of_nat i + Z.of_nat n
+      e - Z.of_nat i - Z.of_nat n + 1 <= k <= e - Z.of_nat i
         /\
       f k = false
     ).
 Proof.
   intros s e n i l f.
-  intros Hi Hrange Hrun.
-  specialize (run_le_left (map f l) i) as Hltlen.
+  intros Hn1 Hnlen Hi Hrange Hrun.
+  assert (n <= length (skipn i l))%nat.
+  { 
+    rewrite length_skipn.
+    lia.
+  }
+  rewrite length_skipn in H.
+  rewrite ZRange.is_range_length with (s := s) (e := e) in H; try assumption.
+  (* specialize (run_le_left (map f l) i) as Hltlen.
   apply ZRange.is_range_length in Hrange as Hrangelen.
   assert (i < length l)%nat as Hilen by lia; clear Hi; clear Hrangelen.
-  rewrite <- length_map with (f := f) in Hilen.
-  assert (run_at i (map f l) <= min (length (map f l) - i) n)%nat as Hrunmin by lia; clear Hltlen.
+  rewrite <- length_map with (f := f) in Hilen. *)
+  (* assert (run_at i (map f l) <= min (length (map f l) - i) n)%nat as Hrunmin by lia; clear Hltlen.
   assert (min (length (map f l) - i) n - 1 < length (map f l) - i)%nat as Hltlen by lia.
   remember (min (length (map f l) - i) n - 1)%nat as run_bound.
   assert (run_bound <= n)%nat as Hboundn by lia.
   assert (run_at i (map f l) <= run_bound + 1)%nat as Hrunmin1 by lia.
-  clear Heqrun_bound; clear Hrun; clear Hrunmin.
-  rewrite <- (nth_false_run_lt (skipn i (map f l)) (run_bound + 1)) in Hrunmin1.
-  destruct Hrunmin as [k [Hkn Hkfalse]].
-  exists (s + Z.of_nat i + Z.of_nat k).
+  clear Heqrun_bound; clear Hrun; clear Hrunmin. *)
+  rewrite <- (nth_false_run_lt (skipn i (map f l)) n) in Hrun; try assumption.
+  destruct Hrun as [k [Hkn Hkfalse]].
+  exists (e - Z.of_nat (i + k)).
   split.
   - lia.
   - rewrite nth_skipn in Hkfalse.
-    assert (i + k <= length (map f l))%nat by lia.
+    rewrite ZRange.range_f_l with (s := s) (l := l) (d := false); try assumption.
+    clear Hkfalse.
+    destruct Hrange as [Hse _].
+    lia.
+Qed.
+    assert (Z.of_nat k < e - s - (Z.of_nat i) + 1) by lia.
+Admitted.
+Lemma run_at_seq :
+  forall s e n i l (f : Z -> bool),
+    ZRange.is_range s e l
+      ->
+    (run_at i (map f l) < n)%nat
+      ->
+    (exists k, 
+      e - Z.of_nat i - Z.of_nat n + 1 <= k <= e - Z.of_nat i
+        /\
+      f k = false
+    ).
+Proof.
+  intros s e n i l f.
+  intros Hrange Hrun.
+  specialize (run_le_left (map f l) i) as Hltlen.
+  rewrite length_map with (f := f) in Hltlen.
+  remember (min (length l - i + 1) n) as run_bound.
+  assert (run_at i (map f l) < run_bound)%nat as Hrunbound by lia.
+  assert (run_bound <= n)%nat as Hrunn by lia.
+  assert (run_bound <= (length l - i + 1))%nat as Hrunlen by lia.
+  clear Heqrun_bound; clear Hltlen; clear Hrun.
+
+  (* specialize (run_le_left (map f l) i) as Hltlen.
+  apply ZRange.is_range_length in Hrange as Hrangelen.
+  assert (i < length l)%nat as Hilen by lia; clear Hi; clear Hrangelen.
+  rewrite <- length_map with (f := f) in Hilen. *)
+  (* assert (run_at i (map f l) <= min (length (map f l) - i) n)%nat as Hrunmin by lia; clear Hltlen.
+  assert (min (length (map f l) - i) n - 1 < length (map f l) - i)%nat as Hltlen by lia.
+  remember (min (length (map f l) - i) n - 1)%nat as run_bound.
+  assert (run_bound <= n)%nat as Hboundn by lia.
+  assert (run_at i (map f l) <= run_bound + 1)%nat as Hrunmin1 by lia.
+  clear Heqrun_bound; clear Hrun; clear Hrunmin. *)
+  rewrite <- (nth_false_run_lt (skipn i (map f l)) run_bound) in Hrunbound; try assumption; try lia.
+  destruct Hrunbound as [k [Hkn Hkfalse]].
+  exists (e - Z.of_nat (i + k)).
+  split.
+  - lia.
+  - rewrite nth_skipn in Hkfalse.
+    rewrite ZRange.range_f_l with (s := s) (l := l) (d := false); try assumption.
+    clear Hkfalse.
+    apply ZRange.is_range_length in Hrange as Hrangelen.
+
+(* 
+    enough (s + Z.of_nat i + Z.of_nat k <= e) by lia. *)
+    specialize (ZRange.range_f f)  as Hrange_f.
+    enough (i + k < length (map f l))%nat.
+    {
+      specialize (nth_error_nth' (map f l)) as Hnth.
+      specialize (Hnth (i + k)%nat false H).
+      rewrite Hkfalse in Hnth.
+      rewrite nth_error_map in Hnth.
+      unfold option_map in Hnth.
+
+      destruct (nth_error l (i + k)) eqn:Hz; try discriminate Hnth.
+      simpl in Hnth.
+      inversion Hnth as [Hfz]; clear Hnth.
+      specialize nth_error_nth as Hnth2.
+      f_equal.
+      apply nth_error_nth with (d := false) in Hz.
+
+      rewrite map_nth_error with (d := false) in Hnth.
+      assert (Some (nth (i + k)%nat (map f l) false) = Some false) as Hnthsome.
+      { f_equal; exact Hkfalse. }
+      apply <- nth_error_nth' in Hnthsome. 
+    }
     
 
     rewrite map_nth in Hkfalse.

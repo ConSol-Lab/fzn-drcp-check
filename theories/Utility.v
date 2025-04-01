@@ -392,6 +392,26 @@ Proof.
     * inversion Hsucc.
       exact H2.
 Qed.
+
+Lemma is_range_1el_s_is_e :
+  forall s e a, 
+    is_range s e (a :: nil)
+      ->
+    a = s
+      /\
+    s = e.
+Proof.
+  intros s e a.
+  intros Hrange.
+  destruct Hrange as [Hse_le [Hn Hsucc]].
+  assert (s <= s <= e) as Hsse by lia.
+  assert (s <= e <= e) as Hsee by lia.
+  rewrite Hn in Hsse.
+  rewrite Hn in Hsee.
+  destruct Hsse as [Hsa | Hsa]; try destruct Hsa.
+  destruct Hsee as [Hea | Hea]; try destruct Hea.
+  split; reflexivity.
+Qed.
         
 Lemma is_range_length :
   forall l s e,
@@ -408,23 +428,11 @@ Proof.
   - intros s e.
     intros Hrange.
     destruct l as [| a' l].
-    + simpl in *.
-      destruct (s =? e) eqn:Hse.
-      {
-        rewrite Z.eqb_eq in Hse; subst e.
-        clear Hrange; clear IHl.
-        lia.
-      }
-      rewrite Z.eqb_neq in Hse.
-      clear IHl.
-      destruct Hrange as [Hse_le [Hn Hsucc]].
-      assert (s <= s <= e) as Hsse by lia.
-      assert (s <= e <= e) as Hsee by lia.
-      rewrite Hn in Hsse.
-      rewrite Hn in Hsee.
-      destruct Hsse as [Hsse | Hsse]; try destruct Hsse.
-      destruct Hsee as [Hsee | Hsee]; try destruct Hsee.
-      contradiction.
+    + apply is_range_1el_s_is_e in Hrange.
+      destruct Hrange as [Ha He].
+      subst e; subst a.
+      simpl.
+      lia.
     + assert (is_range s e (a :: a' :: l)) as Haa' by assumption.
       assert (is_range s e (a :: a' :: l)) as Hslte by assumption.
       apply is_range_endpoints in Haa'.
@@ -443,7 +451,98 @@ Proof.
       lia.
 Qed.
 
+Lemma nth_cons {A} :
+  forall (l : list A) n (d : A) (a : A),
+    nth n l d = nth (S n) (a :: l) d.
+Proof.
+  intros l n d a.
+  simpl. 
+  reflexivity.
+Qed.
 
+Lemma range_nth :
+  forall l s e n d,
+    s <= e - Z.of_nat n
+      ->
+    is_range s e l
+      ->
+    nth n l d = e - Z.of_nat n.
+Proof.
+  induction l.
+  - intros s e n d.
+    intros Hs_low Hrange.
+    destruct Hrange as [Hse [Hin Hsucc]].
+    assert (s <= s <= e) as Hsse by lia.
+    rewrite Hin in Hsse. destruct Hsse.
+  - intros s e n d.
+    intros Hsne Hrange.
+    destruct l as [| a' l].
+    + apply is_range_1el_s_is_e in Hrange.
+      destruct Hrange as [Ha He].
+      subst e; subst a.
+      assert (n = 0)%nat by lia.
+      subst n.
+      simpl.
+      lia.
+    + apply is_range_endpoints in Hrange as Hendpoints.
+      apply is_range_implies_pred_range in Hrange as Hpred_range.
+      destruct Hendpoints as [Ha Ha'].
+      subst a; subst a'.
+      destruct (n =? 0)%nat eqn:Hn0.
+      {
+        rewrite Nat.eqb_eq in Hn0; subst n.
+        simpl. lia. 
+      }
+      rewrite Nat.eqb_neq in Hn0.
+      apply IHl with (n := pred n) (d := d) in Hpred_range as Hnth; try lia.
+      clear IHl; clear Hpred_range.
+      destruct n; try contradiction.
+      rewrite <- nth_cons.
+      assert (pred (S n) = n) by reflexivity; rewrite H in Hnth; clear H.
+      rewrite Hnth.
+      lia.
+Qed.
+
+Open Scope nat_scope.
+Lemma map_nth_len_lt {A B} :
+  forall (f : A -> B) l n (d : A) (d' : B),
+    n < length l
+      ->
+    f (nth n l d) = nth n (map f l) d'.
+Proof.
+  intros f l n d d'.
+  intros Hlen.
+  specialize ((nth_error_nth' l) n d Hlen) as Hnth_err.
+  pose proof Hlen as Hlen_map.
+  rewrite <- length_map with (f := f) in Hlen_map.
+  specialize ((nth_error_nth' (map f l)) n d' Hlen_map) as Hnth_err_map.
+  specialize (map_nth_error f n l Hnth_err) as Hmap_err.
+  rewrite Hmap_err in Hnth_err_map.
+  inversion Hnth_err_map as [H].
+  reflexivity.
+Qed.
+  
+Open Scope Z_scope.
+Lemma range_f_l {A} :
+  forall (f : Z -> A) s e l n (d : A),
+    s <= e - Z.of_nat n
+      ->
+    is_range s e l
+      ->
+    f (e - Z.of_nat n) = nth n (map f l) d.
+Proof.
+  intros f s e l n d.
+  intros Hs_low Hrange.
+  apply range_nth with (l := l) (d := 0) in Hs_low as Hrange_nth; try assumption.
+  assert (n < length l)%nat.
+  { 
+    apply is_range_length in Hrange as Hlength.
+    lia.
+  }
+  rewrite <- Hrange_nth.
+  apply map_nth_len_lt.
+  exact H.
+Qed.
 
 Fixpoint build_range_rec (s : Z) (n : nat) : list Z :=
   match n with
