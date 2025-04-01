@@ -1,11 +1,12 @@
 
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
+Require Import String.
 Require Import Coq.Lists.List.
 Require Import Coq.Sorting.Sorted.
 Require Import Arith.PeanoNat.
 Require Import Bool.
-Require Import String.
+
 Require Import Checker.Nogood.
 Require Import Checker.Cumulative.
 Require Checker.CumulativeUtil.
@@ -619,6 +620,25 @@ Proof.
       lia.
 Qed.
 
+Lemma run_size_le_length : 
+  forall l,
+    run_size l <= length l.
+Proof.
+  induction l.
+  - simpl. reflexivity.
+  - simpl. destruct a; lia.
+Qed.
+
+Lemma run_le_left : 
+  forall l n,
+    run_at n l <= length l - n.
+Proof.
+  intros l n.
+  unfold run_at.
+  specialize (length_skipn n l) as Hskiplen.
+  rewrite <- Hskiplen.
+  apply run_size_le_length.
+Qed.
 
 Lemma max_run_lt_start :
   forall l s1 s2,
@@ -794,7 +814,7 @@ Qed.
 Open Scope Z_scope.
 Lemma run_at_seq :
   forall s e n i l (f : Z -> bool),
-    Z.of_nat n <= e - s
+    (i <= Z.to_nat (e - s))%nat
       ->
     ZRange.is_range s e l
       ->
@@ -807,14 +827,26 @@ Lemma run_at_seq :
     ).
 Proof.
   intros s e n i l f.
-  intros Hnlt Hrange Hrun.
-  unfold run_at in Hrun.
-  rewrite <- (nth_false_run_lt (skipn i (map f l)) n) in Hrun.
-  destruct Hrun as [k [Hkn Hkfalse]].
+  intros Hi Hrange Hrun.
+  specialize (run_le_left (map f l) i) as Hltlen.
+  apply ZRange.is_range_length in Hrange as Hrangelen.
+  assert (i < length l)%nat as Hilen by lia; clear Hi; clear Hrangelen.
+  rewrite <- length_map with (f := f) in Hilen.
+  assert (run_at i (map f l) <= min (length (map f l) - i) n)%nat as Hrunmin by lia; clear Hltlen.
+  assert (min (length (map f l) - i) n - 1 < length (map f l) - i)%nat as Hltlen by lia.
+  remember (min (length (map f l) - i) n - 1)%nat as run_bound.
+  assert (run_bound <= n)%nat as Hboundn by lia.
+  assert (run_at i (map f l) <= run_bound + 1)%nat as Hrunmin1 by lia.
+  clear Heqrun_bound; clear Hrun; clear Hrunmin.
+  rewrite <- (nth_false_run_lt (skipn i (map f l)) (run_bound + 1)) in Hrunmin1.
+  destruct Hrunmin as [k [Hkn Hkfalse]].
   exists (s + Z.of_nat i + Z.of_nat k).
   split.
   - lia.
   - rewrite nth_skipn in Hkfalse.
+    assert (i + k <= length (map f l))%nat by lia.
+    
+
     rewrite map_nth in Hkfalse.
 
 
