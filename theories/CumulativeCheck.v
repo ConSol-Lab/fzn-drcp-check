@@ -999,14 +999,23 @@ Proof.
   assert ((i + k) < length l)%nat as Hnth_a by lia.
   apply nth_error_exists in Hnth_a.
   destruct Hnth_a as [a Hnth_a].
-  apply Hnth in Hnth_a.
+  apply Hnth in Hnth_a as Hfza.
   exists a.
-  apply ZRange.range_nth_error with (s := s) (e := e) in Hnth_a.
+  apply ZRange.range_nth_error with (s := s) (e := e) in Hfza.
   2: assumption.
   split.
   - lia.
   - rewrite nth_skipn in Hkfalse.
-  
+    assert (i + k < length (map fb l))%nat as Hfb.
+    { rewrite length_map. lia. }
+    apply nth_error_nth' with (d := false) in Hfb.
+    rewrite Hkfalse in Hfb.
+    apply map_nth_error with (f := fb) in Hnth_a.
+    rewrite Hnth_a in Hfb.
+    inversion Hfb.
+    reflexivity.
+Qed.
+
     
 
 
