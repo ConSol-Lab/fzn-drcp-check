@@ -224,6 +224,77 @@ Definition resource_profile (capacity : N) (activities : list (string * zn_inter
   map (resource_profile_t capacity activities) times
 .
 
+Definition is_as_range {A} (f : A -> Z) (s : Z) (e : Z) (l : list A) :=
+  ZRange.is_range s e (map f l).
+
+Open Scope Z_scope.
+Lemma resource_profile_as_range :
+  forall times s e c activities,
+    ZRange.is_range s e times
+      ->
+    is_as_range fst s e (resource_profile c activities times).
+Proof.
+  induction times.
+  - intros. unfold ZRange.is_range in H.
+    destruct H as [Hse [Hn _]].
+    assert (s <= s <= e)%Z as Hsse by lia.
+    rewrite Hn in Hsse. destruct Hsse.
+  - intros s e c act.
+    intros Htimes_range.
+    unfold is_as_range. unfold resource_profile.
+    simpl. assert (forall (t : Z), fst (resource_profile_t c act t) = t).
+    {
+      intros t.
+      unfold resource_profile_t. destruct (res_sum c(activities_bounds_active_at t act)) as [[_ u] _].
+      simpl.
+      reflexivity.
+    }
+    rewrite H.
+    destruct times as [| a' times].
+    { simpl. exact Htimes_range. }
+    simpl.
+    rewrite H. 
+    apply ZRange.is_range_endpoints in Htimes_range as Haa'.
+    destruct Haa' as [Ha Ha'].
+    subst a; subst a'.
+    apply ZRange.is_range_implies_pred_range in Htimes_range as Hpred_range.
+    specialize (IHtimes s (e - 1) c act Hpred_range).
+    unfold is_as_range in IHtimes.
+    unfold resource_profile in IHtimes.
+    destruct IHtimes as [Hse [Hn Hsucc]].
+    split.
+    + lia.
+    + simpl in Hn. simpl in Hsucc.
+      rewrite H in Hn. rewrite H in Hsucc.
+      split.
+      {
+        intros n. split.
+        - intros Hsne.
+          destruct (n =? e) eqn:Hne.
+          { rewrite Z.eqb_eq in Hne; subst n.
+            simpl. left. reflexivity. }
+          rewrite Z.eqb_neq in Hne.
+          assert (s <= n <= e - 1) as Hsne1 by lia.
+          rewrite Hn in Hsne1.
+          destruct Hsne1.
+          + subst n. simpl. right. left. reflexivity.
+          + simpl. right. right. assumption.
+        - intros Hin.
+          destruct Hin as [He | Hin]. 
+          + subst n. lia.
+          + simpl in Hin. rewrite <- Hn in Hin.
+            lia.
+      }
+      unfold ZRange.succ_seq.
+      apply Sorted_cons.
+      * exact Hsucc.
+      * apply HdRel_cons.
+        unfold ZRange.is_succ.
+        lia.
+Qed.
+
+
+
 Lemma resource_profile_correct :
   forall capacity activities times usage t,
     In (t, usage) (resource_profile capacity activities times) ->
@@ -807,8 +878,6 @@ Proof.
   apply Hhasn.
 Qed.
 
-
-
 Open Scope Z_scope.
 Lemma run_at_seq_no_bound :
   forall s e n i l (f : Z -> bool),
@@ -837,16 +906,6 @@ Proof.
   }
   rewrite length_skipn in H.
   rewrite ZRange.is_range_length with (s := s) (e := e) in H; try assumption.
-  (* specialize (run_le_left (map f l) i) as Hltlen.
-  apply ZRange.is_range_length in Hrange as Hrangelen.
-  assert (i < length l)%nat as Hilen by lia; clear Hi; clear Hrangelen.
-  rewrite <- length_map with (f := f) in Hilen. *)
-  (* assert (run_at i (map f l) <= min (length (map f l) - i) n)%nat as Hrunmin by lia; clear Hltlen.
-  assert (min (length (map f l) - i) n - 1 < length (map f l) - i)%nat as Hltlen by lia.
-  remember (min (length (map f l) - i) n - 1)%nat as run_bound.
-  assert (run_bound <= n)%nat as Hboundn by lia.
-  assert (run_at i (map f l) <= run_bound + 1)%nat as Hrunmin1 by lia.
-  clear Heqrun_bound; clear Hrun; clear Hrunmin. *)
   rewrite <- (nth_false_run_lt (skipn i (map f l)) n) in Hrun; try assumption.
   destruct Hrun as [k [Hkn Hkfalse]].
   exists (e - Z.of_nat (i + k)).
@@ -858,162 +917,11 @@ Proof.
     destruct Hrange as [Hse _].
     lia.
 Qed.
-    assert (Z.of_nat k < e - s - (Z.of_nat i) + 1) by lia.
-Admitted.
-Lemma run_at_seq :
-  forall s e n i l (f : Z -> bool),
-    ZRange.is_range s e l
-      ->
-    (run_at i (map f l) < n)%nat
-      ->
-    (exists k, 
-      e - Z.of_nat i - Z.of_nat n + 1 <= k <= e - Z.of_nat i
-        /\
-      f k = false
-    ).
-Proof.
-  intros s e n i l f.
-  intros Hrange Hrun.
-  specialize (run_le_left (map f l) i) as Hltlen.
-  rewrite length_map with (f := f) in Hltlen.
-  remember (min (length l - i + 1) n) as run_bound.
-  assert (run_at i (map f l) < run_bound)%nat as Hrunbound by lia.
-  assert (run_bound <= n)%nat as Hrunn by lia.
-  assert (run_bound <= (length l - i + 1))%nat as Hrunlen by lia.
-  clear Heqrun_bound; clear Hltlen; clear Hrun.
 
-  (* specialize (run_le_left (map f l) i) as Hltlen.
-  apply ZRange.is_range_length in Hrange as Hrangelen.
-  assert (i < length l)%nat as Hilen by lia; clear Hi; clear Hrangelen.
-  rewrite <- length_map with (f := f) in Hilen. *)
-  (* assert (run_at i (map f l) <= min (length (map f l) - i) n)%nat as Hrunmin by lia; clear Hltlen.
-  assert (min (length (map f l) - i) n - 1 < length (map f l) - i)%nat as Hltlen by lia.
-  remember (min (length (map f l) - i) n - 1)%nat as run_bound.
-  assert (run_bound <= n)%nat as Hboundn by lia.
-  assert (run_at i (map f l) <= run_bound + 1)%nat as Hrunmin1 by lia.
-  clear Heqrun_bound; clear Hrun; clear Hrunmin. *)
-  rewrite <- (nth_false_run_lt (skipn i (map f l)) run_bound) in Hrunbound; try assumption; try lia.
-  destruct Hrunbound as [k [Hkn Hkfalse]].
-  exists (e - Z.of_nat (i + k)).
-  split.
-  - lia.
-  - rewrite nth_skipn in Hkfalse.
-    rewrite ZRange.range_f_l with (s := s) (l := l) (d := false); try assumption.
-    clear Hkfalse.
-    apply ZRange.is_range_length in Hrange as Hrangelen.
-
-(* 
-    enough (s + Z.of_nat i + Z.of_nat k <= e) by lia. *)
-    specialize (ZRange.range_f f)  as Hrange_f.
-    enough (i + k < length (map f l))%nat.
-    {
-      specialize (nth_error_nth' (map f l)) as Hnth.
-      specialize (Hnth (i + k)%nat false H).
-      rewrite Hkfalse in Hnth.
-      rewrite nth_error_map in Hnth.
-      unfold option_map in Hnth.
-
-      destruct (nth_error l (i + k)) eqn:Hz; try discriminate Hnth.
-      simpl in Hnth.
-      inversion Hnth as [Hfz]; clear Hnth.
-      specialize nth_error_nth as Hnth2.
-      f_equal.
-      apply nth_error_nth with (d := false) in Hz.
-
-      rewrite map_nth_error with (d := false) in Hnth.
-      assert (Some (nth (i + k)%nat (map f l) false) = Some false) as Hnthsome.
-      { f_equal; exact Hkfalse. }
-      apply <- nth_error_nth' in Hnthsome. 
-    }
-    
-
-    rewrite map_nth in Hkfalse.
-
-
-(* Definition has_run (l: list bool) (size : nat) :=
-  exists n,
-    nth n l false = true
-      /\
-    forall k,
-      n <= k <= n + size
-        ->
-      nth k l false = true. *)
-
-
-        
 
 Open Scope Z_scope.
-
-
 Definition active_list (start_time : Z) (p_time : N) (times : list Z) : list bool :=
   map (is_active_at start_time p_time) times.
-  
-
-(* Lemma hole :
-  forall (p : nat) s lb size times range_l range_e,
-    range_l <= lb
-    ->
-    range_e >= lb + Z.of_N size
-    ->
-    (
-      lb <= s <= lb + Z.of_N size
-        /\
-      forall t, 
-        s <= t < s + Z.of_nat p
-          -> 
-        is_active_at s (N.of_nat p) t = true
-    )
-      ->
-    ZRange.is_range range_l range_e times
-      ->
-    has_hole_of_size (active_list s (N.of_nat p) times) p = true.
-Proof.
-  induction p as [| p IH].
-  - intros s lb size times range_l range_e.
-    intros Hrange_l Hrange_e Hactive Hrange.
-    unfold N.of_nat in *; unfold Z.of_nat in *.
-    unfold has_hole_of_size.
-    destruct (active_list s 0 times); reflexivity.
-  - intros s lb size times range_l range_e. 
-    intros Hrange_l Hrange_e Hactive Hrange.
-
-  induction (N.to_nat p_time) as [|] eqn:Hp_time.
-  - assert (p_time = 0%N).
-    { clear Hactive; clear Hrange; lia. }
-    subst p_time; clear Hp_time.
-    unfold has_hole_of_size.
-    destruct (active_list s 0 times); reflexivity.
-  - assert (p_time = (N.of_nat n) + 1)%N.
-    { clear Hrange; clear IHn; clear Hactive; lia. }
-    subst p_time. *)
-
-
-
-    
-    
-
-  (* specialize (task_in_constraint_start_time_eq a c sol) as Hstart_eq_all.
-  assert (task_in_constraint
-  (x, (lb, a_size), (p, u)) c sol) as Hstart_eq by assumption.
-  unfold task_in_constraint in Htask.
-  destruct Htask as [[v Hv] Htask].
-  apply Hstart_eq_all with (v := v) in Hstart_eq; try assumption; clear Hstart_eq_all.
-  apply Htask in Hv; clear Htask.
-  destruct Hv as [Hvin Hbound].
-  exists (find_value sol v).
-  split.
-  - exact Hbound.
-  - intros t Ht.
-    unfold is_active_at.
-    rewrite andb_true_iff.
-    rewrite Z.leb_le.
-    rewrite Z.ltb_lt.
-    rewrite Hstart_eq.
-    exact Ht.
-Qed. *)
-  
-
-
 
 Open Scope N_scope.
 Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : string * zn_interval * (N * N)) (time : Z) : bool :=
@@ -1025,8 +933,6 @@ Definition can_be_active_at_t (capacity : N) (profile_usage : N) (activity : str
     end
   end
 .
-
- 
 
 Open Scope Z_scope.
 Definition make_active_list_f (capacity : N) (activity : string * zn_interval * (N * N)) (profile_entry : (Z * N)) : list bool :=
@@ -1047,7 +953,7 @@ Definition make_active_list (capacity : N) (profile : list (Z * N)) (activity : 
 Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z * N)) (activity : string * zn_interval * (N * N)) : bool :=
   match activity with
   | (_, _, (duration, _)) =>
-    negb (has_n_true (N.to_nat duration) 0 (make_active_list capacity profile activity))
+    negb (has_n_true (N.to_nat duration) (make_active_list capacity profile activity))
   end.
 
 Definition var_empty_domain (v : Var) (sol : Assignment) :=
@@ -1083,101 +989,6 @@ Proof.
 Qed.
 
 Open Scope Z_scope.
-(* Lemma checker_true_finds_overloaded_t :
-  forall fact sol constr,
-  inference_negated fact sol ->
-  cumulative_checker fact constr = true
-  ->
-  exists t,
-    horizon_start constr <= t <= horizon_end constr /\
-    (usage_sum
-    (activities_at_t (activity_list constr sol) t) >
-    capacity constr)%N.
-Proof.
-  intros fact sol constr.
-  intros Hinf Hchecked.
-  unfold cumulative_checker in Hchecked.
-  destruct (inferred_cumulative_bounds constr fact) as [bounds |] eqn:Hbounds.
-  - specialize (overload_props constr.(capacity) (ZRange.build_range constr.(horizon_start) constr.(horizon_end)) bounds) as Hoverload.
-    destruct (find_overloaded_t_with_mandatory (capacity constr)
-    (ZRange.build_range (horizon_start constr)
-    (horizon_end constr)) bounds) as [[[t usages_t] _] |].
-    {
-     exists t.
-     destruct Hoverload as [Hsum Hinhorz].
-     split.
-     - rewrite ZRange.build_range_correct.
-      + exact Hinhorz.
-      + exact constr.(horizon_consistent).
-    - clear Hinhorz; clear Hchecked; clear usages_t.
-      unfold usage_sum.
-      apply xn_sum_sub_list_gtn with (l1 := (activities_bounds_active_at t bounds)).
-      + clear Hsum.
-        apply sub_list_if_in_nodup.
-        * intros a Hin.
-          rewrite in_map_iff.
-          assert (In a (activities_bounds_active_at t bounds)) as Hin2 by assumption.
-          unfold activities_bounds_active_at in Hin.
-          rewrite nodup_In in Hin.
-          rewrite in_flat_map in Hin.
-          destruct Hin as [a' [Hinbounds Hinres]].
-          destruct a' as [[x [lb size]] [p u]] eqn:Ha'.
-          unfold activity_bounds_is_active in Hinres.
-          destruct (interval_to_bounds (lb, size)) as [lb' ub] eqn:Hibounds. unfold interval_to_bounds in Hibounds; inversion Hibounds; subst lb'; symmetry in H1; clear Hibounds.
-          destruct (mandatory_active lb ub t p) eqn:Hmand.
-          2: destruct Hinres.
-          simpl in Hinres. destruct Hinres; try contradiction. subst a.
-          unfold inferred_cumulative_bounds in Hbounds.
-          rewrite <- Ha' in Hinbounds.
-          specialize (apply_atomics_correct (N * N) ((constraint_to_intervals constr)) (map atomic_not fact) bounds Hbounds a' Hinbounds) as Happly.
-          rewrite Ha' in Happly; clear Hinbounds; clear Ha'; clear a'.
-          destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
-          unfold constraint_to_intervals in Hinis.
-          rewrite in_map_iff in Hinis.
-          destruct Hinis as [[[v p'] u'] [His Hinc]].
-          destruct v; inversion His.
-          subst p'; subst u'.
-          exists (mkAct x (sol.(find_value) (interval var)) p u). split.
-          { simpl. subst x. reflexivity. }
-          apply active_at with (lb := lb) (ub := ub).
-          -- unfold activity_list. unfold activity_list_inner. rewrite in_map_iff.
-            exists (interval var, p, u).
-            split.
-            ++ unfold activity_list_inner_f. subst x.
-            reflexivity.
-            ++ exact Hinc.
-          -- simpl. subst ub.
-            apply atomic_proof_correct with (x := x) (atoms := atoms_applied) (lb_init := lb_init) (size_init := size_init); try assumption.
-            intros atom Hinapplied.
-            apply Hinf.
-            apply Hatomsin.
-            exact Hinapplied.
-          -- simpl. unfold mandatory_active in Hmand.
-            apply andb_true_iff in Hmand.
-            rewrite Z.leb_le in Hmand.
-            rewrite Z.ltb_lt in Hmand.
-            exact Hmand. 
-        * unfold activities_bounds_active_at. 
-          (* TODO: try and get rid of this, but it only really matters for performance *)
-          apply NoDup_nodup.
-      + exact Hsum.
-    }
-    { discriminate Hchecked. }
-  - discriminate Hchecked.
-Qed. *)
-
-
-
-(* Definition empty_domain (x : string) (sol : Assignment) :=
-  exists n m,
-    n < m ->
-      forall v,
-        var_name v = x ->
-          (sol.(find_value) v) >= n
-
-. *)
-
-
 
 Lemma empty_domain_is_false :
   forall sol,
@@ -1283,6 +1094,8 @@ Proof.
       unfold cannot_schedule_activity_w_profile in Hcannot_sched.
       rewrite negb_true_iff in Hcannot_sched.
 
+      specialize has_n_true_all_runs as Hruns.
+      remember 
       rewrite <- Ha in *.
       
 

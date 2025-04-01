@@ -521,6 +521,8 @@ Proof.
   inversion Hnth_err_map as [H].
   reflexivity.
 Qed.
+
+
   
 Open Scope Z_scope.
 Lemma range_f_l {A} :
@@ -543,6 +545,8 @@ Proof.
   apply map_nth_len_lt.
   exact H.
 Qed.
+
+
 
 Fixpoint build_range_rec (s : Z) (n : nat) : list Z :=
   match n with
