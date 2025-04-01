@@ -302,6 +302,97 @@ Definition is_range (s : Z) (e : Z) (l : list Z) :=
     /\
   succ_seq l.
 
+Lemma is_range_endpoints :
+  forall l s e a a',
+    is_range s e (a :: a' :: l)
+      ->
+    a = e /\ a' = e - 1.
+Proof.
+  intros l s e a a'.
+  intros Hrange.
+  unfold is_range in *.
+  destruct Hrange as [Hse [Hin Hsucc]].
+  destruct (a =? e) eqn:Hae.
+  2: { 
+    rewrite Z.eqb_neq in Hae. 
+    assert (In a (a :: a' :: l)) as Hain.
+    { simpl. left. reflexivity. }
+    rewrite <- Hin in Hain.
+    assert (s <= e <= e) as Hsee by lia.
+    rewrite Hin in Hsee.
+    unfold succ_seq in Hsucc.
+    apply succ_seq_sorted_le in Hsucc.
+    inversion Hsucc; subst a0; subst l0.
+    exfalso.
+    rewrite Forall_forall in H2.
+    assert (In e (a' :: l)).
+    { destruct Hsee; try contradiction. exact H. }
+    apply H2 in H.
+    clear Hin; clear Hsucc; clear H1; clear H2; clear Hsee.
+    lia.
+  }
+  rewrite Z.eqb_eq in Hae; subst a.
+  assert (a' = e - 1).
+  {
+    inversion Hsucc.
+    inversion H2.
+    unfold is_succ in H4.
+    rewrite H4.
+    lia.
+  }
+  subst a'.
+  split; reflexivity.
+Qed.
+
+Lemma is_range_implies_pred_range :
+  forall l s e a a',
+    is_range s e (a :: a' :: l)
+      ->
+    is_range s (e - 1) (e - 1 :: l).
+Proof.
+  intros l s e a a'.
+  intros Hrange.
+  assert (is_range s e (a :: a' :: l)) as Haa' by assumption.
+  apply is_range_endpoints in Haa'.
+  destruct Haa' as [Ha Ha'].
+  subst a; subst a'.
+  unfold is_range in *.
+  destruct Hrange as [Hse [Hin Hsucc]].
+  assert (In (e - 1) (e :: e - 1 :: l)).
+  { simpl; right; left; reflexivity. }
+  rewrite <- Hin in H.
+  split.
+  + apply H.
+  + split.
+    * intros n. split.
+      -- intros Hn. 
+        assert (s <= n <= e) as Hsne by lia.
+        rewrite Hin in Hsne.
+        destruct Hsne as [| Hsne]; try lia.
+        exact Hsne.
+      -- intros Hinless.
+        assert (In n (e :: e - 1 :: l)) as Hinall.
+        { destruct Hinless.
+          - subst n; simpl; right; left; reflexivity.
+          - simpl; right; right; exact H0. }
+        rewrite <- Hin in Hinall.
+        assert (n <= e - 1) as Hnminus1.
+        {
+          apply succ_seq_sorted_le in Hsucc.
+          inversion Hsucc; subst l0; subst a; clear H2.
+          rewrite Forall_forall in H3.
+          apply H3 in Hinless.
+          clear Hin; clear Hse; clear Hsucc; clear H; clear H3; clear Hinall.
+          lia.
+        }
+        destruct Hinall as [Hsn _].
+        split.
+        ++ exact Hsn.
+        ++ exact Hnminus1.
+    * inversion Hsucc.
+      exact H2.
+Qed.
+        
 Lemma is_range_length :
   forall l s e,
     is_range s e l
@@ -334,7 +425,25 @@ Proof.
       destruct Hsse as [Hsse | Hsse]; try destruct Hsse.
       destruct Hsee as [Hsee | Hsee]; try destruct Hsee.
       contradiction.
-    + destruct l as [| a'' l].
+    + assert (is_range s e (a :: a' :: l)) as Haa' by assumption.
+      assert (is_range s e (a :: a' :: l)) as Hslte by assumption.
+      apply is_range_endpoints in Haa'.
+      destruct Haa' as [Ha Ha'].
+      subst a; subst a'.
+      apply is_range_implies_pred_range in Hrange.
+      apply IHl in Hrange.
+      clear IHl.
+      unfold is_range in Hslte.
+      destruct Hslte as [_ [Hn _]].
+      assert (In (e - 1) (e :: e - 1 :: l)).
+      { simpl; right; left; reflexivity. }
+      rewrite <- Hn in H; clear Hn.
+      simpl in *.
+      rewrite Hrange; clear Hrange.
+      lia.
+
+    
+      destruct l as [| a'' l].
       { admit. }
       (* destruct (a =? a') eqn:Haa'.
       {
