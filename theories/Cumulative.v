@@ -6,11 +6,18 @@ Require Lia.
 Require Import Checker.Utility.
 Require Import Checker.Variable.
 
-Definition has_unique_vars (l : list (Var * N * N)) :=
+Definition x_determines_var (l : list (Var * N * N)) :=
   forall v1 v2 p u,
     In (v1, p, u) l ->
     var_name v1 = var_name v2 ->
     v1 = v2.
+
+Definition x_determines_params (l : list (Var * N * N)) :=
+  forall v1 v2 p1 p2 u1 u2,
+    In (v1, p1, u1) l ->
+    In (v2, p2, u2) l ->
+    var_name v1 = var_name v2 ->
+    (v1, p1, u1) = (v2, p2, u2).
 
 Record CumulativeConstraint :=
   {
@@ -19,7 +26,9 @@ Record CumulativeConstraint :=
     horizon_start : Z;
     horizon_end : Z;
     horizon_consistent : horizon_start <= horizon_end;
-    unique_vars : has_unique_vars vs
+    x_determine_var : x_determines_var vs;
+    x_determine_params : x_determines_params vs;
+    vs_nodup : NoDup vs
   }.
 
 Record Activity := mkAct {

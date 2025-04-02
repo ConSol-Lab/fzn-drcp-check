@@ -99,6 +99,67 @@ Inductive Atomic_proof (x : string) (i_init : zn_interval) : list Atomic -> zn_i
     : Atomic_proof x i_init (a :: al') new_i
   .
 
+(* Lemma apply_atomics_preserves (U : Type) :
+  forall x (u : U) i_init,
+    forall atoms i_before applied_before out,
+    apply_atomics (x, i_before, u) atoms applied_before = Some out
+      ->
+    match out with
+    | (_, x', _, u') => 
+      x' = x /\ u' = u 
+    end.
+Proof.
+  intros x u i_init.
+  induction atoms.
+  - intros i_before applied_before out Hbefore Happly.
+    destruct out as [[[applied x'] [lb_init size_init]] u'].
+    simpl in Happly.
+    inversion Happly. subst applied; subst x'; subst i_before; subst u'; clear Happly.
+    repeat split.
+    + intros atom Hin. right. exact Hin.
+    + exact Hbefore.
+  - intros i_before applied_before out Hbefore Happly.
+    destruct out as [[[applied x'] i_out] u'].
+    simpl in Happly.
+    destruct (atom_matches_name_and_apply a x i_before) as [name_match i_applied_a] eqn:Hmatch.
+    destruct name_match eqn:Hname.
+    + destruct i_applied_a as [i_applied_a | ].
+      2: discriminate Happly.
+      assert (Atomic_proof x i_init (a :: applied_before) i_applied_a) as Happlied.
+      {
+       clear IHatoms. apply atomic_proof_a with (old_i := i_before).
+       - exact Hbefore.
+       - exact Hmatch.
+      } 
+      remember (applied, x', i_out, u') as out.
+      specialize (IHatoms i_applied_a (a :: applied_before) out Happlied Happly); clear Happly; clear Happlied.
+      rewrite Heqout in *.
+      destruct i_out as [lb_result size_result].
+      destruct IHatoms as [Hxx' [Huu' [IHatoms IHproof]]].
+      subst x'; subst u'.
+      repeat split.
+      * intros atom' Hin.
+        destruct (IHatoms atom' Hin) as [Hinatoms |Hinbefore]; clear IHatoms.
+        -- left. simpl. right. exact Hinatoms.
+        -- destruct Hinbefore as [Haatom' | Hinbefore].
+          ++ subst atom'. left. simpl. left. reflexivity.
+          ++ right. exact Hinbefore.
+      * exact IHproof.
+    + remember (applied, x', i_out, u') as out.
+      specialize (IHatoms i_before applied_before out  Hbefore Happly).
+      rewrite Heqout in *.
+      destruct i_out as [lb_result size_result].
+      destruct IHatoms as [Hxx' [Huu' IHatoms]].
+      subst x'; subst u'.
+      repeat split.
+      * intros atom_in_applied Hin.
+        apply IHatoms in Hin.
+        destruct Hin as [Hinatoms | Hinbefore].
+        -- left. simpl. right. exact Hinatoms.
+        -- right. exact Hinbefore.
+      * apply IHatoms.
+Qed. *)
+
 (* Here we use a trick we also used for res_sum, we return also everything we've seen, this allows us to make the induction proof much easier! *)
 Lemma apply_atomics_has_proof_rec (U : Type) :
   forall x (u : U) i_init,
@@ -326,7 +387,50 @@ Fixpoint apply_atomics_to_variables {U} (is : list (string * zn_interval * U)) (
       end
     end
   end.
-  
+
+Definition bound_name {U} (bound : string * zn_interval * U) :=
+  match bound with
+  | (x, _, _) => x
+  end.
+
+Definition unique_bounds {U} (bounds : list (string * zn_interval * U)) :=
+  NoDup bounds
+    /\
+  forall a1 a2,
+    In a1 bounds -> In a2 bounds
+    -> bound_name a1 = bound_name a2
+    -> a1 = a2. 
+
+Lemma a_u_dec (U : Type) (u_dec : forall x y : U, {x = y}+{x <> y}) :
+  forall x y : string * zn_interval * U, {x = y}+{x <> y}.
+Proof.
+  repeat decide equality.
+Qed.
+
+Lemma unique_bounds_cons (U : Type) :
+  forall (a : string * zn_interval * U) bounds,
+    unique_bounds (a :: bounds)
+      ->
+    forall a',
+      In a' bounds
+        ->
+      bound_name a <> bound_name a'.
+Proof.
+  intros a bounds.
+  intros Hunique.
+  intros a'. intros Hin.
+  unfold not. intros Hname.
+  apply Hunique in Hname.
+  - subst a'.
+    unfold unique_bounds in Hunique.
+    destruct Hunique as [Hnodup _].
+    rewrite NoDup_cons_iff in Hnodup.
+    destruct Hnodup as [Hnotinbounds _].
+    contradiction.
+  - left. reflexivity.
+  - right. exact Hin.
+Qed.
+
 Lemma apply_atomics_correct (U : Type) :
   forall (is : list (string * zn_interval * U)) atoms bounds,
   apply_atomics_to_variables is atoms = Some bounds 
@@ -384,6 +488,135 @@ Proof.
       * exists atoms_applied. split.
         -- exact Hatoms_applied_in.
         -- exact Hatoms_applied_proof.
+Qed.
+
+
+Lemma apply_atomics_unique :
+  forall (U : Type) (u_dec : forall x y : U, {x = y}+{x <> y}) (is : list (string * zn_interval * U)) atoms bounds,
+  unique_bounds is
+    ->
+  apply_atomics_to_variables is atoms = Some bounds 
+    ->
+  unique_bounds bounds.
+Proof.
+  intros U.
+  induction is. 
+  - intros atoms bounds Hnil.
+    intros Happly.
+    unfold apply_atomics_to_variables in Happly. inversion Happly.
+    apply Hnil.
+  - intros atoms bounds.
+    intros Hunique.
+    intros Happly.
+    assert (unique_bounds is).
+    { 
+      unfold unique_bounds in Hunique.
+      unfold unique_bounds.
+      destruct Hunique as [Hnodup Hunique].
+      split.
+      - rewrite NoDup_cons_iff in Hnodup. apply Hnodup.
+      - intros a1 a2 Hin1 Hin2 Hname.
+        apply Hunique.
+        + right. exact Hin1.
+        + right. exact Hin2.
+        + exact Hname.
+    }
+    simpl in Happly.
+    destruct (apply_atomics_to_variables is atoms) as [is_result |] eqn:Happlyis.
+    + assert (forall a_x a_i a_u, 
+        In (a_x, a_i, a_u) is_result -> exists a_i_pre, In (a_x, a_i_pre, a_u) is) as Hpre.
+      {
+        intros a_x a_i a_u Hin.
+        destruct a_i as [a_lb a_size].
+        specialize (apply_atomics_correct U is atoms is_result Happlyis (a_x, (a_lb, a_size), a_u) Hin) as Hatomics.
+        destruct Hatomics as [lb_i [size_i [Hin_is _]]].
+        exists (lb_i, size_i). exact Hin_is.
+      }
+      destruct (apply_atomics a atoms nil) as [[[[a_applied x] a_i] a_u] |] eqn:Haapply.
+      * inversion Happly.
+        subst bounds; clear Happly.
+        apply IHis with (atoms := atoms) (bounds := is_result) in H.
+        2: { exact Happlyis. }
+        clear IHis.
+        unfold unique_bounds.
+        split.
+        {
+     
+          apply NoDup_cons_iff.
+          split.
+          - specialize (unique_bounds_cons U a is Hunique) as Hnames.
+            destruct a as [[x' a_i_pre] a_u'].
+            apply apply_atomics_has_proof in Haapply as Haout.
+            destruct a_i.
+            destruct Haout as [Hxx' [Huu' _]].
+            subst x'; subst a_u'.
+            unfold not. intros Hin_is.
+            remember (z, n) as a_i.
+            apply Hpre in Hin_is as Hpre_a; clear Hpre.
+            destruct Hpre_a as [a_i_pre' Hpre_a].
+            apply Hnames in Hpre_a.
+            simpl in Hpre_a.
+            contradiction. 
+          - apply H.
+        }
+        {
+          intros a1 a2.
+          intros Hin1 Hin2 Hname.
+          remember (x, a_i, a_u) as a_out.
+          destruct (a_u_dec U u_dec a1 a_out) as [Ha1a | Ha1na];
+          destruct (a_u_dec U u_dec a2 a_out) as [Ha2a | Ha2na].
+          - subst a1; subst a2. reflexivity.
+          - subst a1.
+            destruct Hin2 as [Ha2out | Hin2]; try easy.
+            clear Hin1. exfalso.
+            specialize (unique_bounds_cons U a is Hunique) as Hnames.
+            + destruct a2 as [[a2_x a2_i] a2_u].
+              apply Hpre in Hin2 as Hin2pre.
+              destruct Hin2pre as [a2_i_pre Hin2pre].
+              apply Hnames in Hin2pre.
+              simpl in Hname, Hin2pre.
+              assert (bound_name a = bound_name a_out) as Hnamesa.
+              {
+                destruct a as [[x' a_i_pre] a_u'].
+                apply apply_atomics_has_proof in Haapply as Haout.
+                destruct a_i.
+                destruct Haout as [Hx]; subst x'; rewrite Heqa_out.
+                simpl. reflexivity.
+              }
+              rewrite Hname in Hnamesa.
+              contradiction.
+          - subst a2.
+            destruct Hin1 as [Ha1out | Hin1]; try easy.
+            clear Hin2. exfalso.
+            specialize (unique_bounds_cons U a is Hunique) as Hnames.
+            + destruct a1 as [[a1_x a1_i] a1_u].
+              apply Hpre in Hin1 as Hin1pre.
+              destruct Hin1pre as [a1_i_pre Hin1pre].
+              apply Hnames in Hin1pre.
+              simpl in Hname, Hin1pre.
+              assert (bound_name a = bound_name a_out) as Hnamesa.
+              {
+                destruct a as [[x' a_i_pre] a_u'].
+                apply apply_atomics_has_proof in Haapply as Haout.
+                destruct a_i.
+                destruct Haout as [Hx]; subst x'; rewrite Heqa_out.
+                simpl. reflexivity.
+              }
+              rewrite <- Hname in Hnamesa.
+              contradiction.
+          - destruct Hin1 as [Ha1out | Hin1].
+            { symmetry in Ha1out. contradiction. }
+            destruct Hin2 as [Ha2out | Hin2].
+            { symmetry in Ha2out. contradiction. }
+            apply H.
+            + exact Hin1.
+            + exact Hin2.
+            + exact Hname.
+        }
+      * discriminate Happly.
+    + destruct (apply_atomics a atoms nil) as [[[[a_applied x] a_i] a_u] |] eqn:Haapply.
+      * discriminate Happly.
+      * discriminate Happly.
 Qed.
 
 (* 
