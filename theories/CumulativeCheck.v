@@ -162,7 +162,7 @@ Definition activity_bounds_is_active (t : Z) (activity : string * zn_interval * 
 
 
 Definition activities_bounds_active_at (t : Z) (activities : list (string * zn_interval * (N * N))) :=
-  nodup xn_eq_dec (flat_map (activity_bounds_is_active t) activities).
+  flat_map (activity_bounds_is_active t) activities.
 
 
 
@@ -351,7 +351,7 @@ Definition make_activity (a : string * zn_interval * (N * N)) (c : CumulativeCon
       mkAct x (x_start_time x c sol) p u
   end.
 
-Lemma activity_list_in_vs :
+(* Lemma activity_list_in_vs :
   forall c a sol,
     In a (activity_list c sol)
       ->
@@ -379,7 +379,7 @@ Proof.
   2: { rewrite Heqv. simpl. symmetry. exact Hname. }
   subst v'.
   exact Hin.
-Qed.
+Qed. *)
 
 Lemma activity_list_in_vs_ex :
   forall c a sol,
@@ -446,7 +446,8 @@ Proof.
   inversion Hact; subst p'; subst u'.
   exact Hinvs.
 Qed.
-  
+
+
 
 Lemma two_tasks_in_constraint_x_eq (a1 a2 : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :
   task_in_constraint a1 c sol
@@ -492,20 +493,62 @@ Open Scope N_scope.
 Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
   forall a, In a bounds -> task_in_constraint a c sol.
 
+Lemma activity_bounds_nodup :
+forall t bounds,
+  unique_bounds bounds
+    ->
+  NoDup (activities_bounds_active_at t bounds).
+Proof.
+  intros t. induction bounds.
+  - intros Hnil. simpl. apply NoDup_nil.
+  - intros Hunique.
+    apply unique_bounds_less in Hunique as H.
+    apply IHbounds in H; clear IHbounds.
+    simpl.
+    destruct a as [[x [lb size]] [p u]].
+    apply NoDup_app.
+    + unfold activity_bounds_is_active.
+      destruct (interval_to_bounds (lb, size)) as [lb' ub].
+      destruct (mandatory_active lb' ub t p).
+      * apply NoDup_cons; try easy. apply NoDup_nil.
+      * apply NoDup_nil.
+    + apply H.
+    + intros a Hin.
+      intros Hinbounds.
+      unfold activities_bounds_active_at in Hinbounds.
+      rewrite in_flat_map in Hinbounds.
+      destruct Hinbounds as [a' [Hina' Ha]].
+      destruct a as [x' u'].
+      unfold activity_bounds_is_active in Hin.
+      destruct (interval_to_bounds (lb, size)) as [lb_p ub].
+      destruct (mandatory_active lb_p ub t p); try easy.
+      destruct Hin as [Hxu|]; try easy; inversion Hxu; subst x'; subst u'; clear Hxu.
+      destruct a' as [[x' [lb' size']] [p' u']].
+      unfold activity_bounds_is_active in Ha.
+      destruct (interval_to_bounds (lb', size')) as [lb_p' ub'].
+      destruct (mandatory_active lb_p' ub' t p'); try easy.
+      destruct Ha as [Hxu|]; try easy; inversion Hxu; subst x'; subst u; clear Hxu.
+      apply unique_bounds_cons with (a := (x, (lb, size), (p, u'))) in Hina'.
+      * simpl in Hina'. contradiction.
+      * exact Hunique.
+Qed.
+
+
 Lemma valid_bounds_mandatory_sublist :
   forall constr sol bounds t,
   valid_bounds bounds constr sol
     ->
+  unique_bounds bounds
+    ->
   sub_list xn_eq_dec (activities_bounds_active_at t bounds) ((map act_to_xn (activities_at_t (activity_list constr sol) t))).
 Proof.
   intros constr sol bounds t.
-  intros Hvalid.
+  intros Hvalid Hunique.
   apply sub_list_if_in_nodup.
   - intros a Hin.
     rewrite in_map_iff.
     pose proof Hin as Hin2.
     unfold activities_bounds_active_at in Hin.
-    rewrite nodup_In in Hin.
     rewrite in_flat_map in Hin.
     destruct Hin as [a' [Hinbounds Hinres]].
     destruct a' as [[x [lb size]] [p u]] eqn:Ha'.
@@ -537,24 +580,25 @@ Proof.
         rewrite Z.leb_le in Hmand; rewrite Z.leb_le.
         rewrite Z.ltb_lt; rewrite Z.ltb_lt in Hmand.
         lia.
-  - unfold activities_bounds_active_at. 
-    (* TODO: try and get rid of this, but it only really matters for performance *)
-    apply NoDup_nodup.
+  - apply activity_bounds_nodup.
+    exact Hunique.
 Qed.
 
 Lemma bounds_sum_implies_usage :
   forall constr sol bounds usage t,
   valid_bounds bounds constr sol
     ->
+  unique_bounds bounds
+    ->
   xn_sum (activities_bounds_active_at t bounds) >= usage
     ->
   usage_sum (activities_at_t (activity_list constr sol) t) >= usage.
 Proof.
   intros constr sol bounds usage t.
-  intros Hvalid Hsum.
+  intros Hvalid Hunique Hsum.
   unfold usage_sum.
   apply xn_sum_sub_list_gen with (l1 := (activities_bounds_active_at t bounds)).
-  - apply valid_bounds_mandatory_sublist. exact Hvalid.
+  - apply valid_bounds_mandatory_sublist. exact Hvalid. exact Hunique.
   - exact Hsum.
 Qed.
 
@@ -1310,8 +1354,12 @@ Definition can_be_active_at_t (capacity : N) (activity : string * zn_interval * 
     match activity_bounds_is_active t activity with
     | nil => 
       match activity with
-      | (_, _, (_, usage)) =>  
-        profile_usage + usage <=? capacity
+      | (_, (lb, size), (_, usage)) =>
+        (lb <=? t)%Z
+          &&
+        (t <? lb + Z.of_N size)%Z
+          && 
+        (profile_usage + usage <=? capacity)
       end
     | _ => true
     end
@@ -1333,7 +1381,9 @@ Proof.
   - split.
     + reflexivity.
     + rewrite <- not_true_iff_false in Hfalse.
+      repeat rewrite andb_true_iff in Hfalse.
       rewrite N.leb_le in Hfalse.
+      
       lia.
   - discriminate Hfalse.
 Qed.
@@ -1459,7 +1509,6 @@ Proof.
           rewrite in_map_iff.
           assert (In a (activities_bounds_active_at t bounds)) as Hin2 by assumption.
           unfold activities_bounds_active_at in Hin.
-          rewrite nodup_In in Hin.
           rewrite in_flat_map in Hin.
           destruct Hin as [a' [Hinbounds Hinres]].
           destruct a' as [[x [lb size]] [p u]] eqn:Ha'.
@@ -1498,9 +1547,10 @@ Proof.
             rewrite Z.leb_le in Hmand.
             rewrite Z.ltb_lt in Hmand.
             exact Hmand. 
-        * unfold activities_bounds_active_at. 
-          (* TODO: try and get rid of this, but it only really matters for performance *)
-          apply NoDup_nodup.
+        * apply activity_bounds_nodup.
+          apply inferred_cumulative_bounds_valid with (sol := sol) in Hbounds.
+          -- apply Hbounds.
+          -- apply Hneg.
       + exact Hsum.
     }
     { 
@@ -1595,7 +1645,7 @@ Proof.
         destruct Hfalse as [Hnotact Husage].
         assert (~ In (x, u) (activities_bounds_active_at t_false bounds)) as Hnot_man.
         { 
-          unfold activities_bounds_active_at. rewrite nodup_In.
+          unfold activities_bounds_active_at.
           rewrite in_flat_map.
           unfold not.
           intros [a_man [Ha_man_bounds Hman]].
@@ -1672,6 +1722,7 @@ Proof.
           lia.
         + exact Hnot_man.
         + lia.
+        + apply Hunique.
       - enough (p >= 1)%N by lia.
         rewrite Ha in Htask.
         apply task_valid_processing in Htask.
@@ -1718,4 +1769,120 @@ Proof.
   apply checker_not_cumulative with (fact := fact) (sol := sol) (constr := constr); assumption.
 Qed.
 
+Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) :=
+  {|
+    var := interval {| name := x; lower_bound := Z0; size := 50 |} ; 
+    comparator := atm_comparator ; 
+    value := atm_value
+  |}.
 
+Definition mkInf (lhs : list Atomic) (rhs : option Atomic) :=
+  let lhs_neg := (map atomic_not lhs) in
+    lhs_neg ++
+    match rhs with
+    | None => nil
+    | Some rhs => rhs :: nil
+    end.
+
+(* Mandatory conflict *)    
+Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 3%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 20%N in
+  let fact := 
+    mkInf (
+        mkAtm "x" greater_equal 0 ::
+        mkAtm "x" less_equal 2 ::
+        mkAtm "y" greater_equal 1 ::
+        mkAtm "y" less_equal 3 ::
+        nil
+      ) None in
+  (Bool.eqb (cumulative_checker fact constr) true).
+
+(* 1-step *)
+Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 20%N in
+  let fact := 
+    mkInf (
+        mkAtm "x" greater_equal 0 ::
+        mkAtm "x" less_equal 2 ::
+        mkAtm "y" greater_equal 2 ::
+        nil
+      ) (Some (mkAtm "y" greater_equal 3)) in
+  cumulative_checker fact constr.
+
+(* Multi-step simple *)
+Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 20%N in
+  let fact := 
+    mkInf (
+        mkAtm "x" greater_equal 0 ::
+        mkAtm "x" less_equal 2 ::
+        mkAtm "y" greater_equal 2 ::
+        nil
+      ) (Some (mkAtm "y" greater_equal 4)) in
+  cumulative_checker fact constr.
+
+(* resource_profile (constraint.(capacity)) bounds times *)
+
+(* Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 10%N in
+    (ZRange.build_range constr.(horizon_start) constr.(horizon_end)). *)
+
+(* Definition NN := (N * N)%type.
+*)
+Compute 
+  let cap := 1%N in
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    cap Z0 10%N in
+  let fact := 
+    mkInf (
+        mkAtm "x" greater_equal 0 ::
+        mkAtm "x" less_equal 2 ::
+        mkAtm "y" greater_equal 2 ::
+        nil
+      ) (Some (mkAtm "y" greater_equal 4)) in
+  let is := (constraint_to_intervals constr) in
+  let error_a := ("ERROR"%string, (0, 16%N), (4%N, 1%N)) in
+  let ax := hd error_a is in
+  let ay := hd error_a (tl is) in
+  let atoms := (map atomic_not fact) in
+  let tms := (ZRange.build_range constr.(horizon_start) constr.(horizon_end)) in
+  let inferr := inferred_cumulative_bounds constr fact in
+    match inferr with
+    | None => None
+    | Some inferr => 
+        let appl_y := hd error_a (tl inferr) in
+        let profile := (resource_profile cap inferr tms) in
+          Some (make_active_list cap profile appl_y)
+    end
+  . 
+
+  (* (make_active_list capacity profile activity) *)

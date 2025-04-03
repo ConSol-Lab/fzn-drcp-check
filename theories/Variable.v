@@ -19,6 +19,13 @@ Inductive Var :=
   | interval (var : IntervalVariable).
 
 
+Lemma var_eq_dec :
+  forall x y : Var, {x = y}+{x <> y}.
+Proof.
+  intros x y.
+  repeat decide equality.
+Qed.
+
 Definition eqb (lhs : Var) (rhs : Var) :=
   match (lhs, rhs) with
   | (interval lhs, interval rhs) => andb

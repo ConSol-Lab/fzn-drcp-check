@@ -31,7 +31,7 @@ Definition interval_to_bounds (i : zn_interval) : (Z * Z)%type :=
     (lb, lb + (Z.of_N size)).
 
 Definition bounds_to_interval (lb : Z) (ub : Z) : option zn_interval :=
-  if ub <=? lb
+  if ub <? lb
     then None
     else Some (lb, Z.to_N (ub - lb)).
 
@@ -324,22 +324,22 @@ Proof.
     unfold interval_to_bounds in Hbound. inversion Hbound. subst old_lb'; clear Hbound.
     destruct (comparator a).
     + destruct (value a <? ub).
-      * unfold bounds_to_interval in H0. destruct (value a <=? old_lb); inversion H0.
+      * unfold bounds_to_interval in H0. destruct (value a <? old_lb); inversion H0.
         lia.
       * inversion H0. subst old_lb; subst old_size.
         exact Hinold.
     + destruct (value a >? old_lb).
-      * unfold bounds_to_interval in H0. destruct (ub <=? value a); inversion H0.
+      * unfold bounds_to_interval in H0. destruct (ub <? value a); inversion H0.
         lia.
       * inversion H0. subst old_lb; subst old_size.
         lia.
     + destruct (value a =? old_lb) eqn:Hvallb.
-      * unfold bounds_to_interval in H0. destruct (ub <=? old_lb + 1); inversion H0.
+      * unfold bounds_to_interval in H0. destruct (ub <? old_lb + 1); inversion H0.
         rewrite Z.eqb_eq in Hvallb. rewrite Hvallb in Haholds.
         lia.
       * destruct (value a =? ub) eqn:Hvalub. 
         -- unfold bounds_to_interval in H0.
-          destruct (ub - 1 <=? old_lb); inversion H0.
+          destruct (ub - 1 <? old_lb); inversion H0.
           lia.
         -- inversion H0. subst lb; subst size. lia.
     + destruct (value a <? old_lb); try discriminate H0.
@@ -431,6 +431,26 @@ Proof.
   - right. exact Hin.
 Qed.
 
+Lemma unique_bounds_less (U : Type) :
+  forall (a : string * zn_interval * U) bounds,
+    unique_bounds (a :: bounds)
+      ->
+    unique_bounds bounds.
+Proof.
+  intros a bounds.
+  intros Hunique.
+  unfold unique_bounds in Hunique.
+  unfold unique_bounds.
+  destruct Hunique as [Hnodup Hunique].
+  split.
+  - rewrite NoDup_cons_iff in Hnodup. apply Hnodup.
+  - intros a1 a2 Hin1 Hin2 Hname.
+    apply Hunique.
+    + right. exact Hin1.
+    + right. exact Hin2.
+    + exact Hname.
+Qed.
+
 Lemma apply_atomics_correct (U : Type) :
   forall (is : list (string * zn_interval * U)) atoms bounds,
   apply_atomics_to_variables is atoms = Some bounds 
@@ -508,19 +528,6 @@ Proof.
   - intros atoms bounds.
     intros Hunique.
     intros Happly.
-    assert (unique_bounds is).
-    { 
-      unfold unique_bounds in Hunique.
-      unfold unique_bounds.
-      destruct Hunique as [Hnodup Hunique].
-      split.
-      - rewrite NoDup_cons_iff in Hnodup. apply Hnodup.
-      - intros a1 a2 Hin1 Hin2 Hname.
-        apply Hunique.
-        + right. exact Hin1.
-        + right. exact Hin2.
-        + exact Hname.
-    }
     simpl in Happly.
     destruct (apply_atomics_to_variables is atoms) as [is_result |] eqn:Happlyis.
     + assert (forall a_x a_i a_u, 
@@ -535,6 +542,7 @@ Proof.
       destruct (apply_atomics a atoms nil) as [[[[a_applied x] a_i] a_u] |] eqn:Haapply.
       * inversion Happly.
         subst bounds; clear Happly.
+        apply unique_bounds_less in Hunique as H.
         apply IHis with (atoms := atoms) (bounds := is_result) in H.
         2: { exact Happlyis. }
         clear IHis.
