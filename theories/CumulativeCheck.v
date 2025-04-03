@@ -1354,10 +1354,10 @@ Definition can_be_active_at_t (capacity : N) (activity : string * zn_interval * 
     match activity_bounds_is_active t activity with
     | nil => 
       match activity with
-      | (_, (lb, size), (_, usage)) =>
+      | (_, (lb, size), (p_time, usage)) =>
         (lb <=? t)%Z
           &&
-        (t <? lb + Z.of_N size)%Z
+        (t <? lb + Z.of_N size + Z.of_N p_time)%Z
           && 
         (profile_usage + usage <=? capacity)
       end
@@ -1370,9 +1370,9 @@ Lemma can_be_active_at_t_false :
   forall t profile_usage c x lb size p u,
     can_be_active_at_t c (x, (lb, size), (p, u)) (t, profile_usage) = false
       ->
-    activity_bounds_is_active t (x, (lb, size), (p, u)) = nil
+    (activity_bounds_is_active t (x, (lb, size), (p, u)) = nil)
       /\
-    profile_usage + u > c.
+    ((profile_usage + u > c) \/ (t < lb \/ t >= lb + Z.of_N size + Z.of_N p)%Z).
 Proof.
   intros t p_u c x lb size p u.
   intros Hfalse.
@@ -1380,11 +1380,11 @@ Proof.
   destruct (activity_bounds_is_active t (x, (lb, size), (p, u))).
   - split.
     + reflexivity.
-    + rewrite <- not_true_iff_false in Hfalse.
-      repeat rewrite andb_true_iff in Hfalse.
+    + repeat rewrite andb_false_iff in Hfalse.
+      repeat rewrite <- not_true_iff_false in Hfalse.
+      repeat rewrite Z.leb_le in Hfalse.
       rewrite N.leb_le in Hfalse.
-      
-      lia.
+      lia. 
   - discriminate Hfalse.
 Qed.
 
@@ -1642,7 +1642,8 @@ Proof.
 
         rewrite Ha in Hfalse.
         apply can_be_active_at_t_false in Hfalse.
-        destruct Hfalse as [Hnotact Husage].
+        destruct Hfalse as [Hnotact Hfalse].
+
         assert (~ In (x, u) (activities_bounds_active_at t_false bounds)) as Hnot_man.
         { 
           unfold activities_bounds_active_at.
@@ -1691,38 +1692,54 @@ Proof.
         }
 
         apply valid_bounds_mandatory_sublist with (t := t_false) in Hbounds.
+        2: exact Hunique.
         apply Hr_profile_correct in Hprofile; clear Hr_profile_correct.
         destruct Hprofile as [Htfalsein Htusage].
 
-        apply xn_sum_capacity_not_in with (n := c) (xn := u) (x := x) in Hbounds.
-        + simpl in Ht.
-          assert ((start act) <= t_false < (start act) + Z.of_N p) as Hactive by lia.
-          clear Heqi; clear Ht.
+        destruct Hfalse as [Husage | Htout].
+        {
+          apply xn_sum_capacity_not_in with (n := c) (xn := u) (x := x) in Hbounds.
+          + simpl in Ht.
+            assert ((start act) <= t_false < (start act) + Z.of_N p) as Hactive by lia.
+            clear Heqi; clear Ht.
 
-          assert (In act (activities_at_t (activity_list constr sol) t_false)) as Hact_active.
-          {
-            unfold activities_at_t. rewrite filter_In.
+            assert (In act (activities_at_t (activity_list constr sol) t_false)) as Hact_active.
+            {
+              unfold activities_at_t. rewrite filter_In.
+              split.
+              - exact Hstart.
+              - unfold is_active_at. 
+                rewrite Hp.
+                rewrite andb_true_iff.
+                rewrite Z.leb_le. rewrite Z.ltb_lt. exact Hactive.  
+            }
+
+            apply Hbounds.
+            apply in_map_iff.
+            exists act.
             split.
-            - exact Hstart.
-            - unfold is_active_at. 
-              rewrite Hp.
-              rewrite andb_true_iff.
-              rewrite Z.leb_le. rewrite Z.ltb_lt. exact Hactive.  
-          }
-
-          apply Hbounds.
-          apply in_map_iff.
-          exists act.
-          split.
-          * unfold act_to_xn. rewrite Heqact. rewrite Ha. simpl. reflexivity.
-          * exact Hact_active.
-        + rewrite Heqc. apply cumulative_forall.
-          * exact Hconstr.
-          * apply Htimes in Htfalsein.
-          lia.
-        + exact Hnot_man.
-        + lia.
-        + apply Hunique.
+            * unfold act_to_xn. rewrite Heqact. rewrite Ha. simpl. reflexivity.
+            * exact Hact_active.
+          + rewrite Heqc. apply cumulative_forall.
+            * exact Hconstr.
+            * apply Htimes in Htfalsein.
+            lia.
+          + exact Hnot_man.
+          + lia.
+        }
+        {
+          destruct Hinactivity  as [_ Hactbounds].
+          simpl in Ht.
+          clear Hnot_man; clear Hnotact; clear Htusage; clear Hr_profile_len; clear Hbounds.
+          subst h_start; subst h_end.
+          clear Htask; subst p; clear Hconstr; clear Htimes.
+          subst i.
+          simpl in Ht.
+          destruct Htout as [Htlb | Hgeub].
+          - lia.
+          - lia.
+        }
+        
       - enough (p >= 1)%N by lia.
         rewrite Ha in Htask.
         apply task_valid_processing in Htask.
@@ -1839,6 +1856,24 @@ Compute
       ) (Some (mkAtm "y" greater_equal 4)) in
   cumulative_checker fact constr.
 
+(* Multi-step hole *)
+Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 2%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 20%N in
+  let fact := 
+    mkInf (
+        mkAtm "x" greater_equal 0 ::
+        mkAtm "x" less_equal 2 ::
+        mkAtm "y" greater_equal 1 ::
+        nil
+      ) (Some (mkAtm "y" greater_equal 4)) in
+  cumulative_checker fact constr.
+
 (* resource_profile (constraint.(capacity)) bounds times *)
 
 (* Compute 
@@ -1858,7 +1893,7 @@ Compute
   let constr := build_cumulative 
     (
       {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
-      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 2%N; def_u := 1%N; |} ::
       nil
     ) 
     cap Z0 10%N in
@@ -1866,7 +1901,7 @@ Compute
     mkInf (
         mkAtm "x" greater_equal 0 ::
         mkAtm "x" less_equal 2 ::
-        mkAtm "y" greater_equal 2 ::
+        mkAtm "y" greater_equal 0 ::
         nil
       ) (Some (mkAtm "y" greater_equal 4)) in
   let is := (constraint_to_intervals constr) in
