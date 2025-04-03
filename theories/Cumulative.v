@@ -19,12 +19,29 @@ Definition x_determines_params (l : list (Var * N * N)) :=
     var_name v1 = var_name v2 ->
     (v1, p1, u1) = (v2, p2, u2).
 
+Definition processing_constr (l : list (Var * N * N)) (h_start : Z) (h_end : Z) :=
+  forall v p u,
+    In (v, p, u) l ->
+      (* TODO: the smaller than diff actually results from horizon_all *)
+      (1 <= p <= Z.to_N (h_end - h_start))%N.
+
+Definition horizon_all (l : list (Var * N * N)) (h_start : Z) (h_end : Z) :=
+  forall v p u,
+    In (v, p, u) l
+      ->
+    match v with
+    | interval var => 
+      h_start <= var.(lower_bound) /\ var.(upper_bound) + Z.of_N p <= h_end
+    end.
+
 Record CumulativeConstraint :=
   {
     capacity: N;
     vs: list (Var * N * N);
     horizon_start : Z;
     horizon_end : Z;
+    valid_horizon : horizon_all vs horizon_start horizon_end;
+    valid_p_times: processing_constr vs horizon_start horizon_end;
     horizon_consistent : horizon_start <= horizon_end;
     x_determine_var : x_determines_var vs;
     x_determine_params : x_determines_params vs;

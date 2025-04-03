@@ -1,4 +1,5 @@
 
+Require Import Coq.Logic.FinFun.
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
 Require Import String.
@@ -405,14 +406,47 @@ Proof.
   - exact Hin.
 Qed.
 
+Definition in_horizon (a : Activity) (c : CumulativeConstraint) :=
+  c.(horizon_start) <= a.(start) /\ a.(start) + Z.of_N a.(p_time) <= c.(horizon_end).
+
 Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :=
   let act := (make_activity a c sol) in
     In act (activity_list c sol)
+      /\
+    in_horizon act c
       /\
     match a with
     | (x, (lb, size), (p, u)) =>
       lb <= act.(start) <= lb + Z.of_N size
     end.
+
+Definition horizon_length (c : CumulativeConstraint) :=
+  Z.to_N (c.(horizon_end) - c.(horizon_start)).
+
+Lemma task_valid_processing :
+  forall x lb size p u c sol,
+    task_in_constraint (x, (lb, size), (p, u)) c sol
+      ->
+    (1 <= p <= horizon_length c)%N.
+Proof.
+  intros x lb size p u c sol.
+  intros Htask.
+  destruct Htask as [Hin _].
+  unfold activity_list in Hin.
+  unfold activity_list_inner in Hin.
+  rewrite in_map_iff in Hin.
+  destruct Hin as [[[v p'] u'] H].
+  destruct H as [Hact Hinvs].
+  specialize c.(valid_p_times) as Hprocess.
+  unfold processing_constr in Hprocess.
+  apply Hprocess with (v := v) (u := u).
+  unfold activity_list_inner_f in Hact.
+  unfold make_activity in Hact.
+  destruct v as [v].
+  inversion Hact; subst p'; subst u'.
+  exact Hinvs.
+Qed.
+  
 
 Lemma two_tasks_in_constraint_x_eq (a1 a2 : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :
   task_in_constraint a1 c sol
@@ -454,14 +488,6 @@ Qed.
   
 
 Open Scope N_scope.
-
-
-
-Definition unique_bounds (bounds : list (string * zn_interval * (N * N))) :=
-  forall a1 a2,
-    In a1 bounds -> In a2 bounds
-    -> bound_name a1 = bound_name a2
-    -> a1 = a2. 
 
 Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
   forall a, In a bounds -> task_in_constraint a c sol.
@@ -538,27 +564,39 @@ Lemma constraint_to_intervals_unique :
 Proof.
   intros c.
   unfold unique_bounds.
-  intros a1 a2.
-  intros Hin1 Hin2.
-  intros Hname.
-  destruct a1 as [[x1 [lb1 size1]] [p1 u1]].
-  destruct a2 as [[x2 [lb2 size2]] [p2 u2]].
-  unfold bound_name in Hname.
-  subst x2.
-  unfold constraint_to_intervals in Hin1, Hin2.
-  rewrite in_map_iff in Hin1, Hin2.
-  destruct Hin1 as [[[v1 p1'] u1'] [H1 Hin1]].
-  destruct v1 as [v1]. inversion H1.
-  subst lb1; subst size1; subst p1'; subst u1'; clear H1.
-  destruct Hin2 as [[[v2 p2'] u2'] [H2 Hin2]].
-  destruct v2 as [v2]. inversion H2.
-  subst lb2; subst size2; subst p2'; subst u2'; clear H2.
-  specialize c.(x_determine_params) as Hdeterm.
-  unfold x_determines_params in Hdeterm.
-  apply Hdeterm with (v2 := (interval v2)) (p2 := p2) (u2 := u2) in Hin1 as Hv1v2.
-  - inversion Hv1v2. reflexivity.
-  - exact Hin2.
-  - simpl. rewrite H0. rewrite H1. reflexivity.
+  split.
+  - unfold constraint_to_intervals. apply Injective_map_NoDup.
+    + unfold Injective. intros [[v1 p1] u1]. intros [[v2 p2] u2].
+      destruct v1 as [v1]. destruct v2 as [v2].
+      intros H.
+      inversion H.
+      subst p2; subst u2.
+      destruct v1. destruct v2. simpl in *.
+      assert (size = size0) by lia.
+      subst name0; subst lower_bound0; subst size0.
+      reflexivity.
+    + apply c.(vs_nodup). 
+  - intros a1 a2.
+    intros Hin1 Hin2.
+    intros Hname.
+    destruct a1 as [[x1 [lb1 size1]] [p1 u1]].
+    destruct a2 as [[x2 [lb2 size2]] [p2 u2]].
+    unfold bound_name in Hname.
+    subst x2.
+    unfold constraint_to_intervals in Hin1, Hin2.
+    rewrite in_map_iff in Hin1, Hin2.
+    destruct Hin1 as [[[v1 p1'] u1'] [H1 Hin1]].
+    destruct v1 as [v1]. inversion H1.
+    subst lb1; subst size1; subst p1'; subst u1'; clear H1.
+    destruct Hin2 as [[[v2 p2'] u2'] [H2 Hin2]].
+    destruct v2 as [v2]. inversion H2.
+    subst lb2; subst size2; subst p2'; subst u2'; clear H2.
+    specialize c.(x_determine_params) as Hdeterm.
+    unfold x_determines_params in Hdeterm.
+    apply Hdeterm with (v2 := (interval v2)) (p2 := p2) (u2 := u2) in Hin1 as Hv1v2.
+    + inversion Hv1v2. reflexivity.
+    + exact Hin2.
+    + simpl. rewrite H0. rewrite H1. reflexivity.
 Qed.
 
 Open Scope Z_scope.
@@ -600,7 +638,7 @@ Proof.
         + unfold c_var_with_x in Hfind. rewrite String.eqb_neq in Hfind. simpl in Hfind. contradiction.
         + exact Hvinc.
     }
-    split.
+    split; [| split].
     - unfold make_activity.
       unfold activity_list. unfold activity_list_inner.
       rewrite in_map_iff.
@@ -611,6 +649,18 @@ Proof.
         rewrite Hvalue_x.
         reflexivity.
       + exact Hvinc.
+    - unfold in_horizon. unfold make_activity. simpl.
+      specialize c.(valid_horizon) as Hhor.
+      unfold horizon_all in Hhor.
+      specialize (Hhor (interval var) p u Hvinc).
+      simpl in Hhor.
+      rewrite <- Hvalue_x.
+      specialize (sol.(consistency_proof) (interval var)) as Hconsistent.
+      apply is_in_implies_lower_bound in Hconsistent as Hlow.
+      apply is_in_implies_upper_bound in Hconsistent as Hup.
+      unfold var_upper_bound in Hup.
+      unfold var_lower_bound in Hlow.
+      lia.
     - unfold make_activity. simpl.
       rewrite <- Hvalue_x.
       apply atomic_proof_correct with (lb_init := (lower_bound var)) (size_init := (N.of_nat (size var))) (atoms := atoms_applied) (x := name var); try easy.
@@ -620,9 +670,10 @@ Proof.
       exact Hinapplied.
   }
   {
-    unfold unique_bounds.
-    intros a1 a2. intros Hin1 Hin2 Hname.
-    unfold apply_atomics_to_variables in Hbounds.
+    apply apply_atomics_unique with (atoms := (map atomic_not inference)) (is := (constraint_to_intervals c)).
+    - repeat decide equality.
+    - apply constraint_to_intervals_unique.
+    - exact Hbounds.
   }
 Qed.
 (*     
@@ -1342,6 +1393,32 @@ Proof.
   lia.
 Qed.
 
+Lemma cumulative_forall :
+  forall sol c,
+    Is_true (cumulative_decide c sol)
+      ->
+    forall t, 
+      c.(horizon_start) <= t <= c.(horizon_end)
+        ->
+      (usage_sum (activities_at_t (activity_list c sol) t) <= c.(capacity))%N.
+Proof.
+  intros sol c.
+  intros Htrue.
+  intros t Ht.
+  apply Is_true_eq_true in Htrue.
+  unfold cumulative_decide in Htrue.
+  rewrite forallb_forall in Htrue.
+  assert (In t (ZRange.build_range (horizon_start c) (horizon_end c))).
+  { apply ZRange.build_range_correct.
+    - apply c.(horizon_consistent).
+    - exact Ht. }
+  apply Htrue in H; clear Htrue.
+  rewrite <- N.leb_le.
+  exact H.
+Qed.
+
+
+
 Lemma checker_not_cumulative :
   forall fact sol constr,
   Is_true (cumulative_decide constr sol)
@@ -1438,6 +1515,8 @@ Proof.
       apply inferred_cumulative_bounds_valid with (sol := sol) in Hbounds.
       2: apply Hneg.
       clear Hneg.
+      destruct Hbounds as [Hbounds Hunique].
+      pose proof Hbound as Hinbounds.
       apply Hbounds in Hbound.
       pose proof Hbound as Htask.
       unfold task_in_constraint in Hbound.
@@ -1445,7 +1524,20 @@ Proof.
       destruct Hbound as [Hstart Hinactivity].
       rewrite <- Ha in *.
       remember (make_activity a constr sol) as act.
-      
+
+      assert (p_time act = p) as Hp.
+      {
+        rewrite Heqact. rewrite Ha. unfold make_activity.
+        simpl. reflexivity.
+      }
+
+      pose proof Htask as Hacthor.
+      rewrite Ha in Hacthor.
+      unfold task_in_constraint in Hacthor.
+      destruct Hacthor as [_ [Hacthor _]].
+      rewrite <- Ha in Hacthor. rewrite <- Heqact in Hacthor.
+      unfold in_horizon in Hacthor.
+      rewrite Hp in Hacthor.   
  
 (* 
       clear Hatomsin; clear Hatomproof; clear atoms_applied; clear Hbounds; clear Hneg. *)
@@ -1466,19 +1558,32 @@ Proof.
       rewrite Heqtimes in Hr_profile_range.
       specialize (Hr_profile_range Hbuild_range); clear Hbuild_range.
       rewrite <- Heqtimes in Hr_profile_range.
-      rewrite <- Heqr_profile in Hr_profile_range.     
-
-      clear Heqtimes; clear Heqr_profile.
-
+      rewrite <- Heqr_profile in Hr_profile_range.
+      pose proof Hr_profile_range as Hr_profile_len.
+      apply ZRange.is_range_length in Hr_profile_len.
+      rewrite length_map in Hr_profile_len.
+      
+      
       unfold make_active_list in Hruns.
 
       remember (horizon_end constr) as h_end.
       remember (horizon_start constr) as h_start.
 
-      remember (Z.to_nat (h_end - ((start act) + Z.of_N p) + 1)) as i.
+      assert (forall t, In t times -> h_start <= t <= h_end) as Htimes.
+      { 
+        rewrite Heqh_end in *; rewrite Heqh_start in *.
+        specialize (ZRange.build_range_correct (horizon_start constr) (horizon_end constr) (horizon_consistent constr)) as Hrange.
+        rewrite Heqtimes.
+        intros t Hin.
+        unfold ZRange.is_range in Hrange.
+        destruct Hrange as [_ [Ht _]].
+        apply Ht.
+        exact Hin.
+      }
 
-      assert ((start act) + Z.of_N p <= h_end).
-      { admit. }
+      clear Heqtimes; clear Heqr_profile.
+
+      remember (Z.to_nat (h_end - ((start act) + Z.of_N p) + 1)) as i.
 
       apply (run_at_seq_fk_false r_profile) with (fb := (can_be_active_at_t c a)) (n := (N.to_nat p)) (i := i) in Hr_profile_range.
 
@@ -1488,12 +1593,14 @@ Proof.
         rewrite Ha in Hfalse.
         apply can_be_active_at_t_false in Hfalse.
         destruct Hfalse as [Hnotact Husage].
-        assert (~ In (x, u) (activities_bounds_active_at t_false bounds)).
+        assert (~ In (x, u) (activities_bounds_active_at t_false bounds)) as Hnot_man.
         { 
           unfold activities_bounds_active_at. rewrite nodup_In.
           rewrite in_flat_map.
           unfold not.
           intros [a_man [Ha_man_bounds Hman]].
+           
+          pose proof Ha_man_bounds as Ha_man_inbounds.
           
           apply Hbounds in Ha_man_bounds.
 
@@ -1504,7 +1611,19 @@ Proof.
           2: { destruct Hman. }
           simpl in Hman. destruct Hman as [Hxu |]; try contradiction.
           inversion Hxu; subst x'; subst u'; clear Hxu.
-          unfold interval_to_bounds in Hbound_lb.
+
+          destruct Hunique as [_ Hunique].
+          apply Hunique with (a1 := a) in Ha_man_inbounds.
+          - rewrite Ha in Ha_man_inbounds. inversion Ha_man_inbounds.
+            subst lb'; subst size'; subst p'; clear Ha_man_inbounds.
+            unfold activity_bounds_is_active in Hnotact.
+            rewrite Hbound_lb in Hnotact.
+            rewrite His_man in Hnotact.
+            discriminate Hnotact. 
+          - exact Hinbounds.
+          - rewrite Ha. simpl. reflexivity.
+
+          (* unfold interval_to_bounds in Hbound_lb.
           inversion Hbound_lb; subst lb_b; subst ub'; clear Hbound_lb.
 
           apply two_tasks_in_constraint_x_eq with (a1 := a) in Ha_man_bounds.
@@ -1512,51 +1631,63 @@ Proof.
           assert (x = x) as Ha1a2 by reflexivity.
           apply Ha_man_bounds in Ha1a2; clear Ha_man_bounds.
 
-
-
-
           destruct (activity_bounds_is_active t_false a_man) eqn:H_is_active.
           - destruct Hman.
           - 
             assert (p0 = (x, u)).
             {
               destruct 
-            }
+            } *)
         }
 
+        apply valid_bounds_mandatory_sublist with (t := t_false) in Hbounds.
         apply Hr_profile_correct in Hprofile; clear Hr_profile_correct.
-        destruct Hprofile as [_ Hboundssum].
+        destruct Hprofile as [Htfalsein Htusage].
 
-        apply bounds_sum_implies_usage with (constr := constr) (sol := sol) in Hboundssum.
-        2: apply Hbounds.
+        apply xn_sum_capacity_not_in with (n := c) (xn := u) (x := x) in Hbounds.
+        + simpl in Ht.
+          assert ((start act) <= t_false < (start act) + Z.of_N p) as Hactive by lia.
+          clear Heqi; clear Ht.
 
-        simpl in Ht.
-        assert (start <= t_false < start + Z.of_N p) as Hactive by lia.
-        clear Heqi; clear Ht.
+          assert (In act (activities_at_t (activity_list constr sol) t_false)) as Hact_active.
+          {
+            unfold activities_at_t. rewrite filter_In.
+            split.
+            - exact Hstart.
+            - unfold is_active_at. 
+              rewrite Hp.
+              rewrite andb_true_iff.
+              rewrite Z.leb_le. rewrite Z.ltb_lt. exact Hactive.  
+          }
 
-        assert (In act (activities_at_t (activity_list constr sol) t_false)) as Hact_active.
-        {
-          unfold activities_at_t. rewrite filter_In.
+          apply Hbounds.
+          apply in_map_iff.
+          exists act.
           split.
-          - exact Hinactivity.
-          - unfold is_active_at. rewrite Heqact. simpl.
-            rewrite andb_true_iff.
-            rewrite Z.leb_le. rewrite Z.ltb_lt. exact Hactive.  
-        }
-
-
-
-        
-
-
-
+          * unfold act_to_xn. rewrite Heqact. rewrite Ha. simpl. reflexivity.
+          * exact Hact_active.
+        + rewrite Heqc. apply cumulative_forall.
+          * exact Hconstr.
+          * apply Htimes in Htfalsein.
+          lia.
+        + exact Hnot_man.
+        + lia.
+      - enough (p >= 1)%N by lia.
+        rewrite Ha in Htask.
+        apply task_valid_processing in Htask.
+        lia.
+      - enough (p <= horizon_length constr)%N as Hhor_len.
+        { unfold horizon_length in Hhor_len.
+        lia. }
+        rewrite Ha in Htask.
+        apply task_valid_processing in Htask.
+        lia.
+      - rewrite Ha in Htask.
+        apply task_valid_processing in Htask.
+        lia.
+      - apply Hruns.
     }
-  
-
-  (* apply sufficient_false.
-  apply Is_true_eq_true in Hchecked.
-  apply checker_true_finds_overloaded_t with (fact := fact); assumption. *)
-Admitted.
+Qed.
 
 Lemma is_true_false_not :
   forall b, Is_true b -> b = false -> False.

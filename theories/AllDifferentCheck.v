@@ -15,8 +15,7 @@ Definition alldifferent_checker (inference : list Atomic) (constraint : AllDiffe
   end
 .
 
-Definition ex_confl_set (st : state) (vs : sstr.t) := 
-(exists (confl_vars : vars), sstr.Subset confl_vars vs /\ dom_size (vars_union_domain st confl_vars) < vars_len confl_vars).
+
 
 Lemma checker_negated_is_conflict :
   forall fact sol constr,
@@ -58,3 +57,6 @@ Proof.
   - exact Hchecked.
   - apply neg_atomic. exact Hfact.
 Qed.
+
+(* Definition ex_confl_set (st : state) (vs : sstr.t) := 
+(exists (confl_vars : vars), sstr.Subset confl_vars vs /\ dom_size (vars_union_domain st confl_vars) < vars_len confl_vars). *)
