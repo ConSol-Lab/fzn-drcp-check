@@ -361,41 +361,40 @@ Lemma xn_sum_capacity_not_in :
       ->
     xn_sum l1 + xn > n
       ->
-    ~ (In (x, xn) l2).
+    (In (x, xn) l2)
+      ->
+    False.
 Proof.
   intros l1 l2 n x xn.
-  intros Hsub Hsum Hnotin Hgt.
-  destruct (in_dec xn_eq_dec (x, xn) l2) as [Hinl2 | Hninl2].
-  - exfalso.
-    assert (sub_list xn_eq_dec ((x, xn) :: l1) l2).
-    {
-      unfold sub_list.
-      intros a.
-      intros Hain.
-      simpl.
-      destruct Hain.
-      - subst a.
-        unfold sub_list in Hsub.
-        destruct (xn_eq_dec (x, xn) (x, xn)) as [Heq | Hneq].
-        + clear Heq. rewrite (count_occ_In xn_eq_dec) in Hinl2.
-          rewrite (count_occ_not_In xn_eq_dec) in Hnotin.
-          rewrite Hnotin.
-          lia.
-        + contradiction.
-      - destruct (xn_eq_dec (x, xn) a) as [Heq | Hneq].
-        + subst a. contradiction.
-        + apply Hsub. exact H. 
-    }
-    apply xn_sum_sub_list_gtn with (n := n) in H.
-    + contradiction.
-    + clear Hsub; clear Hsum; clear Hnotin; clear Hinl2; clear H.
-      unfold xn_sum in *.
-      simpl in *.
-      unfold n_sum in *.
-      simpl in *.
-      rewrite n_sum_add in *.
-      lia.
-  - exact Hninl2.
+  intros Hsub Hsum Hnotin Hgt Hinl2.
+  assert (sub_list xn_eq_dec ((x, xn) :: l1) l2).
+  {
+    unfold sub_list.
+    intros a.
+    intros Hain.
+    simpl.
+    destruct Hain.
+    - subst a.
+      unfold sub_list in Hsub.
+      destruct (xn_eq_dec (x, xn) (x, xn)) as [Heq | Hneq].
+      + clear Heq. rewrite (count_occ_In xn_eq_dec) in Hinl2.
+        rewrite (count_occ_not_In xn_eq_dec) in Hnotin.
+        rewrite Hnotin.
+        lia.
+      + contradiction.
+    - destruct (xn_eq_dec (x, xn) a) as [Heq | Hneq].
+      + subst a. contradiction.
+      + apply Hsub. exact H. 
+  }
+  apply xn_sum_sub_list_gtn with (n := n) in H.
+  + contradiction.
+  + clear Hsub; clear Hsum; clear Hnotin; clear Hinl2; clear H.
+    unfold xn_sum in *.
+    simpl in *.
+    unfold n_sum in *.
+    simpl in *.
+    rewrite n_sum_add in *.
+    lia.
 Qed.
 
 
