@@ -99,67 +99,6 @@ Inductive Atomic_proof (x : string) (i_init : zn_interval) : list Atomic -> zn_i
     : Atomic_proof x i_init (a :: al') new_i
   .
 
-(* Lemma apply_atomics_preserves (U : Type) :
-  forall x (u : U) i_init,
-    forall atoms i_before applied_before out,
-    apply_atomics (x, i_before, u) atoms applied_before = Some out
-      ->
-    match out with
-    | (_, x', _, u') => 
-      x' = x /\ u' = u 
-    end.
-Proof.
-  intros x u i_init.
-  induction atoms.
-  - intros i_before applied_before out Hbefore Happly.
-    destruct out as [[[applied x'] [lb_init size_init]] u'].
-    simpl in Happly.
-    inversion Happly. subst applied; subst x'; subst i_before; subst u'; clear Happly.
-    repeat split.
-    + intros atom Hin. right. exact Hin.
-    + exact Hbefore.
-  - intros i_before applied_before out Hbefore Happly.
-    destruct out as [[[applied x'] i_out] u'].
-    simpl in Happly.
-    destruct (atom_matches_name_and_apply a x i_before) as [name_match i_applied_a] eqn:Hmatch.
-    destruct name_match eqn:Hname.
-    + destruct i_applied_a as [i_applied_a | ].
-      2: discriminate Happly.
-      assert (Atomic_proof x i_init (a :: applied_before) i_applied_a) as Happlied.
-      {
-       clear IHatoms. apply atomic_proof_a with (old_i := i_before).
-       - exact Hbefore.
-       - exact Hmatch.
-      } 
-      remember (applied, x', i_out, u') as out.
-      specialize (IHatoms i_applied_a (a :: applied_before) out Happlied Happly); clear Happly; clear Happlied.
-      rewrite Heqout in *.
-      destruct i_out as [lb_result size_result].
-      destruct IHatoms as [Hxx' [Huu' [IHatoms IHproof]]].
-      subst x'; subst u'.
-      repeat split.
-      * intros atom' Hin.
-        destruct (IHatoms atom' Hin) as [Hinatoms |Hinbefore]; clear IHatoms.
-        -- left. simpl. right. exact Hinatoms.
-        -- destruct Hinbefore as [Haatom' | Hinbefore].
-          ++ subst atom'. left. simpl. left. reflexivity.
-          ++ right. exact Hinbefore.
-      * exact IHproof.
-    + remember (applied, x', i_out, u') as out.
-      specialize (IHatoms i_before applied_before out  Hbefore Happly).
-      rewrite Heqout in *.
-      destruct i_out as [lb_result size_result].
-      destruct IHatoms as [Hxx' [Huu' IHatoms]].
-      subst x'; subst u'.
-      repeat split.
-      * intros atom_in_applied Hin.
-        apply IHatoms in Hin.
-        destruct Hin as [Hinatoms | Hinbefore].
-        -- left. simpl. right. exact Hinatoms.
-        -- right. exact Hinbefore.
-      * apply IHatoms.
-Qed. *)
-
 (* Here we use a trick we also used for res_sum, we return also everything we've seen, this allows us to make the induction proof much easier! *)
 Lemma apply_atomics_has_proof_rec (U : Type) :
   forall x (u : U) i_init,

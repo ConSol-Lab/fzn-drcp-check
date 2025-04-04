@@ -96,27 +96,6 @@ Qed.
 
 Open Scope Z_scope.
 
-(* Here, you might think the implication goes both ways, but I was shown this cannot be, so reconsider! *)
-Lemma active_at :
-  forall t (activities : list Activity),
-    forall a lb ub, In a activities ->
-      lb <= a.(start) <= ub ->
-      ub <= t < (lb + (Z.of_N a.(p_time)))
-      ->
-      In a (activities_at_t activities t).
-Proof.
-  intros t activities a lb ub.
-  intros Hl Hbounds Ht.
-  unfold activities_at_t.
-  rewrite filter_In.
-  split.
-  - exact Hl.
-  - unfold is_active_at.
-    rewrite andb_true_iff.
-    repeat rewrite Z.leb_le.
-    lia.
-Qed.
-
 Definition mandatory_active (lb : Z) (ub : Z) (t : Z) (p_time : N) :=
   (ub <=? t) && (t <? (lb + (Z.of_N p_time))).
 
@@ -152,45 +131,7 @@ Definition activity_bounds_is_active (t : Z) (activity : string * zn_interval * 
 Definition activities_bounds_active_at (t : Z) (activities : list (string * zn_interval * (N * N))) :=
   flat_map (activity_bounds_is_active t) activities.
 
-Fixpoint find_overloaded_t_with_mandatory (capacity : N) (ts : list Z) (activities : list (string * zn_interval * (N * N))) := 
-  match ts with
-  | nil => None
-  | t :: ts' =>
-    match res_sum capacity (activities_bounds_active_at t activities) with
-    | (summed, result, false) => Some (t, summed, result)
-    | _ => find_overloaded_t_with_mandatory capacity ts' activities
-    end
-  end
-.
-
 Open Scope N_scope.
-
-Lemma overload_props :
-  forall capacity ts activities,
-    match find_overloaded_t_with_mandatory capacity ts activities with
-    | None => True
-    | Some (t, _, _) => xn_sum (activities_bounds_active_at t activities) > capacity /\ In t ts
-    end.
-Proof.
-  intros c ts activities.
-  destruct (find_overloaded_t_with_mandatory c ts activities) as [[[t summed] result] |] eqn:Hres.
-  - unfold find_overloaded_t_with_mandatory in Hres.
-    induction ts as [| ts_t ts].
-    + discriminate Hres.
-    + specialize (res_sum_semantics c (activities_bounds_active_at ts_t activities)) as Hres_sum.
-      destruct (res_sum c (activities_bounds_active_at ts_t activities)) as [[rs_summed rs_result] rs_b].
-      destruct rs_b.
-      * apply IHts in Hres; clear IHts.
-        destruct Hres as [Hgt Hin].
-        split.
-        -- exact Hgt.
-        -- simpl. right. exact Hin.
-      * clear IHts. inversion Hres. subst ts_t; subst rs_summed; subst rs_result. destruct Hres_sum as [_ [_ [Hsub Hgt]]].
-        split.
-        -- exact Hgt.
-        -- simpl. left. reflexivity.
-  - reflexivity.
-Qed. 
 
 Definition resource_profile_t (capacity : N) (activities : list (string * zn_interval * (N * N))) (t : Z) : (Z * N) :=
   match res_sum capacity (activities_bounds_active_at t activities) with
@@ -216,10 +157,6 @@ Fixpoint resource_profile (capacity : N) (activities : list (string * zn_interva
     end
   end.
   
-
-(* Definition resource_profile (capacity : N) (activities : list (string * zn_interval * (N * N))) (times : list Z) := 
-  map (resource_profile_t capacity activities) times
-. *)
 
 Definition is_as_range {A} (f : A -> Z) (s : Z) (e : Z) (l : list A) :=
   ZRange.is_range s e (map f l).
@@ -366,10 +303,6 @@ Qed.
 
 Open Scope Z_scope.
 
-      
-
-
-
 Definition c_var_with_x (x : string) (elt : (Var * N * N)) :=
   match elt with
   | (v, _, _) =>
@@ -387,32 +320,6 @@ Definition make_activity (a : string * zn_interval * (N * N)) (c : CumulativeCon
   | (x, (lb, size), (p, u)) =>
       mkAct x (x_start_time x c sol) p u
   end.
-
-
-Lemma activity_list_in_vs_ex :
-  forall c a sol,
-    In a (activity_list c sol)
-      ->
-    exists v,
-      var_name v = a.(a_name)
-        /\
-      In (v, a.(p_time), a.(usage)) c.(vs).
-Proof.
-  intros c a sol.
-  intros Hin.
-  unfold activity_list in Hin.
-  unfold activity_list_inner in Hin.
-  rewrite in_map_iff in Hin.
-  destruct Hin as [[[v p] u] [Hinner Hin]].
-  exists v.
-  unfold activity_list_inner_f in Hinner.
-  destruct v.
-  rewrite <- Hinner.
-  simpl.
-  split.
-  - reflexivity.
-  - exact Hin.
-Qed.
 
 Definition in_horizon (a : Activity) (c : CumulativeConstraint) :=
   c.(horizon_start) <= a.(start) /\ a.(start) + Z.of_N a.(p_time) <= c.(horizon_end).
@@ -500,7 +407,6 @@ Proof.
       * simpl in Hina'. contradiction.
       * exact Hunique.
 Qed.
-
 
 Lemma valid_bounds_mandatory_sublist :
   forall constr sol bounds t,
@@ -694,16 +600,6 @@ Fixpoint run_size (l : list bool) : nat :=
 Definition run_at (n : nat) (l : list bool) : nat :=
   run_size (skipn n l). 
 
-Fixpoint max_n_true (current : nat) (l : list bool) : nat :=
-  match l with
-  | nil => current
-  | b :: l' =>
-    if b
-      then max_n_true (S current) l'
-      else max current (max_n_true 0 l') 
-  end
-.
-
 Lemma run_size_lt_n :
   forall l n current,
     has_n_true_rec n current l = false
@@ -767,22 +663,6 @@ Proof.
     + lia.
 Qed. 
 
-(* Lemma skip_lt_max_runs :
-  forall l k,
-    max_runs (skipn k l) <= max_runs l.
-Proof.
-  induction l; induction k.
-  - rewrite skipn_nil. simpl. reflexivity.
-  - rewrite skipn_nil. simpl. reflexivity.
-  - rewrite skipn_O. reflexivity.
-  - rewrite skipn_cons.
-    simpl.
-    assert (max_runs (skipn k l) <= max_runs l) by (apply IHl).
-    destruct a.
-    + lia.
-    + lia.
-Qed.  *)
-
 Lemma max_runs_all :
   forall l n,
     max_runs l < n
@@ -795,8 +675,6 @@ Proof.
   specialize (skip_lt_max_runs l k) as H.
   lia.
 Qed.
-
-
 
 Lemma nth_false_run_lt :
   forall l n,
@@ -904,44 +782,6 @@ Proof.
 Qed.
 
 Open Scope Z_scope.
-Lemma run_at_seq_no_bound :
-  forall s e n i l (f : Z -> bool),
-    (n >= 1)%nat
-      ->
-    (n <= length l)%nat
-      ->
-    (i <= length l - n)%nat
-      ->
-    ZRange.is_range s e l
-      ->
-    (run_at i (map f l) < n)%nat
-      ->
-    (exists k, 
-      e - Z.of_nat i - Z.of_nat n + 1 <= k <= e - Z.of_nat i
-        /\
-      f k = false
-    ).
-Proof.
-  intros s e n i l f.
-  intros Hn1 Hnlen Hi Hrange Hrun.
-  assert (n <= length (skipn i l))%nat.
-  { 
-    rewrite length_skipn.
-    lia.
-  }
-  rewrite length_skipn in H.
-  rewrite ZRange.is_range_length with (s := s) (e := e) in H; try assumption.
-  rewrite <- (nth_false_run_lt (skipn i (map f l)) n) in Hrun; try assumption.
-  destruct Hrun as [k [Hkn Hkfalse]].
-  exists (e - Z.of_nat (i + k)).
-  split.
-  - lia.
-  - rewrite nth_skipn in Hkfalse.
-    rewrite ZRange.range_f_l with (s := s) (l := l) (d := false); try assumption.
-    clear Hkfalse.
-    destruct Hrange as [Hse _].
-    lia.
-Qed.
 
 Lemma nth_error_exists {A} :
   forall l n,
@@ -966,7 +806,6 @@ Proof.
       rewrite nth_error_S. simpl.
       exact Hnth.
 Qed.
-
 
 Lemma run_at_seq_fk_false {A} :
   forall l s e n i (fz : A -> Z) (fb : A -> bool),
@@ -1083,16 +922,6 @@ Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z 
     negb (has_n_true (N.to_nat duration) (make_active_list capacity profile activity))
   end.
 
-Definition var_empty_domain (v : Var) (sol : Assignment) :=
-  exists n m,
-    n < m
-      /\
-    m <= sol.(find_value) v <= n.
-
-Definition ex_var_empty_domain (sol : Assignment) :=
-  exists (v : Var),
-    var_empty_domain v sol.
-
 Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
   let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
   match inferred_cumulative_bounds constraint inference with
@@ -1115,16 +944,6 @@ Proof.
 Qed.
 
 Open Scope Z_scope.
-
-Lemma empty_domain_is_false :
-  forall sol,
-    ex_var_empty_domain sol -> False.
-Proof.
-  intros sol. unfold not. intros Hempty.
-  unfold ex_var_empty_domain in Hempty; unfold var_empty_domain in Hempty.
-  destruct Hempty as [v [n [m Hempty]]].
-  lia.
-Qed.
 
 Lemma cumulative_forall :
   forall sol c,
