@@ -40,13 +40,13 @@ Inductive AtomicComparator :=
 Record Atomic := {
     cmp : AtomicComparator;
     val : Z
-}
+}.
 
-Definition apply_atomic (atomic : Atomic) (lb : Z) (size : N) (hole_size : N) (hole_min : Z) (hole_max : Z) (holes : sint.t) :=
+(* Definition apply_atomic (atomic : Atomic) (lb : Z) (size : N) (hole_size : N) (hole_min : Z) (hole_max : Z) (holes : sint.t) :=
   match atomic.(cmp) with
   | less_equal => 
 
 Fixpoint apply_atomics (atomics : list Atomic) (lb : Z) (size : N) (hole_size : N) (hole_min : Z) (hole_max : Z) (holes : sint.t):=
     match atomics with
     | nil => (lb, size, holes)
-    | a :: atomics' => 
+    | a :: atomics' =>  *)
