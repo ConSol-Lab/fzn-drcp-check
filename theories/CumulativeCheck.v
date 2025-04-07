@@ -969,8 +969,14 @@ Proof.
   exact H.
 Qed.
 
+Definition t_in_horizon (constr : CumulativeConstraint) (t : Z) :=
+  horizon_start constr <= t <= horizon_end constr.
+
+Definition activity_active_at (act : Activity) (t : Z) :=
+  (start act) <= t < (start act) + Z.of_N (p_time act).
+
 Lemma exists_cannot_schedule :
-  forall constr sol bounds,
+  forall constr sol bounds ,
     cumulative_decide constr sol = true
       ->
     unique_bounds bounds
@@ -1016,6 +1022,41 @@ Proof.
         lia.
 Qed.
 
+Definition is_horizon_range (constr : CumulativeConstraint) (times : list Z) :=
+  ZRange.is_range constr.(horizon_start) constr.(horizon_end) times.
+
+(* Idea: smart specialize... so you don't have to manually instantiate it *)
+
+Lemma resource_profile_conflict :
+  forall sol constr bounds times t_c,
+    cumulative_decide constr sol = true
+      ->
+    valid_bounds bounds constr sol
+      ->
+    unique_bounds bounds
+      ->
+    is_horizon_range constr times
+      ->
+    resource_profile constr.(capacity) bounds times = profile_conflict t_c
+      ->
+    False.
+Proof.
+  intros sol constr bounds times t_c.
+  intros Hsol Hvalid Hunique Hhorizon Hprofile. 
+  enough (cumulative_decide constr sol = false) as Hconstr_false.
+  { rewrite Hconstr_false in Hsol. discriminate Hsol. }
+  apply exceeds_at_t_dec_false.
+  exists t_c.
+  specialize (resource_profile_correct (constr.(capacity)) bounds times) as Hcorrect.
+  rewrite Hprofile in Hcorrect.
+  split.
+  + apply Hhorizon. apply Hcorrect.
+  + apply xn_sum_sub_list_gtn with (l1 := activities_bounds_active_at t_c bounds).
+    * apply valid_bounds_mandatory_sublist.
+      -- exact Hvalid.
+      -- exact Hunique.
+    * apply Hcorrect.
+Qed.
 
 Lemma checker_not_cumulative :
   forall fact sol constr,
@@ -1173,21 +1214,12 @@ Proof.
         rewrite Ha.
         apply Hcannot_sched.
   }
-  - clear Hchecked.
-    destruct Hr_profile_correct as [Hintimes Hcap_exceeded].
-    enough (cumulative_decide constr sol = false) as Hconstr_false.
-    { rewrite Hconstr_false in Hconstr.
-      simpl in Hconstr. contradiction. }
-    apply exceeds_at_t_dec_false.
-    exists t.
-    split.
-    + apply Htimesrange in Hintimes. subst h_start; subst h_end.
-      exact Hintimes.
-    + apply xn_sum_sub_list_gtn with (l1 := activities_bounds_active_at t bounds).
-      * apply valid_bounds_mandatory_sublist.
-        -- exact Hvalid.
-        -- exact Hunique.
-      * exact Hcap_exceeded.
+  - apply resource_profile_conflict with (sol := sol) in Hprofile.
+    + apply Hprofile.
+    + apply Is_true_eq_true. exact Hconstr.
+    + exact Hvalid.
+    + exact Hunique.
+    + subst h_start; subst h_end. apply Htimesrange. 
 Qed.
 
 Lemma is_true_not_false :
@@ -1197,6 +1229,30 @@ Proof.
   - reflexivity.
   - simpl. apply H. reflexivity.
 Qed.
+
+Definition Inference := list Atomic.
+
+Definition inference_valid (I : Inference) (C : CumulativeConstraint) :=
+  forall (theta : Assignment),
+    cumulative_decide C theta = true
+      ->
+    satisfies_nogood I theta = true.
+
+Lemma cumulative_checker_sound :
+  forall (I : Inference) (C : CumulativeConstraint),
+    cumulative_checker I C = true
+      ->
+    inference_valid I C.
+Proof.
+  intros I C.
+  intros Hcheck. intros theta Hsol.
+  destruct (satisfies_nogood I theta) eqn:Hsat.
+  - reflexivity.
+  - exfalso. apply checker_not_cumulative with (fact := I) (sol := theta) (constr := C); try apply Is_true_eq_left; try assumption.
+  apply neg_atomic. exact Hsat.
+Qed.
+
+  
 
 Lemma cumulative_checker_valid :
   forall fact sol constr,
