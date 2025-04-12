@@ -18,7 +18,7 @@ Require Import Lia.
 Require Import Checker.Atomic.
 Require Import Checker.Variable.
 Require Checker.Utility.
-Require Import Checker.Domain.
+Require Import Checker.DomainAllVar.
 
 Open Scope N_scope.
 

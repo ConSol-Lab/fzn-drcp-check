@@ -22,6 +22,7 @@ Module sstr_prps := MSetProperties.Properties sstr.
 Module sint_prps := MSetProperties.Properties sint.
 Module sintstr_prps := MSetProperties.Properties sintstr.
 
+  
 (* the integer is the lower bound, upper bond is lb + the N *)
 
 Definition zn_interval := (Z * N)%type.

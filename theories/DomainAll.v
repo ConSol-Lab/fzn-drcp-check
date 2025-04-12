@@ -7,15 +7,7 @@ Require Import Coq.Sorting.Sorted.
 Require Import Arith.PeanoNat.
 Require Import Bool.
 
-Require Import Checker.Nogood.
-Require Import Checker.Cumulative.
-Require Checker.CumulativeUtil.
-Import CumulativeUtil.ResourceSum.
-Require Import Checker.Utility.
-Import ListEx.
 Require Import Lia.
-Require Import Checker.Variable.
-Require Checker.Utility.
 Require Coq.MSets.MSetAVL.
 Require Coq.MSets.MSetProperties.
 Require Coq.Structures.OrdersEx.
@@ -41,6 +33,8 @@ Record Atomic := {
     atm_cmp : AtomicComparator;
     atm_val : Z
 }.
+
+Open Scope Z_scope.
 
 (* This is much more efficient than using filter twice. *)
 Definition in_interval (s : sint.t) (from : Z) (to : Z) : sint.t :=
@@ -241,6 +235,8 @@ Definition atomic_holds_for_implied (atomic : Atomic) (lb : option Z) (ub : opti
       ->
     atomic_holds x atomic.
 
+
+(* We don't use this lemma elsewhere because the we don't prove that the tightening done in the apply holes step works, but this does at least provide strong evidence that the apply_atomic_rec really works! *)
 Lemma apply_atomic_tightens :
   forall atomic lb ub holes,
     match apply_atomic atomic lb ub holes with
@@ -586,73 +582,4 @@ Proof.
     apply Hholes_sound; apply Hrec.
   - exact Hrec.
 Qed.
- 
-  
 
-Definition apply_atomic_init (atomic : Atomic) (lb : Z) (ub : Z) (holes : sint.t) :=
-  match atomic.(atm_cmp) with
-  | less_equal => check_bound lb (Z.min ub atomic.(atm_val)) holes
-  | greater_equal => check_bound (Z.max lb atomic.(atm_val)) ub holes
-  | equal =>
-    if ((ub <? atomic.(atm_val)) || (atomic.(atm_val) <? lb))
-      then None
-      else Some (atomic.(atm_val), atomic.(atm_val), holes)
-  | not_equal => 
-    if ((lb <=? atomic.(atm_val)) && (atomic.(atm_val) <=? ub))
-      then Some (lb, ub, sint.add atomic.(atm_val) holes)
-      else None
-  end.
-
-
-
-
-
-Definition hole_fold_f (hole : Z) (acc : (Z * list Z)) :=
-  match acc with
-  | (lb, interior) =>
-    if (hole =? lb)
-      then (lb + 1, interior)
-      else (lb, hole :: interior)
-  end.
-
-Definition apply_holes_l (lb : Z) (holes : sint.t) :=
-  sint.fold hole_fold_f holes (lb, nil).
-
-Definition hole_fold_r_f (acc : (Z * sint.t)) (hole : Z) :=
-  match acc with
-  | (ub, interior) =>
-    if (hole =? ub)
-      then (ub - 1, interior)
-      else (ub, sint.add hole interior)
-  end.
-
-Definition apply_holes_r (ub : Z) (holes : list Z) :=
-  fold_left hole_fold_r_f holes (ub, sint.empty).
-
-Definition apply_holes (lb : Z) (ub : Z) (holes : sint.t) :=
-  let holes_between := in_interval holes lb ub in
-  match apply_holes_l lb holes_between with
-  | (lb, interior_l) =>
-    match apply_holes_r ub interior_l with
-    | (ub, interior) =>
-      check_bound lb ub interior
-    end
-  end.
-
-
-Fixpoint apply_atomics_rec (atomics : list Atomic) (lb : Z) (ub : Z) (holes : sint.t):=
-    match atomics with
-    | nil => Some (lb, ub, holes)
-    | a :: atomics' => 
-      match apply_atomic a lb ub holes with
-      | None => None
-      | Some (lb, ub, holes) => apply_atomics_rec atomics' lb ub holes
-      end
-    end.
-
-Definition apply_atomics (atomics : list Atomic) (lb : Z) (ub : Z) :=
-  match apply_atomics_rec atomics lb ub sint.empty with
-  | None => None
-  | Some (lb, ub, holes) =>
-    apply_holes lb ub holes
-  end.
