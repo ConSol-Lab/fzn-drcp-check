@@ -151,6 +151,12 @@ Definition is_not_holes (x : Z) (holes : sint.t) :=
       ->
     x <> n.
 
+Definition is_not_holes_list (x : Z) (holes : list Z) :=
+  forall n,
+    In n holes
+      ->
+    x <> n.
+
 Definition option_min (bound : option Z) (new : Z) :=
   match bound with
   | Some bound => Some (Z.min bound new)
@@ -237,7 +243,30 @@ Definition atomic_holds_for_implied (atomic : Atomic) (lb : option Z) (ub : opti
 
 Lemma apply_atomic_tightens :
   forall atomic lb ub holes,
-    apply_atomics x 
+    match apply_atomic atomic lb ub holes with
+    | Some (lb', ub', holes') =>
+      atomic_holds_for_implied atomic lb' ub' holes'
+    | None => True
+    end.
+Proof.
+  intros atomic lb ub holes.
+  unfold apply_atomic.
+  unfold atomic_holds_for_implied.
+  unfold atomic_holds.
+  unfold current_bound_holds.
+  unfold is_in_bounds.
+  unfold check_current_bound.
+  unfold option_min; unfold option_max.
+  unfold option_bound.
+  destruct (atm_cmp atomic); destruct lb as [lb_val |]; destruct ub as [ub_val |];
+  try (destruct (lb_val <=? atm_val atomic) eqn:Hlbatom);
+  try (destruct (atm_val atomic <=? ub_val) eqn:Hubatom); simpl;
+  try reflexivity; try simplify_bounds; try reflexivity;
+  intros x; intros Hbound; intros Hholes; try lia;
+  unfold is_not_holes in Hholes; apply Hholes; rewrite sint.add_spec; 
+  left; reflexivity.
+Qed.
+
 
 Lemma apply_atomic_correct :
   forall atomic lb ub holes x,
@@ -360,7 +389,205 @@ Proof.
   repeat split; try apply H; lia.
 Qed.
 
-Definition apply_holes_side (holes : list Z) 
+Definition apply_hole (hole : Z) (bound : Z) (up : bool) :=
+  if (hole =? bound)
+    then if up
+      then Some (bound + 1)
+      else Some (bound - 1)
+    else None.
+
+Fixpoint apply_holes_side (holes : list Z) (bound : Z) (up : bool) :=
+  match holes with
+  | nil => bound
+  | hole :: holes' => match apply_hole hole bound up with
+    | None => bound
+    | Some new_bound => apply_holes_side holes' new_bound up
+    end
+  end.
+
+Lemma apply_holes_side_correct :
+  forall holes up bound new_bound x,
+    is_not_holes_list x holes
+      ->
+    apply_holes_side holes bound up = new_bound
+      ->
+    if up
+      then
+        bound <= x
+          ->
+        new_bound <= x
+      else 
+        x <= bound
+          ->
+        x <= new_bound
+.
+Proof.
+  induction holes as [| h holes' IH].
+  - intros up bound new_bound.
+    intros x Hnotholes Happly. simpl in Happly. subst new_bound.
+    destruct up; intros H; assumption.
+  - intros up bound new_bound x Hnotholes Happly.
+    assert (is_not_holes_list x holes' /\ x <> h) as [Hnotholes' Hxnh].
+    {
+      split.
+      - intros n Hin. apply Hnotholes.
+        right. exact Hin.
+      - apply Hnotholes. left. reflexivity.
+    }
+    clear Hnotholes.
+    simpl in Happly; unfold apply_hole in Happly.
+    destruct (h =? bound) eqn:Hh; destruct up; intros H;
+    try apply IH with (x := x) in Happly; try assumption;
+    try apply Happly; lia.
+Qed.
+
+Lemma is_not_holes_to_list :
+  forall x holes,
+    is_not_holes x holes
+      ->
+    is_not_holes_list x (sint.elements holes).
+Proof.
+  intros x holes Hholes.
+  unfold is_not_holes_list.
+  intros n. intros H.
+  apply SetoidList.In_InA with (eqA := Z.eq) in H.
+  - rewrite sint.elements_spec1 in H. apply Hholes. exact H.
+  - apply Z.eq_equiv.
+Qed.
+
+Lemma is_not_holes_list_rev :
+  forall x holes,
+    is_not_holes_list x (rev holes) <-> is_not_holes_list x holes.
+Proof.
+  intros x holes. unfold is_not_holes_list.
+  split; intros H; intros n; specialize (H n); rewrite <- in_rev in *; assumption.
+Qed.
+
+Lemma apply_holes_side_lb :
+  forall x lb holes,
+    is_not_holes_list x holes
+      ->
+    x >= lb
+      ->
+    x >= apply_holes_side holes lb true.
+Proof.
+  intros x lb holes.
+  intros Hholes Hlb.
+  specialize apply_holes_side_correct with (up := true) (holes := holes) (bound := lb) as H. simpl in H.
+  rewrite Z.ge_le_iff in *.
+  apply H; try reflexivity; assumption.
+Qed.
+
+
+Lemma apply_holes_side_ub :
+  forall x ub holes,
+    is_not_holes_list x holes
+      ->
+    x <= ub
+      ->
+    x <= apply_holes_side holes ub false.
+Proof.
+  intros x ub holes.
+  intros Hholes Hub.
+  specialize apply_holes_side_correct with (up := false) (holes := holes) (bound := ub) as H. simpl in H.
+  apply H; try reflexivity; assumption.
+Qed.
+
+
+Definition bounds_both_none (lb : option Z) (ub : option Z) :=
+  match lb with
+  | None => true
+  | Some _ => false
+  end
+    &&
+  match ub with
+  | None => true
+  | Some _ => false
+  end.
+
+Definition apply_holes (lb : option Z) (ub : option Z) (holes : sint.t) :=
+  if bounds_both_none lb ub
+    then (lb, ub, holes)
+    else
+  let holes_list := sint.elements holes in
+  let new_lb :=
+    match lb with
+    | None => None
+    | Some lb => Some (apply_holes_side holes_list lb true)
+    end in
+  let new_ub :=
+    match ub with
+    | None => None
+    | Some ub => Some (apply_holes_side (rev holes_list) ub false)
+    end in
+  (new_lb, new_ub, holes_in_bounds holes new_lb new_ub).
+
+(* Note that we don't prove anything about actually strengthening the bounds, we just prove they are still valid bounds! *)
+(* For it actually working we rely on the fact that sint is ordered in increasing order but we don't use that anywhere in the proof, for example. *)
+Lemma apply_holes_sound :
+  forall lb ub holes x,
+    current_bound_holds x lb ub
+      ->
+    is_not_holes x holes
+      ->
+    match apply_holes lb ub holes with
+    | (lb', ub', holes') =>
+      current_bound_holds x lb' ub'
+        /\
+      is_not_holes x holes'
+    end.
+Proof.
+  intros lb ub holes x.
+  intros Hcurrent Hholes.
+  unfold apply_holes.
+  unfold bounds_both_none.
+  destruct lb as [lb_val|]; destruct ub as [ub_val |]; simpl;
+  repeat split; try assumption; unfold current_bound_holds in Hcurrent;
+  unfold option_bound in *; destruct Hcurrent as [Hlb Hub];
+  try apply apply_holes_side_lb; try apply apply_holes_side_ub;
+  try rewrite is_not_holes_list_rev;
+  try apply is_not_holes_to_list; try assumption;
+  unfold is_not_holes; intros n;
+  try rewrite split_below_spec; try rewrite split_above_spec;
+  try rewrite <- in_rev; intros H; apply Hholes; apply H.
+Qed.
+
+Definition apply_atomics (atomics : list Atomic) (lb : option Z) (ub : option Z) (holes : sint.t) :=
+  match apply_atomics_rec atomics lb ub holes with
+  | None => None
+  | Some (lb, ub, holes) =>
+    let holes := holes_in_bounds holes lb ub in
+    Some (apply_holes lb ub holes)
+  end.
+
+Lemma apply_atomics_valid :
+   forall atomics lb ub holes x,
+    current_bound_holds x lb ub
+      ->
+    is_not_holes x holes
+      ->
+    (forall a, In a atomics -> atomic_holds x a)
+      ->
+    match apply_atomics atomics lb ub holes with
+    | None => False
+    | Some (lb', ub', holes') =>
+      current_bound_holds x lb' ub'
+        /\
+      is_not_holes x holes'
+    end.
+Proof.
+  intros atomics lb ub holes x.
+  intros Hcurrent Hholes Hatomics.
+  unfold apply_atomics.
+  specialize (apply_atomics_rec_correct atomics lb ub holes x Hcurrent Hholes Hatomics) as Hrec.
+  destruct (apply_atomics_rec atomics lb ub holes) as [[[lb' ub'] holes'] |].
+  - specialize apply_holes_sound as Hholes_sound.
+    rewrite holes_split_equiv in Hrec.
+    apply Hholes_sound; apply Hrec.
+  - exact Hrec.
+Qed.
+ 
+  
 
 Definition apply_atomic_init (atomic : Atomic) (lb : Z) (ub : Z) (holes : sint.t) :=
   match atomic.(atm_cmp) with
