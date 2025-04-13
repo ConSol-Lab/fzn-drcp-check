@@ -185,6 +185,12 @@ Record Domain := mkDom {
   holes : sint.t
 }.
 
+Definition domain_holds (dom : Domain) (sol : Assignment) :=
+  forall v,
+    var_name v = dom.(d_name)
+      ->
+    current_bound_holds (sol.(find_value) v) (dom.(d_lb)) (dom.(d_ub)) /\ is_not_holes  (sol.(find_value) v) dom.(holes).
+
 Definition to_domain_f (elt : string * list Atomic) :=
   match elt with
   | (x, atomics) => match apply_atomics atomics None None sint.empty with

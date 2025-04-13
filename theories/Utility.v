@@ -135,7 +135,28 @@ Proof.
   lia.
 Qed.
 
+Definition flat_map_option {A B} (f : A -> option B) (l : list A) : list B :=
+  flat_map (fun a =>
+    match f a with
+    | Some b => b :: nil
+    | None => nil
+    end
+  ) l.
+
+Lemma in_flat_map_option {A B} f (l : list A) (b : B) :
+  In b (flat_map_option f l) <-> exists a, In a l /\ f a = Some b.
+Proof.
+  unfold flat_map_option.
+  rewrite in_flat_map.
+  repeat split; intros H; destruct H as [a [Hina Hb]];
+  exists a; repeat split; try assumption; destruct (f a);
+  try discriminate Hb; try contradiction.
+  - destruct Hb; try contradiction. subst b. reflexivity.
+  - inversion Hb. subst b. left. reflexivity.
+Qed.
+
 End ListEx.
+
 
 Module NatEx.
   Import Lia.
@@ -675,17 +696,58 @@ Import String.
 Import List.
 Module smap := RBT.Make OrdersEx.String_as_OT.
 
-Definition add_to_map {U} (m : smap.t U) (elt : string * U):=
+Definition add_to_map {U}  (elt : string * U) (m : smap.t U) :=
   match elt with
   | (x, u) => smap.add x u m
   end.
 
 Definition param_map {U} (l : list (string * U)) (d : U) : string -> U :=
-  let map := fold_left add_to_map l smap.empty in
+  let map := fold_right add_to_map smap.empty l in
   fun x =>
     match smap.find x map with
     | Some u => u
     | None => d
     end.
 
+
+Lemma param_map_in {U} :
+  forall (d : U) x (l : list (string * U)) (u : U), 
+  u = (param_map l d) x
+    ->
+  In x (map fst l)
+    ->
+  In (x, u) l.
+Proof.
+  intros d x. induction l.
+  - intros u. intros H Hin.
+    destruct Hin.
+  - intros u. 
+    unfold param_map in *.
+    intros Hu. simpl in Hu.
+    destruct a as [x' u'].
+    intros Hin.
+    simpl in Hin.
+    destruct Hin as [Hxx' | Hxinl].
+    + subst x'.
+      unfold add_to_map in Hu.
+      rewrite smap.add_spec1 in Hu.
+      subst u'.
+      left. reflexivity.
+    + destruct (x =? x')%string eqn:Hxx'.
+      { rewrite String.eqb_eq in Hxx'; subst x'.
+        unfold add_to_map in Hu.
+        rewrite smap.add_spec1 in Hu.
+        subst u'.
+        left. reflexivity. }
+      rewrite String.eqb_neq in Hxx'.
+      unfold add_to_map in Hu.
+      rewrite smap.add_spec2 in Hu.
+      * apply IHl in Hu; clear IHl.
+        -- right. exact Hu.
+        -- exact Hxinl.
+      * intros Hxix'.
+        apply Hxx'.
+        symmetry. exact Hxix'.
+Qed.
+       
 End Maps.

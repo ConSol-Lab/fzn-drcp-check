@@ -107,23 +107,40 @@ Definition constraint_to_param_map (c : CumulativeConstraint) : string -> (N * N
     end) c.(vs) in
   param_map params (N0, N0).
 
-Definition constraint_to_intervals (c : CumulativeConstraint) : list (string * zn_interval * (N * N)) :=
+Definition constraint_to_vars (c : CumulativeConstraint) : list Var :=
   map (fun elt =>
     match elt with
-    | (v, p, u) =>
-      match v with
-      | interval v =>
-        (v.(name), (v.(lower_bound), N.of_nat v.(size)), (p, u))
-      end
+    | (v, _, _) => v
     end
   ) c.(vs).
 
+Definition domain_to_bound (param_map : string -> (N * N)) (dom : Domain) :=
+  match dom.(d_lb) with
+  | Some lb =>
+    match dom.(d_ub) with
+    | Some ub =>
+      let size := Z.to_N (ub - lb) in
+        Some (dom.(d_name), (lb, size), (param_map dom.(d_name)))
+    | _ => None
+    end
+  | _ => None
+  end.
+
+Definition domains_to_bounds (doms : list Domain) (param_map : string -> (N * N)) : list (string * zn_interval * (N * N)) :=
+  flat_map_option (domain_to_bound param_map) doms.
+
 Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : list Atomic) :=
-  apply_atomics_to_variables (constraint_to_intervals c) (map atomic_not inference).
+  let vars := constraint_to_vars c in
+  let domains := vars_with_atomics_to_domains (map atomic_not inference) vars in
+  domains_to_bounds domains (constraint_to_param_map c).
 
 Definition inference_negated (inference : list Atomic) (sol : Assignment) :=
   forall atomic, In atomic (map atomic_not inference) ->
     Is_true (test_atomic_assignment atomic sol).
+
+Definition interval_to_bounds (i : zn_interval) : (Z * Z)%type :=
+  let (lb, size) := i in
+    (lb, lb + (Z.of_N size)).
 
 Definition activity_bounds_is_active (t : Z) (activity : string * zn_interval * (N * N)) : list (string * N) :=
   match activity with
@@ -311,29 +328,26 @@ Qed.
 
 Open Scope Z_scope.
 
-Definition c_var_with_x (x : string) (elt : (Var * N * N)) :=
-  match elt with
-  | (v, _, _) =>
-    (x =? var_name v)%string
-  end.
+Definition c_var_with_x (x : string) (v : Var) :=
+  (x =? var_name v)%string.
 
-Definition x_start_time (x : string) (c : CumulativeConstraint) (sol : Assignment) : Z :=
-  match (find (c_var_with_x x) c.(vs)) with
+Definition value_from_x (x : string) (vs : list Var) (sol : Assignment) :=
+  match (find (c_var_with_x x) vs) with
   | None => Z0
-  | Some (v, _, _) => sol.(find_value) v
+  | Some v => sol.(find_value) v
   end.
 
-Definition make_activity (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :=
+Definition make_activity (a : string * zn_interval * (N * N)) (vs : list Var) (sol : Assignment) :=
   match a with
   | (x, (lb, size), (p, u)) =>
-      mkAct x (x_start_time x c sol) p u
+      mkAct x (value_from_x x vs sol) p u
   end.
 
 Definition in_horizon (a : Activity) (c : CumulativeConstraint) :=
   c.(horizon_start) <= a.(start) /\ a.(start) + Z.of_N a.(p_time) <= c.(horizon_end).
 
 Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :=
-  let act := (make_activity a c sol) in
+  let act := (make_activity a (constraint_to_vars c) sol) in
     In act (activity_list c sol)
       /\
     in_horizon act c
@@ -372,6 +386,72 @@ Qed.
   
 
 Open Scope N_scope.
+
+Definition bound_name {U} (bound : string * zn_interval * U) :=
+  match bound with
+  | (x, _, _) => x
+  end.
+
+
+Definition unique_bounds {U} (bounds : list (string * zn_interval * U)) :=
+  NoDup bounds
+    /\
+  forall a1 a2,
+    In a1 bounds -> In a2 bounds
+    -> bound_name a1 = bound_name a2
+    -> a1 = a2. 
+
+Lemma a_u_dec (U : Type) (u_dec : forall x y : U, {x = y}+{x <> y}) :
+  forall x y : string * zn_interval * U, {x = y}+{x <> y}.
+Proof.
+  repeat decide equality.
+Qed.
+
+Lemma unique_bounds_cons (U : Type) :
+  forall (a : string * zn_interval * U) bounds,
+    unique_bounds (a :: bounds)
+      ->
+    forall a',
+      In a' bounds
+        ->
+      bound_name a <> bound_name a'.
+Proof.
+  intros a bounds.
+  intros Hunique.
+  intros a'. intros Hin.
+  unfold not. intros Hname.
+  apply Hunique in Hname.
+  - subst a'.
+    unfold unique_bounds in Hunique.
+    destruct Hunique as [Hnodup _].
+    rewrite NoDup_cons_iff in Hnodup.
+    destruct Hnodup as [Hnotinbounds _].
+    contradiction.
+  - left. reflexivity.
+  - right. exact Hin.
+Qed.
+
+Lemma unique_bounds_less (U : Type) :
+  forall (a : string * zn_interval * U) bounds,
+    unique_bounds (a :: bounds)
+      ->
+    unique_bounds bounds.
+Proof.
+  intros a bounds.
+  intros Hunique.
+  unfold unique_bounds in Hunique.
+  unfold unique_bounds.
+  destruct Hunique as [Hnodup Hunique].
+  split.
+  - rewrite NoDup_cons_iff in Hnodup. apply Hnodup.
+  - intros a1 a2 Hin1 Hin2 Hname.
+    apply Hunique.
+    + right. exact Hin1.
+    + right. exact Hin2.
+    + exact Hname.
+Qed.
+
+
 
 Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
   forall a, In a bounds -> task_in_constraint a c sol.
@@ -442,7 +522,7 @@ Proof.
     apply Hvalid in Hinbounds.
     unfold task_in_constraint in Hinbounds.
     rewrite <- Ha' in *.
-    remember (make_activity a' constr sol) as act.
+    remember (make_activity a' (constraint_to_vars constr) sol) as act.
     destruct Hinbounds as [Hact Hstart].
     exists act.
     split.
@@ -465,8 +545,7 @@ Proof.
   - apply activity_bounds_nodup.
     exact Hunique.
 Qed.
-
-Lemma constraint_to_intervals_unique :
+(* Lemma constraint_to_intervals_unique :
   forall c,
     unique_bounds (constraint_to_intervals c).
 Proof.
@@ -505,22 +584,114 @@ Proof.
     + inversion Hv1v2. reflexivity.
     + exact Hin2.
     + simpl. rewrite H0. rewrite H1. reflexivity.
+Qed. *)
+
+Lemma value_from_x_is_v_sol :
+  forall v vs x sol,
+    In v vs
+      ->
+    var_name v = x
+      ->
+    value_from_x x vs sol = sol.(find_value) v.
+Proof.
+  intros v vs x sol.
+  intros Hin Hname.
+  unfold value_from_x.
+  destruct (find (c_var_with_x x) vs) as [v' |] eqn:Hfind.
+  - apply find_some in Hfind.
+    destruct Hfind as (_ & Hnamev').
+    unfold c_var_with_x in Hnamev'.
+    apply sol.(find_value_eq_name).
+    rewrite Hname.
+    rewrite String.eqb_eq in Hnamev'. rewrite Hnamev'.
+    reflexivity.
+  - apply find_none with (x := v) in Hfind.
+    + exfalso. unfold c_var_with_x in Hfind.
+      rewrite String.eqb_neq in Hfind.
+      rewrite Hname in Hfind. apply Hfind. reflexivity.
+    + exact Hin.
 Qed.
 
 Open Scope Z_scope.
 Lemma inferred_cumulative_bounds_valid :
-  forall (c : CumulativeConstraint) inference sol bounds,
+  forall (c : CumulativeConstraint) inference sol,
+    let bounds := inferred_cumulative_bounds c inference in 
     inference_negated inference sol
-    -> inferred_cumulative_bounds c inference = Some bounds
     -> valid_bounds bounds c sol /\ unique_bounds bounds.
 Proof.
   intros c inference sol bounds.
-  intros Hneg Hbounds.
-  unfold inferred_cumulative_bounds in Hbounds.
+  intros Hneg.
+  unfold inferred_cumulative_bounds in bounds.
   unfold valid_bounds.
   split. 
   { intros a.
-    intros Hinbounds. specialize (apply_atomics_correct (N * N) ((constraint_to_intervals c)) (map atomic_not inference) bounds Hbounds a Hinbounds) as Happly.
+    intros Hinbounds. 
+    unfold bounds in Hinbounds; clear bounds.
+    unfold domains_to_bounds in Hinbounds.
+    rewrite in_flat_map_option in Hinbounds.
+    destruct Hinbounds as [dom [Hdomin Hdomparam]].
+    unfold task_in_constraint.
+
+    assert (exists v : Var, 
+      In v (constraint_to_vars c) 
+        /\
+      var_name v = (dom.(d_name))
+        /\
+      domain_holds dom sol
+    ) by (admit); clear Hdomin; clear Hneg.
+
+    destruct H as (v & Hvinc & Hvname & Hdomholds).
+    rename Hvname into Hvdom.
+    pose proof Hvdom as Hvname.
+    apply Hdomholds in Hvdom as (Hholds & _).
+    unfold DomainAll.current_bound_holds in Hholds.
+    unfold DomainAll.option_bound in Hholds.
+
+    unfold domain_to_bound in Hdomparam.
+    destruct (d_lb dom) as [dom_lb|]; destruct (d_ub dom) as [dom_ub|]; try discriminate Hdomparam.
+    inversion Hdomparam as [Hdomparams]; clear Hdomparam.
+    remember (constraint_to_param_map c (d_name dom)) as dom_params; destruct dom_params as [dom_p dom_u].
+    remember (Z.to_N (dom_ub - dom_lb)) as dom_size.
+
+    apply value_from_x_is_v_sol with (sol := sol) (x := d_name dom) in Hvinc as Hvalue_is_var.
+
+    split; [|split].
+    - unfold make_activity.
+      unfold activity_list. unfold activity_list_inner.
+      rewrite in_map_iff.
+      exists (v, dom_p, dom_u).
+      split.
+      + unfold activity_list_inner_f.
+        destruct v.
+        rewrite Hvalue_is_var.
+        rewrite <- Hvname.
+        simpl. reflexivity.
+        
+      + clear -Heqdom_params.
+        unfold constraint_to_param_map in Heqdom_params.
+        apply param_map_in in Heqdom_params.
+        * rewrite in_map_iff in Heqdom_params.
+          destruct Heqdom_params as (((v' & p') & u') & Heqs & Hin).
+          inversion Heqs; subst; clear Heqs.
+          assert (v = v').
+          {
+            apply c.()  
+          }
+        
+
+    - admit.
+    - unfold domain_holds in Hdomholds.
+      unfold make_activity. simpl. rewrite value_from_x_is_v_sol with (v := v).
+      + lia.
+      + exact Hvinc.
+      + exact Hvname.
+
+    {
+
+    }
+    
+    
+    specialize (apply_atomics_correct (N * N) ((constraint_to_intervals c)) (map atomic_not inference) bounds Hbounds a Hinbounds) as Happly.
     destruct a as [[x [lb a_size]] [p u]] eqn:Ha.
     destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
     unfold task_in_constraint.
