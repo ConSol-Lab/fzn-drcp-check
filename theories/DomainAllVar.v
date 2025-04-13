@@ -14,6 +14,8 @@ Require Import Checker.DomainAll.
 Require Import Coq.Structures.Orders.
 Require Coq.Structures.OrdersEx.
 Require Coq.Structures.Equalities.
+Require MMaps.Interface.
+
 
 (* Module String_List_as_OT := OrdersEx.PairOrderedType OrdersEx.Z_as_OT OrdersEx.String_as_OT. *)
 
@@ -97,7 +99,7 @@ End HasNonEmpty.
 
 Module Type NonEmpty := Equalities.Typ <+ HasNonEmpty.
 
-Module MMapAVLMake (A : NonEmpty).
+Module MMapAVLMake (A : DecidableType).
   Module Elements := StringKey_as_OT A.
   Include MSetAVL.Make Elements.
 
@@ -189,3 +191,35 @@ Fixpoint var_atomics_to_atomics (atomics : list VarAtomic) (m : VarAtomicsMap.t)
     end in
     var_atomics_to_atomics atomics' updated_m
   end.
+
+Definition var_atomic_equiv (v_a : Atomic.Atomic) (a : Atomic) :=
+  var_cmp_to_cmp (Atomic.comparator v_a) = a.(atm_cmp)
+    /\
+  (Atomic.value v_a) = a.(atm_val).
+
+Lemma var_atomics_correct :
+  forall var_atomics initial,
+    let results :=
+      match var_atomics_to_atomics var_atomics initial with
+      | map => (VarAtomicsMap.elements map)
+      end in
+    forall x atomics,
+      In (x, atomics) results
+        ->
+      forall a,
+        In a atomics
+          -> 
+        exists v_a,
+          In v_a var_atomics
+            /\
+          var_atomic_equiv v_a a
+            /\
+          var_name (Atomic.var v_a) = x.
+Proof.
+  intros var_atomics initial.
+  intros result.
+  intros x atomics.
+  intros Hin.
+  unfold result in Hin.
+  rewrite Setoid
+  rewrite <- VarAtomicsMap.elements_spec1 in Hin.

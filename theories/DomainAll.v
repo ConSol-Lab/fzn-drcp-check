@@ -582,4 +582,3 @@ Proof.
     apply Hholes_sound; apply Hrec.
   - exact Hrec.
 Qed.
-
