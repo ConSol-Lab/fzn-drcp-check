@@ -34,6 +34,18 @@ Record Atomic := {
     atm_val : Z
 }.
 
+Definition mk_atm_le (c : Z) :=
+  {| atm_cmp := less_equal; atm_val := c |}.
+
+Definition mk_atm_ge (c : Z) :=
+  {| atm_cmp := greater_equal; atm_val := c |}.
+
+Definition mk_atm_ne (c : Z) :=
+  {| atm_cmp := not_equal; atm_val := c |}.
+
+Definition mk_atm_eq (c : Z) :=
+  {| atm_cmp := equal; atm_val := c |}.
+
 Open Scope Z_scope.
 
 (* This is much more efficient than using filter twice. *)
@@ -582,3 +594,4 @@ Proof.
     apply Hholes_sound; apply Hrec.
   - exact Hrec.
 Qed.
+

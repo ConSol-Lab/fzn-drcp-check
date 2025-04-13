@@ -11,162 +11,18 @@ Require Import Lia.
 Require Checker.Atomic.
 Require Import Checker.Variable.
 Require Import Checker.DomainAll.
-Require Import Coq.Structures.Orders.
 Require Coq.Structures.OrdersEx.
-Require Coq.Structures.Equalities.
+
 Require MMaps.Interface.
+Require MMaps.RBT.
 
+Module smap := RBT.Make OrdersEx.String_as_OT.
 
-(* Module String_List_as_OT := OrdersEx.PairOrderedType OrdersEx.Z_as_OT OrdersEx.String_as_OT. *)
-
+Definition AtomicsMap := smap.t (list Atomic).
 
 Definition VarAtomic := Atomic.Atomic.
 
 Definition zn_interval := (Z * N)%type.
-
-Definition a := OrdersEx.String_as_OT.eqb_eq.
-
-Module StringKey_as_OT (A : Equalities.Typ) <: Orders.OrderedType.
-  Module Base := OrdersEx.String_as_OT.
-
-  Definition t := (string * A.t)%type.
-
-  Definition eq (x y : t) := Base.eq (fst x) (fst y).
-
-  Definition lt (x y : t) := Base.lt (fst x) (fst y).
-
-  Lemma eq_equiv : RelationClasses.Equivalence eq.
-  Proof. 
-    unfold eq.
-    constructor.
-    - intros [s a]. simpl. reflexivity.
-    - intros [s a] [s' a']. simpl. intros H.
-      rewrite H. reflexivity.
-    - intros [s a] [s' a'] [s'' a'']. simpl.
-      intros H' H''.
-      rewrite <- H''. exact H'.
-  Qed.
-  
-  Definition eqb (x y : t) := Base.eqb (fst x) (fst y).
-  Lemma eqb_eq : forall x y, eqb x y = true <-> eq x y.
-  Proof. 
-    intros [s a] [s' a']. unfold eqb; unfold eq.
-    simpl. apply Base.eqb_eq.
-  Qed.
-
-  Include HasEqBool2Dec.
-
-  #[global]
-  Instance lt_compat : Proper (eq==>eq==>iff) lt.
-  Proof.
-    intros [sx ax] [sx' ax'] Hx [sy ay] [sy' ay'] Hy.
-    unfold lt; unfold eq in *.
-    simpl in *.
-    apply Base.lt_compat; assumption.
-  Qed.
-
-  #[global]
-  Instance lt_strorder : RelationClasses.StrictOrder lt.
-  Proof.
-    unfold lt. specialize Base.lt_strorder as H.
-    destruct H as [Hirr Htrans].
-    split.
-    - intros [s a] H; simpl in H.
-      apply Hirr in H. exact H.
-    - intros [s a] [s' a'] [s'' a'']. simpl.
-      apply Htrans.
-  Qed.
-
-  Definition compare (a b : t)
-    := Base.compare (fst a) (fst b).
-
-  Lemma compare_spec : forall x y, CompSpec eq lt x y (compare x y).
-  Proof.
-    intros [s a] [s' a'].
-    unfold CompSpec.
-    unfold compare; unfold eq; unfold lt. simpl.
-    apply Base.compare_spec.
-  Qed.
-
-End StringKey_as_OT.
-
-Require Import Coq.MSets.MSetInterface.
-Require Import Coq.MSets.MSetGenTree.
-
-Module Type HasNonEmpty (Import T:Equalities.Typ).
-  Parameter d : t.
-End HasNonEmpty.
-
-Module Type NonEmpty := Equalities.Typ <+ HasNonEmpty.
-
-Module MMapAVLMake (A : DecidableType).
-  Module Elements := StringKey_as_OT A.
-  Include MSetAVL.Make Elements.
-
-  Fixpoint find_rec (t : Raw.t) (x : Elements.t) :=
-    match t with
-    | Raw.Leaf => None
-    | Raw.Node _ l k r =>
-      match Elements.compare x k with
-        | Lt => find_rec l x
-        | Eq => Some (snd k)
-        | Gt => find_rec r x
-      end
-    end.
-
-  Definition find (s : t) (x : string) :=
-    find_rec (this s) (x, A.d).
-
-  (* Assumes a value already exists! *)
-  Fixpoint replace_rec (t : Raw.t) (new : Elements.t) :=
-    match t with
-    | Raw.Leaf => Raw.Leaf
-    | Raw.Node h l original r =>
-      match Elements.compare new original with
-        | Lt => replace_rec l new
-        | Eq => Raw.Node h l new r
-        | Gt => replace_rec r new
-      end
-    end.
-
-  Definition replace_raw (new : Elements.t) (s : Raw.t) :=
-    replace_rec s new.
-
-  (* Definition replace (s : t) (key : string) (value : A.t) := *)
-  (* Local Hint Immediate Raw.MX.eq_sym : core. *)
-  (* Local Hint Unfold In Raw.lt_tree Raw.gt_tree Raw.Ok : core. *)
-  (* Local Hint Constructors Raw.InT Raw.bst : core. *)
-  (* Local Hint Resolve Raw.MX.eq_refl Raw.MX.eq_trans Raw.MX.lt_trans Raw.ok : core. *)
-  (* Local Hint Resolve Raw.lt_leaf Raw.gt_leaf Raw.lt_tree_node Raw.gt_tree_node : core. *)
-  (* Local Hint Resolve Raw.lt_tree_not_in Raw.lt_tree_trans Raw.gt_tree_not_in Raw.gt_tree_trans : core. *)
-  (* Local Hint Resolve Raw.elements_spec2 : core. *)
-
-  Lemma replace_ok : forall s x, Raw.Ok s -> Raw.Ok (replace_raw x s).
-  Proof.
-    unfold replace_raw; unfold replace_rec.
-    Raw.induct s x; auto; unfold Raw.Ok.
-    apply Raw.BSNode; auto.
-    specialize Raw.lt_tree_compat as Hcompat.
-    - apply Raw.lt_tree_compat in H0.
-      specialize (H0 l l eq_refl).
-      rewrite H0. exact H7.
-    - apply Raw.gt_tree_compat in H0.
-      specialize (H0 r r eq_refl).
-      rewrite H0. exact H8.
-  Qed.
-
-  Definition replace (key : string) (value : A.t) (s : t) :=
-    {| this := replace_raw (key, value) (this s) ; is_ok := replace_ok (this s) (key, value) (is_ok s) |}.
-
-End MMapAVLMake.
-
-Module ListAtomicTyp <: NonEmpty.
-  Definition t : Type := list Atomic.
-  Definition d : t := nil.
-End ListAtomicTyp.
-
-
-Module VarAtomicsMap := MMapAVLMake ListAtomicTyp.
 
 Definition var_cmp_to_cmp (var_cmp : Atomic.AtomicComparator) : AtomicComparator :=
   match var_cmp with
@@ -179,17 +35,22 @@ Definition var_cmp_to_cmp (var_cmp : Atomic.AtomicComparator) : AtomicComparator
 Definition var_atm_to_atm (atm : VarAtomic) : Atomic :=
   {| atm_cmp := (var_cmp_to_cmp (Atomic.comparator atm)); atm_val := (Atomic.value atm) |}.
 
-Fixpoint var_atomics_to_atomics (atomics : list VarAtomic) (m : VarAtomicsMap.t) :=
+Definition find_previous (name : string) (m : AtomicsMap) :=
+  match smap.find name m with
+  | Some l => l 
+  | None => nil
+  end.
+
+Definition find_convert (name : string) (a : VarAtomic) (m : AtomicsMap) :=
+  let converted := var_atm_to_atm a in
+    converted :: (find_previous name m).
+
+Fixpoint var_atomics_to_atomics (atomics : list VarAtomic) (m : AtomicsMap) :=
   match atomics with
   | nil => m
   | a :: atomics' =>
     let name := (var_name (Atomic.var a)) in
-    let converted := var_atm_to_atm a in
-    let updated_m := match VarAtomicsMap.find m name with
-    | Some l => VarAtomicsMap.replace name (converted :: l) m
-    | None => VarAtomicsMap.add (name, converted :: nil) m
-    end in
-    var_atomics_to_atomics atomics' updated_m
+      var_atomics_to_atomics atomics' (smap.add name (find_convert name a m) m)
   end.
 
 Definition var_atomic_equiv (v_a : Atomic.Atomic) (a : Atomic) :=
@@ -197,18 +58,42 @@ Definition var_atomic_equiv (v_a : Atomic.Atomic) (a : Atomic) :=
     /\
   (Atomic.value v_a) = a.(atm_val).
 
+Lemma In_to_InA_Duo_eq :
+  forall {A B} (x : A) (y : B) (l : list (A * B)),
+    In (x, y) l -> SetoidList.InA (Interface.Duo eq eq) (x, y) l.
+Proof.
+  intros A B x y l Hin.
+  apply SetoidList.In_InA.
+  - unfold Interface.Duo. constructor.
+    + intros [a b]; split; reflexivity.
+    + intros [a b] [a' b']. intros H.
+      inversion H; simpl in *; subst; easy.
+    + intros [a b] [a' b'] [a'' b''].
+      intros H H'; inversion H; inversion H';
+      simpl in *; subst; easy.
+  - exact Hin.
+Qed.
+
+Definition previous_or_add (x : string) (v : VarAtomic) (m : AtomicsMap) :=
+  let add := 
+    if (x =? (var_name (Atomic.var v)))%string
+      then var_atm_to_atm v :: nil
+      else nil
+    in
+  add ++ find_previous x m.
+
 Lemma var_atomics_correct :
-  forall var_atomics initial,
-    let results :=
-      match var_atomics_to_atomics var_atomics initial with
-      | map => (VarAtomicsMap.elements map)
-      end in
+  forall var_atomics initial initial_atoms,
     forall x atomics,
-      In (x, atomics) results
+      In (x, atomics) (smap.bindings (var_atomics_to_atomics var_atomics initial))
+        ->
+      smap.MapsTo x initial_atoms initial
         ->
       forall a,
         In a atomics
-          -> 
+          ->
+        In a initial_atoms
+          \/
         exists v_a,
           In v_a var_atomics
             /\
@@ -216,10 +101,132 @@ Lemma var_atomics_correct :
             /\
           var_name (Atomic.var v_a) = x.
 Proof.
-  intros var_atomics initial.
-  intros result.
-  intros x atomics.
-  intros Hin.
-  unfold result in Hin.
-  rewrite Setoid
-  rewrite <- VarAtomicsMap.elements_spec1 in Hin.
+  induction var_atomics as [| v var_atomics IH].
+  - intros init initial_atomics x atomics. simpl.
+    intros Hin. apply In_to_InA_Duo_eq in Hin.
+    rewrite smap.bindings_spec1 in Hin.
+    intros Hmap.
+    intros a Hinatom.
+    left.
+    rewrite <- smap.find_spec in *. 
+    rewrite Hmap in Hin; inversion Hin; subst initial_atomics.
+    exact Hinatom.
+  - intros initial initial_atoms x atomics Hin Hinit.
+    intros a Hinatom.
+    simpl in Hin.
+    apply IH with (a := a) (initial_atoms := previous_or_add x v initial) in Hin.
+    + destruct Hin as [Hprevadd | Hv].
+      * unfold previous_or_add in Hprevadd.
+        destruct (x =? (var_name (Atomic.var v)))%string eqn:Hvx.
+        {
+          simpl in Hprevadd.
+          destruct Hprevadd.
+          - clear -H Hvx.
+            right. exists v.
+            split; [|split] .
+            + left. reflexivity.
+            + unfold var_atomic_equiv.
+              unfold var_atm_to_atm in H.
+              inversion H. simpl.
+              split; reflexivity.
+            + rewrite String.eqb_eq in Hvx.
+              symmetry. exact Hvx.
+          - unfold find_previous in H.
+            rewrite <- smap.find_spec in Hinit.
+            rewrite Hinit in H.
+            left. exact H.  
+        }
+        {
+          unfold find_previous in Hprevadd.
+          rewrite <- smap.find_spec in Hinit.
+          rewrite Hinit in Hprevadd.
+          left. apply Hprevadd. 
+        }
+      * clear -Hv.
+        right.
+        destruct Hv as (v' & Hin & Hequiv & Hname).
+        exists v'.
+        split; [|split].
+        -- right. exact Hin.
+        -- exact Hequiv.
+        -- exact Hname.
+    + clear -Hinit.
+      rewrite <- smap.find_spec.
+      unfold previous_or_add.
+      destruct (x =? (var_name (Atomic.var v)))%string eqn:Hvx.
+      * rewrite String.eqb_eq in Hvx. rewrite <- Hvx.
+        rewrite smap.add_spec1.
+        f_equal.
+      * rewrite String.eqb_neq in Hvx.
+        rewrite smap.add_spec2.
+        2: easy.
+        unfold find_previous.
+        rewrite <- smap.find_spec in Hinit.
+        destruct (smap.find x initial) eqn:Hfind.
+        -- reflexivity.
+        -- discriminate Hinit.
+    + exact Hinatom.  
+Qed.
+
+Fixpoint map_valid {A B} (f : A -> option B) (l : list A) (acc : list B) : list B :=
+  match l with
+  | nil => acc
+  | a :: l' =>
+    match f a with
+    | Some b => map_valid f l' (b :: acc)
+    | None => nil
+    end
+  end.  
+
+Record Domain := mkDom {
+  d_name : string;
+  d_lb : option Z;
+  d_ub : option Z;
+  holes : sint.t
+}.
+
+Definition to_domain_f (elt : string * list Atomic) :=
+  match elt with
+  | (x, atomics) => match apply_atomics atomics None None sint.empty with
+    | Some (lb, ub, holes) => Some (mkDom x lb ub holes)
+    | None => None
+    end
+  end.
+
+Definition atomics_to_domains (l : list (string * list Atomic)) :=
+  map_valid to_domain_f l nil.
+  
+Definition var_atomics_to_domains (l : list VarAtomic) (init : AtomicsMap) :=
+  let per_name := smap.bindings (var_atomics_to_atomics l init) in
+  atomics_to_domains per_name.
+
+Definition var_to_atoms (v : Var) :=
+  match v with
+  | interval v =>
+    (mk_atm_ge v.(lower_bound)) ::
+    (mk_atm_le v.(upper_bound)) ::
+    nil
+  end.
+
+Definition add_atoms_from_var (m : AtomicsMap) (v : Var) : AtomicsMap :=
+  let name := var_name v in
+  let atoms := var_to_atoms v ++ find_previous name m in
+  smap.add name atoms m. 
+
+Definition vars_to_atoms (l : list Var) : AtomicsMap :=
+  fold_left add_atoms_from_var l smap.empty.
+
+Definition vars_with_atomics_to_domains (atomics : list Atomic.Atomic) (vs : list Var) :=
+  var_atomics_to_domains atomics (vars_to_atoms vs).
+
+Definition NoDup_f {A B} (l : list A) (f : A -> B) :=
+  NoDup (map f l).
+
+
+
+
+
+(* Lemma domain_correct :
+  NoDup  
+
+  In dom atomic *)

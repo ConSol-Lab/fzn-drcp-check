@@ -8,8 +8,6 @@ bug-reports: "https://github.com/ConSol-Lab/fzn-drcp-check/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.16"}
-  "coq"
-  "coq-mmaps"
   "odoc" {with-doc}
 ]
 build: [

@@ -4,6 +4,11 @@ Require Coq.ZArith.ZArith.
 Require Coq.NArith.NArith.
 Require Coq.Logic.FinFun.
 Require Lia.
+Require Coq.Structures.OrdersEx.
+Require MMaps.Interface.
+Require MMaps.RBT.
+
+
 
 Module ListEx.
   Import List.
@@ -664,3 +669,23 @@ Fixpoint has_n_true (n : nat) (l : list bool) (current : nat) : bool :=
 
 
 End ZRange.
+
+Module Maps.
+Import String.
+Import List.
+Module smap := RBT.Make OrdersEx.String_as_OT.
+
+Definition add_to_map {U} (m : smap.t U) (elt : string * U):=
+  match elt with
+  | (x, u) => smap.add x u m
+  end.
+
+Definition param_map {U} (l : list (string * U)) (d : U) : string -> U :=
+  let map := fold_left add_to_map l smap.empty in
+  fun x =>
+    match smap.find x map with
+    | Some u => u
+    | None => d
+    end.
+
+End Maps.

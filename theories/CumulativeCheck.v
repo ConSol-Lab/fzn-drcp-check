@@ -19,7 +19,7 @@ Require Import Checker.Atomic.
 Require Import Checker.Variable.
 Require Checker.Utility.
 Require Import Checker.DomainAllVar.
-
+Import Utility.Maps.
 Open Scope N_scope.
 
 Theorem res_sum_semantics :
@@ -98,6 +98,14 @@ Open Scope Z_scope.
 
 Definition mandatory_active (lb : Z) (ub : Z) (t : Z) (p_time : N) :=
   (ub <=? t) && (t <? (lb + (Z.of_N p_time))).
+
+Definition constraint_to_param_map (c : CumulativeConstraint) : string -> (N * N) :=
+  let params := map (fun elt =>
+    match elt with
+    | (v, p, u) =>
+      (var_name v, (p, u))
+    end) c.(vs) in
+  param_map params (N0, N0).
 
 Definition constraint_to_intervals (c : CumulativeConstraint) : list (string * zn_interval * (N * N)) :=
   map (fun elt =>
