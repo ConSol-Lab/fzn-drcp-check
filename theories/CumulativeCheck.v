@@ -142,19 +142,19 @@ Definition interval_to_bounds (i : zn_interval) : (Z * Z)%type :=
   let (lb, size) := i in
     (lb, lb + (Z.of_N size)).
 
-Definition activity_bounds_is_active (t : Z) (activity : string * zn_interval * (N * N)) : list (string * N) :=
+Definition activity_bounds_is_active (t : Z) (activity : string * zn_interval * (N * N)) : option (string * N) :=
   match activity with
   | (x, i, (p_time, usage)) =>
     match interval_to_bounds i with
     | (lb, ub) =>
       if mandatory_active lb ub t p_time
-        then (x, usage) :: nil
-        else nil
+        then Some (x, usage)
+        else None
     end
   end.
 
 Definition activities_bounds_active_at (t : Z) (activities : list (string * zn_interval * (N * N))) :=
-  flat_map (activity_bounds_is_active t) activities.
+  flat_map_option (activity_bounds_is_active t) activities.
 
 Open Scope N_scope.
 
@@ -394,12 +394,7 @@ Definition bound_name {U} (bound : string * zn_interval * U) :=
 
 
 Definition unique_bounds {U} (bounds : list (string * zn_interval * U)) :=
-  NoDup bounds
-    /\
-  forall a1 a2,
-    In a1 bounds -> In a2 bounds
-    -> bound_name a1 = bound_name a2
-    -> a1 = a2. 
+  NoDup (map bound_name bounds).
 
 Lemma a_u_dec (U : Type) (u_dec : forall x y : U, {x = y}+{x <> y}) :
   forall x y : string * zn_interval * U, {x = y}+{x <> y}.
@@ -407,7 +402,7 @@ Proof.
   repeat decide equality.
 Qed.
 
-Lemma unique_bounds_cons (U : Type) :
+(* Lemma unique_bounds_cons (U : Type) :
   forall (a : string * zn_interval * U) bounds,
     unique_bounds (a :: bounds)
       ->
@@ -430,8 +425,8 @@ Proof.
   - left. reflexivity.
   - right. exact Hin.
 Qed.
-
-Lemma unique_bounds_less (U : Type) :
+ *)
+(* Lemma unique_bounds_less (U : Type) :
   forall (a : string * zn_interval * U) bounds,
     unique_bounds (a :: bounds)
       ->
@@ -450,11 +445,17 @@ Proof.
     + right. exact Hin2.
     + exact Hname.
 Qed.
-
+ *)
 
 
 Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
   forall a, In a bounds -> task_in_constraint a c sol.
+
+Lemma eq_dec_bounds :
+  forall x y : string * zn_interval * (N * N), {x = y} + {x <> y}.
+Proof.
+  repeat decide equality.
+Qed.
 
 Lemma activity_bounds_nodup :
 forall t bounds,
@@ -462,7 +463,40 @@ forall t bounds,
     ->
   NoDup (activities_bounds_active_at t bounds).
 Proof.
-  intros t. induction bounds.
+  intros t bounds Hunique. 
+  unfold activities_bounds_active_at. 
+  rewrite flat_map_option_as_filter_map with (d := (""%string, N0)).
+  apply NoDup_map_inv with (f := fst).
+  remember
+    (filter
+      (filter_f_option
+      (activity_bounds_is_active
+      t)) bounds) as l.
+  apply nodup_key with (a_k := bound_name).
+  - unfold unique_bounds in Hunique.
+    apply nodup_sublist with (l2 := (map bound_name bounds)) (eq_dec := String.string_dec).
+    + exact Hunique.
+    + eapply sub_list_map.
+      subst l.
+      apply filter_sublist.
+      Unshelve.
+      repeat decide equality. 
+  - intros a Hin. subst l. rewrite filter_In in Hin.
+    destruct Hin as (Hinbounds & Hfilteropt).
+    unfold option_map_default.
+    unfold filter_f_option in Hfilteropt.
+    destruct (activity_bounds_is_active t a) as [bnd |] eqn:Hbnd.
+    + unfold activity_bounds_is_active in Hbnd.
+      destruct a as [[x i] [p u]].
+      destruct (interval_to_bounds i) as [lb ub].
+      destruct (mandatory_active lb ub t p).
+      * destruct bnd as [x' n].
+        inversion Hbnd; subst x'. simpl. reflexivity.
+      * discriminate Hbnd.
+    + discriminate Hfilteropt.
+Qed.
+
+  (* intros t. induction bounds.
   - intros Hnil. simpl. apply NoDup_nil.
   - intros Hunique.
     apply unique_bounds_less in Hunique as H.
@@ -494,7 +528,7 @@ Proof.
       apply unique_bounds_cons with (a := (x, (lb, size), (p, u'))) in Hina'.
       * simpl in Hina'. contradiction.
       * exact Hunique.
-Qed.
+Qed. *)
 
 Lemma valid_bounds_mandatory_sublist :
   forall constr sol bounds t,
@@ -511,14 +545,14 @@ Proof.
     rewrite in_map_iff.
     pose proof Hin as Hin2.
     unfold activities_bounds_active_at in Hin.
-    rewrite in_flat_map in Hin.
+    rewrite in_flat_map_option in Hin.
     destruct Hin as [a' [Hinbounds Hinres]].
     destruct a' as [[x [lb size]] [p u]] eqn:Ha'.
     unfold activity_bounds_is_active in Hinres.
     destruct (interval_to_bounds (lb, size)) as [lb' ub] eqn:Hibounds. unfold interval_to_bounds in Hibounds; inversion Hibounds; subst lb'; symmetry in H1; clear Hibounds.
     destruct (mandatory_active lb ub t p) eqn:Hmand.
-    2: destruct Hinres.
-    simpl in Hinres. destruct Hinres; try contradiction. subst a.
+    2: discriminate Hinres.
+    inversion Hinres; subst a; clear Hinres. 
     apply Hvalid in Hinbounds.
     unfold task_in_constraint in Hinbounds.
     rewrite <- Ha' in *.
@@ -541,7 +575,7 @@ Proof.
         rewrite andb_true_iff; rewrite andb_true_iff in Hmand.
         rewrite Z.leb_le in Hmand; rewrite Z.leb_le.
         rewrite Z.ltb_lt; rewrite Z.ltb_lt in Hmand.
-        lia.
+        lia. 
   - apply activity_bounds_nodup.
     exact Hunique.
 Qed.
@@ -612,6 +646,9 @@ Proof.
     + exact Hin.
 Qed.
 
+Definition default_bound :=
+  (""%string, (Z0, N0), (N0, N0)).
+
 Open Scope Z_scope.
 Lemma inferred_cumulative_bounds_valid :
   forall (c : CumulativeConstraint) inference sol,
@@ -666,25 +703,96 @@ Proof.
         rewrite Hvalue_is_var.
         rewrite <- Hvname.
         simpl. reflexivity.
-        
-      + clear -Heqdom_params.
+      + clear -Heqdom_params Hvinc Hvname.
+        unfold constraint_to_vars in Hvinc.
+        rewrite in_map_iff in Hvinc.
+        destruct Hvinc as [[[v' p] u] [Hvv' Hvinc]];
+        subst v'.
         unfold constraint_to_param_map in Heqdom_params.
         apply param_map_in in Heqdom_params.
         * rewrite in_map_iff in Heqdom_params.
           destruct Heqdom_params as (((v' & p') & u') & Heqs & Hin).
-          inversion Heqs; subst; clear Heqs.
-          assert (v = v').
+          inversion Heqs as [Hnamev']; subst; clear Heqs.
+          assert ((v, p, u) = (v', dom_p, dom_u)) as Heqs.
           {
-            apply c.()  
+            rewrite <- Hnamev' in Hvname. 
+            apply c.(x_determine_params); assumption.
           }
-        
-
+          inversion Heqs; subst.
+          exact Hin.
+        * rewrite in_map_iff.
+          exists ((var_name v, (p, u))).
+          rewrite in_map_iff.
+          split.
+          -- simpl. exact Hvname.
+          -- exists (v, p, u).
+            split.
+            ++ reflexivity.
+            ++ exact Hvinc.
     - admit.
     - unfold domain_holds in Hdomholds.
       unfold make_activity. simpl. rewrite value_from_x_is_v_sol with (v := v).
       + lia.
       + exact Hvinc.
       + exact Hvname.
+    - exact Hvname.
+  }
+  {
+    unfold unique_bounds.
+    unfold bounds; clear bounds.
+    remember (vars_with_atomics_to_domains
+(map atomic_not inference)
+(constraint_to_vars c)) as l.
+    unfold domains_to_bounds.
+    rewrite flat_map_option_as_filter_map with (d := default_bound).
+    (* remember (filter
+(filter_f_option
+(domain_to_bound
+(constraint_to_param_map
+c)))
+(vars_with_atomics_to_domains
+(map atomic_not
+inference)
+(constraint_to_vars c))) as l. *)
+    apply nodup_key with (a_k := d_name).
+    - apply nodup_sublist with (l2 := (map d_name l)) (eq_dec := String.string_dec ).
+      + subst l. apply domains_nodup.
+      + rewrite sub_list_app_perm.
+        remember (filter_f_option
+(domain_to_bound
+(constraint_to_param_map
+c))) as f.
+        specialize (partition_as_filter) with (f := f) (l := l) as Hpartfilt.
+        exists (map d_name (snd (partition f l))).
+        rewrite <- map_app.
+        apply Permutation.Permutation_map.
+        assert (filter f l = fst (partition f l)).
+        { rewrite Hpartfilt. simpl. reflexivity. }
+        rewrite H.
+
+         exists (map d_name (filter
+(fun x => negb (filter_f_option
+(domain_to_bound
+(constraint_to_param_map
+c))x )) l)).
+        rewrite <- map_app.
+        apply Permutation.Permutation_map.
+        
+      
+        eapply sub_list_map.
+        apply filter_sublist.
+        Unshelve.
+        repeat decide equality.
+        destruct (DomainAll.sint.equal holes holes0) eqn:Heq.
+        * rewrite DomainAll.sint.equal_spec in Heq.
+          unfold DomainAll.sint.Equal in Heq.
+        
+    split.
+    + unfold domains_to_bounds.
+    + intros a1 a2.
+      unfold domains_to_bounds.
+  }
+Admitted.
 
     {
 

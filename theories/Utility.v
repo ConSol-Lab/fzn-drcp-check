@@ -1,5 +1,6 @@
 From Coq Require Lists.List.
 From Coq Require Sorting.Sorted.
+From Coq Require Sorting.Permutation.
 Require Coq.ZArith.ZArith.
 Require Coq.NArith.NArith.
 Require Coq.Logic.FinFun.
@@ -13,6 +14,7 @@ Require MMaps.RBT.
 Module ListEx.
   Import List.
   Import Lia.
+  Import Permutation.
 
 Definition sub_list {A} (eq_dec : forall x y : A, {x = y}+{x <> y} ) (l1 l2 : list A) :=
   (forall a, In a l1 -> (count_occ eq_dec l1 a <= count_occ eq_dec l2 a)%nat).
@@ -135,6 +137,190 @@ Proof.
   lia.
 Qed.
 
+Lemma nodup_sublist {A} (eq_dec : forall x y : A, {x = y}+{x <> y}) :
+  forall l1 l2,
+    NoDup l2
+      ->
+    sub_list eq_dec l1 l2
+      ->
+    NoDup l1.
+Proof.
+  intros l1 l2. repeat rewrite NoDup_count_occ' with (decA := eq_dec). unfold sub_list. intros Hnodup Hsub.
+  intros a Hin.
+  pose proof Hin as Hge0.
+  rewrite count_occ_In with (eq_dec := eq_dec) in Hge0.
+  apply Hsub in Hin.
+  destruct (in_dec eq_dec a l2) as [Hin2|Hnin2].
+  + apply Hnodup in Hin2. lia.
+  + rewrite count_occ_In with (eq_dec := eq_dec) in Hnin2.
+    exfalso. lia.
+Qed. 
+
+Lemma filter_sublist {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) :
+  forall pred (l : list A),
+    sub_list eq_dec (filter pred l) l.
+Proof.
+  intros pred l.
+  induction l.
+  - simpl. intros a Hnil. destruct Hnil.
+  - simpl. 
+    assert (forall a', ~ In a' l -> ~ In a' (filter pred l)) as Hnotfilt.
+    { intros a'. intros Hin. rewrite filter_In. destruct (pred a'); unfold not; intros H; apply Hin; apply H. }
+    assert (forall a', pred a' = false -> ~ In a' (filter pred l)) as Hnotfilt2.
+    { intros a' Hpred. rewrite filter_In. unfold not. intros H. destruct H as [_ Hfalse]. rewrite Hpred in Hfalse. discriminate Hfalse. }
+    intros a'. destruct (pred a) eqn:Hpred; simpl; destruct (eq_dec a a') as [Haa' | Haa']; destruct (in_dec eq_dec a' l) as [Hla' | Hla']; destruct (pred a') eqn:Hpreda'; try assert (In a' l /\ pred a' = true) by (split; assumption); try rewrite <- filter_In in H; try apply IHl in H; try subst a'; try rewrite Hpreda' in Hpred; try discriminate Hpred; intros Hbad; try lia; try apply Hnotfilt in Hla' as Hla_filter'; try apply Hnotfilt2 in Hpreda'; try rewrite (count_occ_not_In eq_dec) in Hla'; try rewrite (count_occ_not_In eq_dec) in Hla_filter'; try rewrite (count_occ_not_In eq_dec) in Hpreda'; try lia.
+Qed. 
+
+Lemma count_occ_map {A B} (eq_dec_a : forall x y : A, {x = y} + {x <> y}) (eq_dec_b : forall x y : B, {x = y} + {x <> y}) :
+  forall (f : A -> B) (l : list A) a,
+  count_occ eq_dec_a l a <= count_occ eq_dec_b (map f l) (f a).
+Proof.
+  intros f. induction l.
+  - intros a. simpl. reflexivity.
+  - simpl. intros a'.
+    destruct (eq_dec_a a a') as [Haa' | Haa'].
+    + subst a'. destruct (eq_dec_b (f a) (f a)) as [_ |Hfalse]; try contradiction.
+      specialize (IHl a). lia.
+    + destruct (eq_dec_b (f a) (f a')) as [Hfa' | Hfa'].
+      * specialize (IHl a'). lia.
+      * apply IHl.
+Qed.
+
+Definition repeat_f {A} (f : A -> nat) (a : A) :=
+  repeat a (f a).
+
+Definition build_counts {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) (l : list A) (f : A -> nat) :=
+  concat (map (repeat_f f) (nodup eq_dec l)).
+
+Lemma build_counts_zero {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) :
+  forall f l a,
+    ~ In a l
+      ->
+    count_occ eq_dec (build_counts eq_dec l f) a = 0.
+Proof.
+  intros f l.
+  intros a Hnin.
+  rewrite <- count_occ_not_In.
+  unfold build_counts.
+  rewrite in_concat.
+  unfold not. intros H.
+  destruct H as (a_repeat & Hinmap & Hinrep).
+  rewrite in_map_iff in Hinmap.
+  destruct Hinmap as (a' & Hrep & Hinnodup).
+  unfold repeat_f in Hrep; subst a_repeat.
+  apply repeat_spec in Hinrep; subst a'.
+  rewrite nodup_In  in Hinnodup.
+  apply Hnin. exact Hinnodup.
+Qed.
+
+Lemma build_counts_correct {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) :
+  forall f l a,
+    In a l
+      ->
+    count_occ eq_dec (build_counts eq_dec l f) a = f a.
+Proof.
+  intros f. induction l.
+  - intros a. intros Hnil. destruct Hnil.
+  - intros a'. simpl.
+    intros Ha'.
+    unfold build_counts. simpl.
+    destruct (in_dec eq_dec a l) as [Hin|Hnin].
+    + destruct Ha'.
+      * subst a'. apply IHl. exact Hin.
+      * apply IHl. exact H.
+    + destruct Ha' as [| Haa'].
+      * subst a'.
+        unfold build_counts. simpl.
+        rewrite count_occ_app.
+        unfold repeat_f at 1. 
+        rewrite count_occ_repeat_eq; try reflexivity.
+        apply build_counts_zero with (eq_dec := eq_dec) (f := f) in Hnin. unfold build_counts in Hnin. rewrite Hnin.
+        lia.
+     * simpl. rewrite count_occ_app.
+        unfold repeat_f at 1.
+        rewrite count_occ_repeat_neq.
+        -- simpl. apply IHl. exact Haa'.
+        -- intros Ha_eq_a'.
+          subst a'. apply Hnin.
+          exact Haa'.
+Qed.
+
+Definition count_diff {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) (l : list A) (l_sub : list A) (a : A) :=
+  count_occ eq_dec l a - count_occ eq_dec l_sub a.
+
+Lemma sub_list_app_perm {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) :
+  forall l1 l2,
+    sub_list eq_dec l1 l2 <-> exists l1_diff, Permutation l2 (l1 ++ l1_diff).
+Proof.
+  intros l1 l2. split.
+  - intros Hsub. unfold sub_list in Hsub.
+    exists (build_counts eq_dec l2 (count_diff eq_dec l2 l1)).
+    rewrite Permutation_count_occ with (eq_dec := eq_dec).
+    intros a.
+    rewrite count_occ_app.
+    destruct (in_dec eq_dec a l1) as [Hin | Hnin].
+    + rewrite build_counts_correct.
+      * unfold count_diff. apply Hsub in Hin. lia.
+      * rewrite count_occ_In with (eq_dec := eq_dec). apply Hsub in Hin as Hcounts. rewrite count_occ_In with (eq_dec := eq_dec) in Hin.
+        lia.
+    + rewrite count_occ_not_In with (eq_dec := eq_dec) in Hnin.
+      destruct (in_dec eq_dec a l2) as [Hin2 | Hnin2].
+      * rewrite build_counts_correct.
+        -- unfold count_diff. rewrite Hnin. lia.
+        -- exact Hin2.
+      * rewrite build_counts_zero.
+        -- rewrite count_occ_not_In with (eq_dec := eq_dec) in Hnin2. lia.
+        -- exact Hnin2.
+  - intros H. destruct H as (l1_diff & Hperm).
+    unfold sub_list.
+    intros a Hin.
+    rewrite Permutation_count_occ in Hperm.
+    rewrite Hperm.
+    rewrite count_occ_app. lia.
+Qed.
+
+Lemma sub_list_map {A B} (eq_dec_a : forall x y : A, {x = y} + {x <> y}) (eq_dec_b : forall x y : B, {x = y} + {x <> y}) :
+  forall (f : A -> B) (l1 l2 : list A),
+  sub_list eq_dec_a l1 l2
+    ->
+  sub_list eq_dec_b (map f l1) (map f l2).
+Proof.
+  intros f l1 l2 Hsub.
+  rewrite sub_list_app_perm.
+  rewrite sub_list_app_perm in Hsub.
+  destruct Hsub as (l1_diff & Hperm).
+  exists (map f l1_diff).
+  rewrite <- map_app.
+  apply Permutation_map.
+  exact Hperm.
+Qed.
+
+Lemma permutation_partition {A} :
+  forall (f : A -> bool) l,
+  Permutation l (fst (partition f l) ++ snd (partition f l)).
+Proof.
+  intros f l.
+  repeat rewrite partition_as_filter. simpl.
+  induction l.
+  - simpl. apply perm_nil.
+  - simpl. destruct (f a) eqn:Hfa.
+    + simpl. apply perm_skip. apply IHl.
+    + simpl. remember (filter (fun x : A => negb (f x)) l) as l1; clear Heql1.
+      remember (filter f l) as l2; clear Heql2.
+      apply perm_trans with (l' := (a :: l2 ++ l1)).
+      * apply perm_skip. exact IHl.
+      * assert (a :: l1 = (a :: nil) ++ l1).
+        { simpl. reflexivity. }
+        rewrite H. 
+        rewrite app_assoc.
+        assert (a :: l2 ++ l1 = (a :: l2) ++ l1).
+        { simpl. reflexivity. }
+        rewrite H0.
+        apply Permutation_app_tail.
+        apply Permutation_cons_append.
+Qed.
+
+
 Definition flat_map_option {A B} (f : A -> option B) (l : list A) : list B :=
   flat_map (fun a =>
     match f a with
@@ -153,6 +339,276 @@ Proof.
   try discriminate Hb; try contradiction.
   - destruct Hb; try contradiction. subst b. reflexivity.
   - inversion Hb. subst b. left. reflexivity.
+Qed.
+
+Definition option_default {A} (d : A) (a : option A) :=
+  match a with
+  | Some a => a
+  | None => d
+  end.
+
+Definition option_map_default {A B} (f : A -> option B) (d : B) : A -> B :=
+  fun a =>
+    match f a with
+    | Some b => b
+    | None => d
+    end.
+
+Definition filter_option {A} (a : option A) :=
+  match a with
+  | Some _ => true
+  | None => false
+  end.
+
+Definition filter_f_option {A B} (f : A -> option B) (a : A) :=
+  match f a with
+  | Some _ => true
+  | None => false
+  end.
+
+Lemma flat_map_option_as_filter_map :
+  forall A B (f : A -> option B) d l,
+  flat_map_option f l = map (option_map_default f d) (filter (filter_f_option f) l).
+Proof.
+  intros A B f d.
+  induction l.
+  - simpl. reflexivity.
+  - simpl. destruct (f a) as [fa |] eqn:Hfa.
+    + assert (filter_f_option f a = true).
+      { unfold filter_f_option. rewrite Hfa. reflexivity. }
+      rewrite H. simpl. rewrite <- IHl. unfold option_map_default. rewrite Hfa. reflexivity.
+    + assert (filter_f_option f a = false).
+      { unfold filter_f_option. rewrite Hfa. reflexivity. }
+      rewrite H. simpl. rewrite <- IHl. reflexivity.
+Qed.
+
+Lemma flat_map_option_as_map_filter :
+  forall A B (f : A -> option B) d l,
+  flat_map_option f l = map (option_default d) (filter filter_option (map f l)).
+Proof.
+  intros A B f d.
+  induction l.
+  - simpl. reflexivity.
+  - simpl. destruct (f a) as [fa |] eqn:Hfa.
+    + assert (filter_option (Some fa) = true) by (unfold filter_option; reflexivity). rewrite H. simpl.
+    rewrite IHl. reflexivity.
+    + simpl. rewrite IHl. reflexivity.
+Qed.
+
+Definition NoDup_f {A B} (l : list A) (f : A -> B) :=
+  NoDup (map f l) .
+
+Lemma nodup_map (A B : Type) (eq_dec : forall x y : A, {x = y}+{x <> y}) (eq_dec_b : forall x y : B, {x = y}+{x <> y}) :
+  forall (f : A -> B) (l : list A),
+    NoDup (map f l)
+      ->
+    forall a1 a2,
+      In a1 l
+        ->
+      In a2 l
+        ->
+      f a1 = f a2
+        ->
+      a1 = a2.
+Proof.
+  intros f l Hnodup.
+  intros a1 a2 Hin1 Hin2 Hf.
+  destruct (eq_dec a1 a2) as [Heq | Hneq].
+  - exact Heq.
+  - exfalso.
+    apply in_split in Hin1.
+    destruct Hin1 as [l1 [l2 Hl]].
+    subst l.
+    apply in_app_or in Hin2.
+    destruct Hin2 as [Hin2 | Hin2].
+    + apply in_split in Hin2.
+      destruct Hin2 as [l3 [l4 Hl]].
+      subst l1.
+      repeat rewrite map_app in Hnodup.
+      simpl in Hnodup.
+      rewrite (NoDup_count_occ eq_dec_b) in Hnodup.
+      specialize (Hnodup (f a1)).
+      repeat rewrite count_occ_app in Hnodup.
+      rewrite count_occ_cons_eq in Hnodup; try easy.
+      rewrite count_occ_cons_eq in Hnodup; try easy. 
+      lia.
+    + destruct Hin2 as [Hfalse | Hin2]; try contradiction.
+      apply in_split in Hin2.
+      destruct Hin2 as [l3 [l4 Hl]].
+      subst l2.
+      repeat rewrite map_app in Hnodup.
+      simpl in Hnodup.
+      repeat rewrite map_app in Hnodup.
+      simpl in Hnodup.
+      rewrite (NoDup_count_occ eq_dec_b) in Hnodup.
+      specialize (Hnodup (f a1)).
+      repeat rewrite count_occ_app in Hnodup.
+      rewrite count_occ_cons_eq in Hnodup; try easy.
+      repeat rewrite count_occ_app in Hnodup.
+      rewrite count_occ_cons_eq in Hnodup; try easy. 
+      lia.
+Qed.
+
+ 
+
+Lemma nodup_key :
+  forall K B A (l : list A) (a_k : A -> K) (f : A -> B) (b_k : B -> K),
+  NoDup (map a_k l)
+    ->
+  (forall a, In a l -> a_k a = b_k (f a))
+    ->
+  NoDup (map b_k (map f l)).
+Proof.
+  intros K B A l a_k f b_k Hnodup Hkeq.
+  induction l.
+  - simpl. apply NoDup_nil.
+  - simpl.
+    inversion Hnodup; subst x; subst l0.
+    specialize (IHl H2).
+    apply NoDup_cons.
+    + unfold not.
+      intros Hin.
+      apply H1; clear H1.
+      rewrite in_map_iff in Hin.
+      rewrite in_map_iff.
+      destruct Hin as (b & Hbkf & Hbin).
+      rewrite in_map_iff in Hbin.
+      destruct Hbin as (a' & Hfab & Hin').
+      exists a'.
+      split; try assumption.
+      repeat rewrite Hkeq.
+      * rewrite Hfab. exact Hbkf.
+      * left. reflexivity.
+      * right. exact Hin'. 
+    + apply IHl.
+      intros a' Hin.
+      apply Hkeq.
+      right. exact Hin.
+Qed.
+
+Lemma preserve_nodup : 
+  forall K B A (l : list A) (a_k : A -> K) (f : A -> B) (b_k : B -> K),
+  NoDup (map a_k l)
+    ->
+  (forall a, In a l -> a_k a = b_k (f a))
+    ->
+  NoDup (map f l).
+Proof.
+  intros K B A l a_k f b_k.
+  intros Hnodup Hkeq.
+  apply NoDup_map_inv with (f := b_k).
+  apply nodup_key with (a_k := a_k).
+  - exact Hnodup.
+  - exact Hkeq.
+Qed.
+
+Fixpoint map_valid {A B} (f : A -> option B) (l : list A) (acc : list B) : list B :=
+  match l with
+  | nil => acc
+  | a :: l' =>
+    match f a with
+    | Some b => map_valid f l' (b :: acc)
+    | None => nil
+    end
+  end. 
+
+Lemma map_valid_length_permute {A B} :
+  forall (f : A -> option B) l bl1 bl2,
+    Permutation bl1 bl2
+      ->
+    length (map_valid f l bl1) = length (map_valid f l bl2).
+Proof.
+  intros f. induction l.
+  - intros bl1 bl2 Hpermute. simpl. apply Permutation_length. exact Hpermute.
+  - intros bl1 bl2 Hpermute. simpl.
+    destruct (f a) as [fa |] eqn:Hfa.
+    + apply IHl.
+      apply perm_skip.
+      exact Hpermute.
+    + reflexivity.
+Qed. 
+
+Lemma map_valid_acc {A B} :
+  forall (f : A -> option B) l acc b,
+    length (map_valid f l (b :: acc)) >= length (map_valid f l acc).
+Proof.
+  intros f. induction l.
+  - intros acc b. simpl. lia.
+  - intros acc b. simpl.
+    destruct (f a) as [fa |] eqn:Hfa.
+    + assert (length (map_valid f l (fa :: b :: acc)) = length (map_valid f l (b :: fa :: acc))).
+      { apply map_valid_length_permute. apply perm_swap. }
+      rewrite H. apply IHl.
+    + lia.
+Qed.
+
+Lemma map_valid_H {A B} :
+  forall (f : A -> option B) l b bl1 bl2,
+    bl2 <> nil
+      ->
+    Permutation bl1 bl2
+      ->
+    map_valid f l (b :: bl1) <> nil
+      ->
+    map_valid f l bl2 <> nil.
+Proof.
+  intros f. induction l.
+  - intros b bl1 bl2 Hnnil Hperm. simpl. intros H. exact Hnnil.
+  - intros b bl1 bl2. simpl.
+    intros Hnnil Hperm.
+    destruct (f a) as [fa |] eqn:Hfa.
+    + intros H. apply IHl with (bl1 := (fa :: bl1)) (b := b).
+      * easy.
+      * apply perm_skip. apply Hperm.
+      * rewrite <- length_zero_iff_nil in H.
+        rewrite <- length_zero_iff_nil.
+        rewrite map_valid_length_permute with (bl2 := (fa :: b :: bl1)).
+        -- exact H.
+        -- apply perm_swap.
+    + intros H. exact H.
+Qed. 
+
+Lemma map_valid_as_map {A B} :
+  forall (f : A -> option B) (d : B) l acc,
+    map_valid f l acc <> nil
+      ->
+    map_valid f l acc = rev (map (option_map_default f d) l) ++ acc.
+Proof.
+  intros f d. induction l.
+  - intros acc. intros Hnnil. simpl. reflexivity.
+  - intros acc. simpl.
+    destruct (f a) eqn:Hfa; try contradiction.
+    intros Hnnil.
+    rewrite IHl.
+    + assert (option_map_default f d a = b).
+      { unfold option_map_default. rewrite Hfa. reflexivity. }
+      rewrite H. rewrite <- app_assoc. simpl. reflexivity.
+    + exact Hnnil.
+Qed.
+
+Lemma map_valid_all_some :
+  forall A B (f : A -> option B) l acc,
+    map_valid f l acc <> nil
+      ->
+    (forall a, In a l ->
+      match f a with
+      | None => False
+      | Some _ => True
+      end 
+    ).
+Proof.
+  intros A B f. induction l.
+  - intros acc. intros H. intros a Hfalse.
+    destruct Hfalse.
+  - intros acc. simpl.
+    destruct (f a) as [fa |] eqn:Hfa.
+    + intros H.
+      specialize (IHl (fa :: acc) H).
+      intros a'.
+      intros [Ha' | Hin].
+      * subst a'. rewrite Hfa. reflexivity.
+      * apply IHl. exact Hin.
+    + intros Hfalse. exfalso. apply Hfalse. reflexivity.
 Qed.
 
 End ListEx.

@@ -12,7 +12,8 @@ Require Checker.Atomic.
 Require Import Checker.Variable.
 Require Import Checker.DomainAll.
 Require Coq.Structures.OrdersEx.
-
+Require Checker.Utility.
+Import Utility.ListEx.
 Require MMaps.Interface.
 Require MMaps.RBT.
 
@@ -228,11 +229,90 @@ Definition vars_with_atomics_to_domains (atomics : list Atomic.Atomic) (vs : lis
 Definition NoDup_f {A B} (l : list A) (f : A -> B) :=
   NoDup (map f l).
 
+Ltac destruct_pairs :=
+  repeat match goal with
+  | [ x : _ * _ |- _ ] => destruct x
+  end.
 
+Ltac solve_equiv :=
+  constructor;
+  repeat (
+    repeat intro;
+    destruct_pairs;
+    simpl in *;
+    subst;
+    try reflexivity;
+    try symmetry; try assumption;
+    try easy
+  ).
 
-
-
-(* Lemma domain_correct :
-  NoDup  
-
-  In dom atomic *)
+Lemma domains_nodup :
+  forall atomics vs,
+  NoDup (map d_name (vars_with_atomics_to_domains atomics vs)).
+Proof.
+  intros atomics vs.
+  unfold vars_with_atomics_to_domains.
+  unfold var_atomics_to_domains.
+  unfold atomics_to_domains.
+  remember
+    (var_atomics_to_atomics
+    atomics (vars_to_atoms vs)) as atm_map.
+  assert (NoDup (map fst (smap.bindings atm_map))).
+  {
+    (* This shouldn't be so hard... *)
+    specialize (smap.bindings_spec2w (atm_map)) as Hbind.
+    unfold smap.eq_key in Hbind.
+    remember (smap.bindings atm_map) as l.
+    clear -Hbind.
+    assert (forall (x y : string * list Atomic), {x = y} + {x <> y}).
+    { repeat decide equality. }
+    induction l.
+    - simpl. apply NoDup_nil.
+    - simpl. inversion Hbind; clear Hbind.
+      apply NoDup_cons.
+      + destruct (in_dec H a l) as [Hin | ].
+        * subst x; subst l0. apply SetoidList.In_InA with (eqA := (fun p p' => fst p = fst p')) in Hin.
+          contradiction.
+          solve_equiv.
+        * subst x; subst l0.
+          unfold not. intros Hfstin.
+          rewrite in_map_iff in Hfstin.
+          destruct Hfstin as [a' [Hfst Ha']].
+          rewrite SetoidList.InA_alt in H2.
+          assert (exists y, fst a = fst y /\ In y l).
+          { exists a'. split; easy. }
+          contradiction.
+      + apply IHl.
+        exact H3.
+  }
+  remember (smap.bindings atm_map) as bl.
+  destruct (map_valid to_domain_f bl nil) as [| d l'] eqn:Hvalid.
+  - simpl. apply NoDup_nil.
+  - remember (d :: l') as l.
+    assert (map_valid to_domain_f bl nil <> nil) as Hnnil.
+    { unfold not. intros Hnil. subst l. rewrite Hnil in Hvalid. discriminate Hvalid. }
+    specialize map_valid_all_some with (f := to_domain_f) (acc := nil) (l := bl) as Hsome.
+    specialize (Hsome Hnnil).
+    rewrite map_valid_as_map with (d := d) in Hvalid.
+    + rewrite app_nil_r in Hvalid.
+      rewrite <- map_rev in Hvalid.
+      rewrite <- Hvalid.
+      apply nodup_key with (a_k := fst).
+      * rewrite map_rev. apply NoDup_rev.
+        exact H.
+      * intros [x dom].
+        intros Hrev.
+        simpl.
+        rewrite <- in_rev in Hrev.
+        rename Hrev into Hin.
+        unfold option_map_default.
+        destruct (to_domain_f (x, dom)) as [dom' |] eqn:Hto_dom.
+        2: { apply Hsome in Hin. rewrite Hto_dom in Hin. contradiction. }
+        clear -Hto_dom.
+        unfold to_domain_f in Hto_dom.
+        destruct (apply_atomics dom None None
+          sint.empty) as [((lb & ub) & holes) |]; try discriminate Hto_dom.
+        inversion Hto_dom as [Hdom']; clear Hto_dom.
+        simpl. reflexivity.
+    + exact Hnnil.
+Qed.

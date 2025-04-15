@@ -6,6 +6,7 @@ Require Import Coq.Bool.Bool.
 Require Import Lia.
 Require Import Checker.Domain.
 Require Import Checker.Utility.
+Import Utility.ListEx.
 Require Import Checker.Variable.
 
 Definition x_determines_var (l : list (Var * N * N)) :=
@@ -267,57 +268,7 @@ Proof.
   lia.
 Qed.
 
-Lemma nodup_map (A B : Type) (eq_dec : forall x y : A, {x = y}+{x <> y}) (eq_dec_b : forall x y : B, {x = y}+{x <> y}) :
-  forall (f : A -> B) (l : list A),
-    NoDup (map f l)
-      ->
-    forall a1 a2,
-      In a1 l
-        ->
-      In a2 l
-        ->
-      f a1 = f a2
-        ->
-      a1 = a2.
-Proof.
-  intros f l Hnodup.
-  intros a1 a2 Hin1 Hin2 Hf.
-  destruct (eq_dec a1 a2) as [Heq | Hneq].
-  - exact Heq.
-  - exfalso.
-    apply in_split in Hin1.
-    destruct Hin1 as [l1 [l2 Hl]].
-    subst l.
-    apply in_app_or in Hin2.
-    destruct Hin2 as [Hin2 | Hin2].
-    + apply in_split in Hin2.
-      destruct Hin2 as [l3 [l4 Hl]].
-      subst l1.
-      repeat rewrite map_app in Hnodup.
-      simpl in Hnodup.
-      rewrite (NoDup_count_occ eq_dec_b) in Hnodup.
-      specialize (Hnodup (f a1)).
-      repeat rewrite count_occ_app in Hnodup.
-      rewrite count_occ_cons_eq in Hnodup; try easy.
-      rewrite count_occ_cons_eq in Hnodup; try easy. 
-      lia.
-    + destruct Hin2 as [Hfalse | Hin2]; try contradiction.
-      apply in_split in Hin2.
-      destruct Hin2 as [l3 [l4 Hl]].
-      subst l2.
-      repeat rewrite map_app in Hnodup.
-      simpl in Hnodup.
-      repeat rewrite map_app in Hnodup.
-      simpl in Hnodup.
-      rewrite (NoDup_count_occ eq_dec_b) in Hnodup.
-      specialize (Hnodup (f a1)).
-      repeat rewrite count_occ_app in Hnodup.
-      rewrite count_occ_cons_eq in Hnodup; try easy.
-      repeat rewrite count_occ_app in Hnodup.
-      rewrite count_occ_cons_eq in Hnodup; try easy. 
-      lia.
-Qed.
-      
+     
 Lemma x_determines_var_def_to_vs:
   forall vs,
     NoDup (map x_from_v vs)
