@@ -691,6 +691,37 @@ Proof.
     remember (Z.to_N (dom_ub - dom_lb)) as dom_size.
 
     apply value_from_x_is_v_sol with (sol := sol) (x := d_name dom) in Hvinc as Hvalue_is_var.
+    2: exact Hvname.
+
+    assert (In (v, dom_p, dom_u) (vs c)) as Hvpuinc.
+    {
+      clear -Heqdom_params Hvinc Hvname.
+      unfold constraint_to_vars in Hvinc.
+      rewrite in_map_iff in Hvinc.
+      destruct Hvinc as [[[v' p] u] [Hvv' Hvinc]];
+      subst v'.
+      unfold constraint_to_param_map in Heqdom_params.
+      apply param_map_in in Heqdom_params.
+      * rewrite in_map_iff in Heqdom_params.
+        destruct Heqdom_params as (((v' & p') & u') & Heqs & Hin).
+        inversion Heqs as [Hnamev']; subst; clear Heqs.
+        assert ((v, p, u) = (v', dom_p, dom_u)) as Heqs.
+        {
+          rewrite <- Hnamev' in Hvname. 
+          apply c.(x_determine_params); assumption.
+        }
+        inversion Heqs; subst.
+        exact Hin.
+      * rewrite in_map_iff.
+        exists ((var_name v, (p, u))).
+        rewrite in_map_iff.
+        split.
+        -- simpl. exact Hvname.
+        -- exists (v, p, u).
+          split.
+          ++ reflexivity.
+          ++ exact Hvinc.
+    }
 
     split; [|split].
     - unfold make_activity.
@@ -703,33 +734,20 @@ Proof.
         rewrite Hvalue_is_var.
         rewrite <- Hvname.
         simpl. reflexivity.
-      + clear -Heqdom_params Hvinc Hvname.
-        unfold constraint_to_vars in Hvinc.
-        rewrite in_map_iff in Hvinc.
-        destruct Hvinc as [[[v' p] u] [Hvv' Hvinc]];
-        subst v'.
-        unfold constraint_to_param_map in Heqdom_params.
-        apply param_map_in in Heqdom_params.
-        * rewrite in_map_iff in Heqdom_params.
-          destruct Heqdom_params as (((v' & p') & u') & Heqs & Hin).
-          inversion Heqs as [Hnamev']; subst; clear Heqs.
-          assert ((v, p, u) = (v', dom_p, dom_u)) as Heqs.
-          {
-            rewrite <- Hnamev' in Hvname. 
-            apply c.(x_determine_params); assumption.
-          }
-          inversion Heqs; subst.
-          exact Hin.
-        * rewrite in_map_iff.
-          exists ((var_name v, (p, u))).
-          rewrite in_map_iff.
-          split.
-          -- simpl. exact Hvname.
-          -- exists (v, p, u).
-            split.
-            ++ reflexivity.
-            ++ exact Hvinc.
-    - admit.
+      + exact Hvpuinc.
+    - unfold in_horizon. unfold make_activity. simpl.
+      specialize c.(valid_horizon) as Hhor.
+      unfold horizon_all in Hhor.
+      destruct v.
+      specialize (Hhor (interval var) dom_p dom_u Hvpuinc).
+      simpl in Hhor.
+      rewrite Hvalue_is_var.
+      specialize (sol.(consistency_proof) (interval var)) as Hconsistent.
+      apply is_in_implies_lower_bound in Hconsistent as Hlow.
+      apply is_in_implies_upper_bound in Hconsistent as Hup.
+      unfold var_upper_bound in Hup.
+      unfold var_lower_bound in Hlow.
+      lia.
     - unfold domain_holds in Hdomholds.
       unfold make_activity. simpl. rewrite value_from_x_is_v_sol with (v := v).
       + lia.
@@ -745,23 +763,14 @@ Proof.
 (constraint_to_vars c)) as l.
     unfold domains_to_bounds.
     rewrite flat_map_option_as_filter_map with (d := default_bound).
-    (* remember (filter
-(filter_f_option
-(domain_to_bound
-(constraint_to_param_map
-c)))
-(vars_with_atomics_to_domains
-(map atomic_not
-inference)
-(constraint_to_vars c))) as l. *)
     apply nodup_key with (a_k := d_name).
     - apply nodup_sublist with (l2 := (map d_name l)) (eq_dec := String.string_dec ).
       + subst l. apply domains_nodup.
       + rewrite sub_list_app_perm.
         remember (filter_f_option
-(domain_to_bound
-(constraint_to_param_map
-c))) as f.
+          (domain_to_bound
+          (constraint_to_param_map
+          c))) as f.
         specialize (partition_as_filter) with (f := f) (l := l) as Hpartfilt.
         exists (map d_name (snd (partition f l))).
         rewrite <- map_app.
@@ -769,32 +778,24 @@ c))) as f.
         assert (filter f l = fst (partition f l)).
         { rewrite Hpartfilt. simpl. reflexivity. }
         rewrite H.
-
-         exists (map d_name (filter
-(fun x => negb (filter_f_option
-(domain_to_bound
-(constraint_to_param_map
-c))x )) l)).
-        rewrite <- map_app.
-        apply Permutation.Permutation_map.
-        
-      
-        eapply sub_list_map.
-        apply filter_sublist.
-        Unshelve.
-        repeat decide equality.
-        destruct (DomainAll.sint.equal holes holes0) eqn:Heq.
-        * rewrite DomainAll.sint.equal_spec in Heq.
-          unfold DomainAll.sint.Equal in Heq.
-        
-    split.
-    + unfold domains_to_bounds.
-    + intros a1 a2.
-      unfold domains_to_bounds.
+        apply permutation_partition.
+    - intros a Hin.
+      unfold option_map_default.
+      rewrite filter_In in Hin.
+      unfold filter_f_option in Hin.
+      destruct (domain_to_bound
+        (constraint_to_param_map c) a) eqn:Hto_bound.
+      + unfold domain_to_bound in Hto_bound.
+        destruct d_lb; destruct d_ub; try discriminate Hto_bound.
+        destruct p as [[x]].
+        inversion Hto_bound; subst x.
+        simpl. reflexivity.
+      + destruct Hin as [_ Hfalse].
+        discriminate Hfalse.
   }
 Admitted.
 
-    {
+    (* {
 
     }
     
@@ -863,7 +864,7 @@ Admitted.
     - exact Hbounds.
   }
 Qed.
-
+ *)
 
 Open Scope nat_scope.
 
@@ -1162,7 +1163,7 @@ Definition can_be_active_at_t (capacity : N) (activity : string * zn_interval * 
   | (t, profile_usage) =>
   (* If it is mandatory active (not nil), we will have checked it already in the resource profile, so it's definitely fine *)
     match activity_bounds_is_active t activity with
-    | nil => 
+    | None => 
       match activity with
       | (_, (lb, size), (p_time, usage)) =>
         (lb <=? t)%Z
@@ -1180,7 +1181,7 @@ Lemma can_be_active_at_t_false :
   forall t profile_usage c x lb size p u,
     can_be_active_at_t c (x, (lb, size), (p, u)) (t, profile_usage) = false
       ->
-    (activity_bounds_is_active t (x, (lb, size), (p, u)) = nil)
+    (activity_bounds_is_active t (x, (lb, size), (p, u)) = None)
       /\
     ((profile_usage + u > c) \/ (t < lb \/ t >= lb + Z.of_N size + Z.of_N p)%Z).
 Proof.
@@ -1188,6 +1189,7 @@ Proof.
   intros Hfalse.
   unfold can_be_active_at_t in Hfalse.
   destruct (activity_bounds_is_active t (x, (lb, size), (p, u))).
+  - discriminate Hfalse. 
   - split.
     + reflexivity.
     + repeat rewrite andb_false_iff in Hfalse.
@@ -1195,7 +1197,6 @@ Proof.
       repeat rewrite Z.leb_le in Hfalse.
       rewrite N.leb_le in Hfalse.
       lia. 
-  - discriminate Hfalse.
 Qed.
 
 Open Scope Z_scope.
@@ -1212,8 +1213,8 @@ Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z 
 Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
   let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
   match inferred_cumulative_bounds constraint inference with
-  | None => false
-  | Some bounds => 
+  | nil => false
+  | bounds => 
     match resource_profile (constraint.(capacity)) bounds times with
     | profile_usages r_profile => 
       existsb (cannot_schedule_activity_w_profile (constraint.(capacity)) r_profile) bounds 
@@ -1356,16 +1357,11 @@ Proof.
   intros Hconstr Hchecked Hneg.
   apply Is_true_eq_true in Hchecked.
   unfold cumulative_checker in Hchecked.
-  destruct (inferred_cumulative_bounds constr fact) as [bounds |] eqn:Hbounds.
-  2: { discriminate Hchecked. }
-
-  assert (valid_bounds bounds constr sol /\ unique_bounds bounds).
-  { 
-    apply inferred_cumulative_bounds_valid with (inference := fact).
-    - exact Hneg.
-    - exact Hbounds.
-  }
-  destruct H as [Hvalid Hunique]; clear Hbounds; clear Hneg.
+  destruct (inferred_cumulative_bounds constr fact) as [| bounds'] eqn:Hbounds.
+  { discriminate Hchecked. }
+  remember (bounds' :: l) as bounds; clear Heqbounds.
+  apply inferred_cumulative_bounds_valid with (c := constr) in Hneg. rewrite Hbounds in Hneg. rename Hneg into H.
+  destruct H as [Hvalid Hunique]; clear Hbounds.
 
   remember (horizon_start constr) as h_start;
   remember (horizon_end constr) as h_end;
@@ -1395,7 +1391,7 @@ Proof.
       destruct a as [[x [lb size]] [p u]] eqn:Ha.
       destruct Hbound as [Hstart Hinactivity].
       rewrite <- Ha in *.
-      remember (make_activity a constr sol) as act.
+      remember (make_activity a (constraint_to_vars constr) sol) as act.
       exists act.
       unfold cannot_schedule_activity_w_profile in Hcannot_sched.
       rewrite Ha in Hcannot_sched.
@@ -1448,7 +1444,7 @@ Proof.
         split.
         {
           unfold activities_bounds_active_at.
-          rewrite in_flat_map.
+          rewrite in_flat_map_option.
           unfold not.
           intros [a_man [Ha_man_bounds Hman]].
            
@@ -1460,19 +1456,19 @@ Proof.
           unfold activity_bounds_is_active in Hman.
           destruct (interval_to_bounds (lb', size')) as [lb_b ub'] eqn:Hbound_lb.
           destruct (mandatory_active lb_b ub' t_false p') eqn:His_man.
-          2: { destruct Hman. }
-          simpl in Hman. destruct Hman as [Hxu |]; try contradiction.
-          inversion Hxu; subst x'; subst u'; clear Hxu.
-
-          destruct Hunique as [_ Hunique].
-          apply Hunique with (a1 := a) in Ha_man_inbounds.
-          - rewrite Ha in Ha_man_inbounds. inversion Ha_man_inbounds.
-            subst lb'; subst size'; subst p'; clear Ha_man_inbounds.
+          2: { discriminate Hman. }
+          inversion Hman; subst x'; subst u'.
+          apply nodup_map with (a1 := a) (a2 := (a_name act, (lb', size'), (p', usage act))) in Hunique.
+          - rewrite Ha in Hunique. inversion Hunique.
+            subst lb'; subst size'; subst p'; clear Hunique.
             unfold activity_bounds_is_active in Hman_nil.
             rewrite Hbound_lb in Hman_nil.
             rewrite His_man in Hman_nil.
             discriminate Hman_nil. 
+          - repeat decide equality.
+          - exact String.string_dec.
           - exact Hinbound.
+          - exact Ha_man_inbounds.
           - rewrite Heqact. rewrite Ha. unfold make_activity. simpl. reflexivity.
         }
         assert (usage act = u) as Hu.
@@ -1643,7 +1639,7 @@ Compute
       ) (Some (mkAtm "y" greater_equal 4)) in
   cumulative_checker fact constr.
 
-Compute 
+(* Compute 
   let cap := 1%N in
   let constr := build_cumulative 
     (
@@ -1675,4 +1671,4 @@ Compute
         | profile_conflict c => None
         end
     end
-  . 
+  .  *)
