@@ -83,6 +83,15 @@ Definition previous_or_add (x : string) (v : VarAtomic) (m : AtomicsMap) :=
     in
   add ++ find_previous x m.
 
+Lemma var_atomics_only_initial :
+  forall var_atomics initial,
+    forall x atomics,
+      In (x, atomics) (smap.bindings (var_atomics_to_atomics var_atomics initial))
+        ->
+      smap.In x initial.
+Proof.
+Admitted.
+
 Lemma var_atomics_correct :
   forall var_atomics initial initial_atoms,
     forall x atomics,
@@ -169,16 +178,6 @@ Proof.
     + exact Hinatom.  
 Qed.
 
-Fixpoint map_valid {A B} (f : A -> option B) (l : list A) (acc : list B) : list B :=
-  match l with
-  | nil => acc
-  | a :: l' =>
-    match f a with
-    | Some b => map_valid f l' (b :: acc)
-    | None => nil
-    end
-  end.  
-
 Record Domain := mkDom {
   d_name : string;
   d_lb : option Z;
@@ -222,6 +221,13 @@ Definition add_atoms_from_var (m : AtomicsMap) (v : Var) : AtomicsMap :=
 
 Definition vars_to_atoms (l : list Var) : AtomicsMap :=
   fold_left add_atoms_from_var l smap.empty.
+
+(* Lemma vars_to_atoms_correct :
+  forall vs,
+    NoDup (map var_name vs)
+      ->
+    forall 
+    smap.MapsTo  *)
 
 Definition vars_with_atomics_to_domains (atomics : list Atomic.Atomic) (vs : list Var) :=
   var_atomics_to_domains atomics (vars_to_atoms vs).
@@ -316,3 +322,35 @@ Proof.
         simpl. reflexivity.
     + exact Hnnil.
 Qed.
+
+Definition default_dom :=
+  mkDom ""%string None None sint.empty.
+
+Lemma to_domains_sound :
+  forall sol dom var_atomics vs,
+  (forall a, In a var_atomics ->
+    Atomic.test_atomic_assignment a sol = true)
+    ->
+  In dom
+    (vars_with_atomics_to_domains
+      var_atomics
+      vs)
+    ->
+  exists (v : Var),
+    In v vs 
+     /\
+    var_name v = (dom.(d_name))
+     /\
+    domain_holds dom sol.
+Proof.
+  intros sol dom var_atomics vs.
+  intros Hvar_atoms_hold.
+  intros Hin.
+  unfold vars_with_atomics_to_domains in Hin.
+  unfold var_atomics_to_domains in Hin.
+  unfold atomics_to_domains in Hin.
+  rewrite map_valid_as_map with (d := default_dom) in Hin.
+  - rewrite app_nil_r in Hin. rewrite <- in_rev in Hin.
+    rewrite in_map_iff in Hin.
+    destruct Hin as ((x & atoms) & Hto_dom & Hin).
+  - intros Hnil. rewrite Hnil in Hin. destruct Hin.
