@@ -675,7 +675,16 @@ Proof.
       var_name v = (dom.(d_name))
         /\
       domain_holds dom sol
-    ) by (admit); clear Hdomin; clear Hneg.
+    ).
+    {
+      apply to_domains_sound with (var_atomics := (map atomic_not inference)).
+      - intros atom Hin. unfold inference_negated in Hneg.
+        apply Is_true_eq_true.
+        apply Hneg.
+        exact Hin.
+      - exact Hdomin.
+    }
+    clear Hdomin; clear Hneg.
 
     destruct H as (v & Hvinc & Hvname & Hdomholds).
     rename Hvname into Hvdom.
@@ -753,7 +762,6 @@ Proof.
       + lia.
       + exact Hvinc.
       + exact Hvname.
-    - exact Hvname.
   }
   {
     unfold unique_bounds.
@@ -793,78 +801,7 @@ Proof.
       + destruct Hin as [_ Hfalse].
         discriminate Hfalse.
   }
-Admitted.
-
-    (* {
-
-    }
-    
-    
-    specialize (apply_atomics_correct (N * N) ((constraint_to_intervals c)) (map atomic_not inference) bounds Hbounds a Hinbounds) as Happly.
-    destruct a as [[x [lb a_size]] [p u]] eqn:Ha.
-    destruct Happly as [lb_init [size_init [Hinis [atoms_applied [Hatomsin Hatomproof]]]]].
-    unfold task_in_constraint.
-    unfold constraint_to_intervals in Hinis.
-    rewrite in_map_iff in Hinis.
-    destruct Hinis as [[[v v_process] v_usage] [Hv Hvinc]].
-    destruct v.
-    inversion Hv. subst x; subst lb_init; subst size_init; subst v_process; subst v_usage; clear Hv.
-    assert (find_value sol (interval var) = x_start_time (name var) c sol) as Hvalue_x.
-    {
-      unfold x_start_time.
-      destruct (find (c_var_with_x (name var)) (vs c)) as [ [[v' p'] u'] |] eqn:Hfind.
-      - apply find_some in Hfind.
-        destruct Hfind as [Hinvs Hcvar].
-        unfold c_var_with_x in Hcvar.
-        destruct (name var =? var_name v')%string eqn:Hnamev'.
-        2: { discriminate Hcvar. }
-        rewrite String.eqb_eq in Hnamev'.
-        apply sol.(find_value_eq_name).
-        rewrite <- Hnamev'.
-        reflexivity.
-      - exfalso. apply find_none with (x := ((interval var, p, u))) in Hfind.
-        + unfold c_var_with_x in Hfind. rewrite String.eqb_neq in Hfind. simpl in Hfind. contradiction.
-        + exact Hvinc.
-    }
-    split; [| split].
-    - unfold make_activity.
-      unfold activity_list. unfold activity_list_inner.
-      rewrite in_map_iff.
-      exists (interval var, p, u).
-      split.
-      + unfold activity_list_inner_f.
-        
-        rewrite Hvalue_x.
-        reflexivity.
-      + exact Hvinc.
-    - unfold in_horizon. unfold make_activity. simpl.
-      specialize c.(valid_horizon) as Hhor.
-      unfold horizon_all in Hhor.
-      specialize (Hhor (interval var) p u Hvinc).
-      simpl in Hhor.
-      rewrite <- Hvalue_x.
-      specialize (sol.(consistency_proof) (interval var)) as Hconsistent.
-      apply is_in_implies_lower_bound in Hconsistent as Hlow.
-      apply is_in_implies_upper_bound in Hconsistent as Hup.
-      unfold var_upper_bound in Hup.
-      unfold var_lower_bound in Hlow.
-      lia.
-    - unfold make_activity. simpl.
-      rewrite <- Hvalue_x.
-      apply atomic_proof_correct with (lb_init := (lower_bound var)) (size_init := (N.of_nat (size var))) (atoms := atoms_applied) (x := name var); try easy.
-      intros atom Hinapplied.
-      apply Hneg.
-      apply Hatomsin.
-      exact Hinapplied.
-  }
-  {
-    apply apply_atomics_unique with (atoms := (map atomic_not inference)) (is := (constraint_to_intervals c)).
-    - repeat decide equality.
-    - apply constraint_to_intervals_unique.
-    - exact Hbounds.
-  }
 Qed.
- *)
 
 Open Scope nat_scope.
 

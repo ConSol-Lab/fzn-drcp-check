@@ -14,10 +14,9 @@ Require Import Checker.DomainAll.
 Require Coq.Structures.OrdersEx.
 Require Checker.Utility.
 Import Utility.ListEx.
+Import Utility.Maps.
 Require MMaps.Interface.
 Require MMaps.RBT.
-
-Module smap := RBT.Make OrdersEx.String_as_OT.
 
 Definition AtomicsMap := smap.t (list Atomic).
 
@@ -274,62 +273,11 @@ Definition var_to_atoms (v : Var) :=
     nil
   end.
 
-Definition var_to_atoms_name (v : Var) :=
-  (var_name v, var_to_atoms v).
-
-Definition var_to_atoms_map (vs : list Var) :=
-  map (var_to_atoms_name) vs.
-
-
-
-Definition add_atoms_from_var (m : AtomicsMap) (v : Var) : AtomicsMap :=
-  let name := var_name v in
-  let atoms := var_to_atoms v in
-  smap.add name atoms m. 
-
-Definition vars_to_atoms_rec (l : list Var) (init : AtomicsMap) :=
-  fold_left add_atoms_from_var l init.
-
-Definition vars_to_atoms (l : list Var) : AtomicsMap :=
-  vars_to_atoms_rec l smap.empty.
-(* This sucks.... *)
-(* Lemma vars_to_atoms_correct :
-  forall x sol vs init,
-    let atoms := (find_default x (vars_to_atoms_rec vs init)) in
-    smap.MapsTo x atoms (vars_to_atoms_rec vs init)
-      ->
-    (exists atoms', smap.MapsTo x atoms' init)
-      \/
-    exists (v : Var),
-      var_name v = x /\ In v vs /\ (forall a, In a atoms -> atomic_holds (sol.(find_value) v) a).
-Proof.
-  intros x sol.
-  induction vs as [| v vs IH].
-  - intros init atoms. intros Hmap. unfold vars_to_atoms_rec in Hmap.
-    simpl in Hmap.
-    left. exists atoms. 
-    exact Hmap. 
-  - intros init. unfold vars_to_atoms_rec. simpl.
-    intros Hmap.
-    apply IH in Hmap; clear IH.
-    unfold find_default in *.
-    destruct Hmap as [Hinit | Hv]; destruct (String.string_dec (var_name v) x) as [Hvx | Hvx].
-    + unfold add_atoms_from_var in Hinit.
-      right. exists v. split; [|split].
-      * exact Hvx.
-      * left. reflexivity.
-      *   
-      * admit.
-      * admit.
-    + 
-    + unfold find_default in Hmap.
- *)
+Definition vars_to_atoms (vs : list Var) : AtomicsMap :=
+  build_map var_name var_to_atoms vs.
 
 Definition vars_with_atomics_to_domains (atomics : list Atomic.Atomic) (vs : list Var) :=
   var_atomics_to_domains atomics (vars_to_atoms vs).
-
-Definition NoDup_f {A B} (l : list A) (f : A -> B) :=
-  NoDup (map f l).
 
 Lemma domains_nodup :
   forall atomics vs,
@@ -414,7 +362,30 @@ Lemma vars_to_atoms_correct :
 forall vs sol x atoms_from_var, smap.MapsTo x atoms_from_var (vars_to_atoms vs) ->
     exists v, In v vs /\ var_name v = x /\ atoms_hold_for_var atoms_from_var sol v.
 Proof.
-Admitted.
+  intros vs sol x atoms_from_var.
+  intros Hmap.
+  apply build_map_maps_to in Hmap.
+  destruct Hmap as (v & Hin & Hname & Hto_atoms).
+  exists v.
+  split; [|split].
+  - exact Hin.
+  - exact Hname.
+  - unfold atoms_hold_for_var.
+    unfold var_to_atoms in Hto_atoms.
+    destruct v.
+    rewrite <- Hto_atoms.
+    intros a Hain.
+    unfold atomic_holds.
+    specialize sol.(consistency_proof) with (v := interval var) as Hsol.
+    unfold is_in in Hsol.
+    apply Is_true_eq_true in Hsol.
+    destruct Hain as [Hlb | [Hub | Hnil]].
+    + unfold mk_atm_ge in Hlb. rewrite <- Hlb. simpl.
+      lia.
+    + unfold mk_atm_le in Hub. rewrite <- Hub. simpl.
+      lia.
+    + destruct Hnil.
+Qed.
 
 Lemma to_domains_sound :
   forall sol dom var_atomics vs,
