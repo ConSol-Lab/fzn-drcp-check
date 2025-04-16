@@ -18,7 +18,7 @@ Require Import Lia.
 Require Import Checker.Atomic.
 Require Import Checker.Variable.
 Require Checker.Utility.
-Require Import Checker.DomainAllVar.
+Require Import Checker.DomainVar.
 Import Utility.Maps.
 Open Scope N_scope.
 
@@ -392,7 +392,6 @@ Definition bound_name {U} (bound : string * zn_interval * U) :=
   | (x, _, _) => x
   end.
 
-
 Definition unique_bounds {U} (bounds : list (string * zn_interval * U)) :=
   NoDup (map bound_name bounds).
 
@@ -401,52 +400,6 @@ Lemma a_u_dec (U : Type) (u_dec : forall x y : U, {x = y}+{x <> y}) :
 Proof.
   repeat decide equality.
 Qed.
-
-(* Lemma unique_bounds_cons (U : Type) :
-  forall (a : string * zn_interval * U) bounds,
-    unique_bounds (a :: bounds)
-      ->
-    forall a',
-      In a' bounds
-        ->
-      bound_name a <> bound_name a'.
-Proof.
-  intros a bounds.
-  intros Hunique.
-  intros a'. intros Hin.
-  unfold not. intros Hname.
-  apply Hunique in Hname.
-  - subst a'.
-    unfold unique_bounds in Hunique.
-    destruct Hunique as [Hnodup _].
-    rewrite NoDup_cons_iff in Hnodup.
-    destruct Hnodup as [Hnotinbounds _].
-    contradiction.
-  - left. reflexivity.
-  - right. exact Hin.
-Qed.
- *)
-(* Lemma unique_bounds_less (U : Type) :
-  forall (a : string * zn_interval * U) bounds,
-    unique_bounds (a :: bounds)
-      ->
-    unique_bounds bounds.
-Proof.
-  intros a bounds.
-  intros Hunique.
-  unfold unique_bounds in Hunique.
-  unfold unique_bounds.
-  destruct Hunique as [Hnodup Hunique].
-  split.
-  - rewrite NoDup_cons_iff in Hnodup. apply Hnodup.
-  - intros a1 a2 Hin1 Hin2 Hname.
-    apply Hunique.
-    + right. exact Hin1.
-    + right. exact Hin2.
-    + exact Hname.
-Qed.
- *)
-
 
 Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
   forall a, In a bounds -> task_in_constraint a c sol.
@@ -495,40 +448,6 @@ Proof.
       * discriminate Hbnd.
     + discriminate Hfilteropt.
 Qed.
-
-  (* intros t. induction bounds.
-  - intros Hnil. simpl. apply NoDup_nil.
-  - intros Hunique.
-    apply unique_bounds_less in Hunique as H.
-    apply IHbounds in H; clear IHbounds.
-    simpl.
-    destruct a as [[x [lb size]] [p u]].
-    apply NoDup_app.
-    + unfold activity_bounds_is_active.
-      destruct (interval_to_bounds (lb, size)) as [lb' ub].
-      destruct (mandatory_active lb' ub t p).
-      * apply NoDup_cons; try easy. apply NoDup_nil.
-      * apply NoDup_nil.
-    + apply H.
-    + intros a Hin.
-      intros Hinbounds.
-      unfold activities_bounds_active_at in Hinbounds.
-      rewrite in_flat_map in Hinbounds.
-      destruct Hinbounds as [a' [Hina' Ha]].
-      destruct a as [x' u'].
-      unfold activity_bounds_is_active in Hin.
-      destruct (interval_to_bounds (lb, size)) as [lb_p ub].
-      destruct (mandatory_active lb_p ub t p); try easy.
-      destruct Hin as [Hxu|]; try easy; inversion Hxu; subst x'; subst u'; clear Hxu.
-      destruct a' as [[x' [lb' size']] [p' u']].
-      unfold activity_bounds_is_active in Ha.
-      destruct (interval_to_bounds (lb', size')) as [lb_p' ub'].
-      destruct (mandatory_active lb_p' ub' t p'); try easy.
-      destruct Ha as [Hxu|]; try easy; inversion Hxu; subst x'; subst u; clear Hxu.
-      apply unique_bounds_cons with (a := (x, (lb, size), (p, u'))) in Hina'.
-      * simpl in Hina'. contradiction.
-      * exact Hunique.
-Qed. *)
 
 Lemma valid_bounds_mandatory_sublist :
   forall constr sol bounds t,
@@ -579,46 +498,6 @@ Proof.
   - apply activity_bounds_nodup.
     exact Hunique.
 Qed.
-(* Lemma constraint_to_intervals_unique :
-  forall c,
-    unique_bounds (constraint_to_intervals c).
-Proof.
-  intros c.
-  unfold unique_bounds.
-  split.
-  - unfold constraint_to_intervals. apply Injective_map_NoDup.
-    + unfold Injective. intros [[v1 p1] u1]. intros [[v2 p2] u2].
-      destruct v1 as [v1]. destruct v2 as [v2].
-      intros H.
-      inversion H.
-      subst p2; subst u2.
-      destruct v1. destruct v2. simpl in *.
-      assert (size = size0) by lia.
-      subst name0; subst lower_bound0; subst size0.
-      reflexivity.
-    + apply c.(vs_nodup). 
-  - intros a1 a2.
-    intros Hin1 Hin2.
-    intros Hname.
-    destruct a1 as [[x1 [lb1 size1]] [p1 u1]].
-    destruct a2 as [[x2 [lb2 size2]] [p2 u2]].
-    unfold bound_name in Hname.
-    subst x2.
-    unfold constraint_to_intervals in Hin1, Hin2.
-    rewrite in_map_iff in Hin1, Hin2.
-    destruct Hin1 as [[[v1 p1'] u1'] [H1 Hin1]].
-    destruct v1 as [v1]. inversion H1.
-    subst lb1; subst size1; subst p1'; subst u1'; clear H1.
-    destruct Hin2 as [[[v2 p2'] u2'] [H2 Hin2]].
-    destruct v2 as [v2]. inversion H2.
-    subst lb2; subst size2; subst p2'; subst u2'; clear H2.
-    specialize c.(x_determine_params) as Hdeterm.
-    unfold x_determines_params in Hdeterm.
-    apply Hdeterm with (v2 := (interval v2)) (p2 := p2) (u2 := u2) in Hin1 as Hv1v2.
-    + inversion Hv1v2. reflexivity.
-    + exact Hin2.
-    + simpl. rewrite H0. rewrite H1. reflexivity.
-Qed. *)
 
 Lemma value_from_x_is_v_sol :
   forall v vs x sol,
@@ -690,8 +569,8 @@ Proof.
     rename Hvname into Hvdom.
     pose proof Hvdom as Hvname.
     apply Hdomholds in Hvdom as (Hholds & _).
-    unfold DomainAll.current_bound_holds in Hholds.
-    unfold DomainAll.option_bound in Hholds.
+    unfold Domain.current_bound_holds in Hholds.
+    unfold Domain.option_bound in Hholds.
 
     unfold domain_to_bound in Hdomparam.
     destruct (d_lb dom) as [dom_lb|]; destruct (d_ub dom) as [dom_ub|]; try discriminate Hdomparam.
@@ -1471,8 +1350,6 @@ Proof.
   - exfalso. apply checker_not_cumulative with (fact := I) (sol := theta) (constr := C); try apply Is_true_eq_left; try assumption.
   apply neg_atomic. exact Hsat.
 Qed.
-
-  
 
 Lemma cumulative_checker_valid :
   forall fact sol constr,

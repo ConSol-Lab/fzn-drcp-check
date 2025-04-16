@@ -9,7 +9,7 @@ Require Import Coq.Lists.List.
 Record AllDifferentConstraint :=
   {
     vars_ad : sstr.t;
-    var_ad_bounds : list zn_interval;
+    var_ad_bounds : list (Z * N);
     consistency : length var_ad_bounds = sstr.cardinal vars_ad
   }.
 

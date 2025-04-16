@@ -10,7 +10,7 @@ Require Import Bool.
 Require Import Lia.
 Require Checker.Atomic.
 Require Import Checker.Variable.
-Require Import Checker.DomainAll.
+Require Import Checker.Domain.
 Require Coq.Structures.OrdersEx.
 Require Checker.Utility.
 Import Utility.ListEx.
