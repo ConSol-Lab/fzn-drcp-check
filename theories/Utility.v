@@ -1152,6 +1152,118 @@ Import String.
 Import List.
 Module smap := RBT.Make OrdersEx.String_as_OT.
 
+Definition build_map_step {A B} (f_key : A -> string) (f : A -> B) (a : A) (m : smap.t B) :=
+  smap.add (f_key a) (f a) m
+.
+
+Definition build_map_rec {A B} (f_key : A -> string) (f : A -> B) (l : list A) (init : smap.t B) :=
+  fold_left (fun x y => build_map_step f_key f y x) l init.
+(* 
+Definition exists_unique {A} (a : A) (l : list A) (P : A -> Prop) :=
+  exists a, In a l /\ P a /\
+    forall a', In a' l /\ P a /\ a = a'. *)
+(* forall vs sol x atoms_from_var, smap.MapsTo x atoms_from_var (vars_to_atoms vs) ->
+    exists v, In v vs /\ var_name v = x /\ atoms_hold_for_var atoms_from_var sol v.
+P *)
+
+Lemma build_map_as_right :
+  forall A B (f_key : A -> string) (f : A -> B) (l : list A) init,
+  build_map_rec f_key f l init = fold_right (build_map_step f_key f) init (rev l).
+Proof.
+  intros A B f_key f l init.
+  unfold build_map_rec. rewrite fold_left_rev_right. reflexivity.
+Qed.
+
+Lemma fold_ind {X} :
+  forall (Acc:Type)(P : list X -> Acc -> Type)(f : X -> Acc -> Acc)(i : Acc)(s:list X),
+  P nil i ->
+  (forall x a s',
+    P s' a -> P (x :: s') (f x a)) ->
+  P s (fold_right f i s).
+Proof.
+  intros Acc P f i s Hnil Hstep.
+  induction s as [| x s IH].
+  - simpl. exact Hnil.
+  - simpl. specialize (Hstep x (fold_right f i s)).
+    apply Hstep.
+    exact IH.
+Qed.
+
+Definition build_map {A B} (f_key : A -> string) (f : A -> B) (l : list A) :=
+  build_map_rec f_key f l smap.empty.
+
+Lemma build_map_maps_to :
+  forall A B f_key (f : A -> B) (l : list A) x b,
+  smap.MapsTo x b (build_map f_key f l)
+    ->
+  exists a, In a l /\ f_key a = x /\ f a = b.
+Proof.
+  intros A B f_key f l x b.
+
+  set (P :=
+    fun (s : list A) (acc : smap.t B) =>
+      smap.MapsTo x b acc
+        ->
+      exists a, In a s /\ f_key a = x /\ f a = b 
+  ).
+  unfold build_map.
+  rewrite build_map_as_right.
+
+  enough (P (rev l) (fold_right (build_map_step f_key f) smap.empty (rev l))).
+  { unfold P in *. intros Hmap. apply H in Hmap.
+    clear P H. destruct Hmap as (a & Hin & Hfkey & Hfab).
+    exists a. repeat split; try assumption. apply in_rev. exact Hin. }
+
+  apply fold_ind.
+  - unfold P; clear P. intros Hempty.
+    rewrite <- smap.find_spec in Hempty.
+    rewrite smap.empty_spec in Hempty.
+    discriminate Hempty.
+  - intros a bmap al. unfold P; clear P.
+    intros IH.
+    intros H. 
+    unfold build_map_step in H.
+    rewrite <- smap.find_spec in H.
+    destruct (String.string_dec x (f_key a)) as [Hxa| Hxa].
+    + rewrite <- Hxa in *.
+      rewrite smap.add_spec1 in H.
+      inversion H.
+      exists a.
+      split; [|split].
+      * left. reflexivity.
+      * rewrite Hxa. reflexivity.
+      * reflexivity.
+    + rewrite smap.add_spec2 in H.
+      2: { symmetry. exact Hxa. }
+      rewrite smap.find_spec in H.
+      apply IH in H.
+      destruct H as (a' & Hin & Hfkey & Hfb).
+      exists a'.
+      repeat split; try assumption.
+      right. exact Hin.
+Qed.
+
+
+
+
+
+(* Definition P {A B} (f_key : A -> string) (f : A -> B) (l : list A) (a : smap.t B) :=
+  NoDup (map f_key l)
+    ->
+  forall x b, In (x, b) (smap.bindings a)
+    ->
+  exists a, In a l /\ f_key a = x /\ f a = b.
+ *)
+(* Lemma initialize_smap {A B} :
+  forall (f_key : A -> string) (f : A -> B) (l : list A),
+    NoDup (map f_key l)
+      ->
+    forall x b, In (x, b) (smap.bindings (build_map_rec f_key f l smap.empty))
+      ->
+    exists a, In a l /\ f_key a = x /\ f a = b /\ smap.MapsTo x 
+   *)
+
+
 Definition add_to_map {U}  (elt : string * U) (m : smap.t U) :=
   match elt with
   | (x, u) => smap.add x u m

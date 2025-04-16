@@ -46,12 +46,20 @@ Definition find_convert (name : string) (a : VarAtomic) (m : AtomicsMap) :=
   let converted := var_atm_to_atm a in
     converted :: (find_previous name m).
 
+Definition to_atomics_new_map (a : VarAtomic) (m : AtomicsMap) :=
+  let name := (var_name (Atomic.var a)) in
+  match smap.find name m with
+  | Some l => 
+    let to_add := var_atm_to_atm a :: l in
+    smap.add name to_add m
+  | None => m
+  end.
+
 Fixpoint var_atomics_to_atomics (atomics : list VarAtomic) (m : AtomicsMap) :=
   match atomics with
   | nil => m
   | a :: atomics' =>
-    let name := (var_name (Atomic.var a)) in
-      var_atomics_to_atomics atomics' (smap.add name (find_convert name a m) m)
+      var_atomics_to_atomics atomics' (to_atomics_new_map a m)
   end.
 
 Definition var_atomic_equiv (v_a : Atomic.Atomic) (a : Atomic) :=
@@ -59,19 +67,40 @@ Definition var_atomic_equiv (v_a : Atomic.Atomic) (a : Atomic) :=
     /\
   (Atomic.value v_a) = a.(atm_val).
 
+Ltac destruct_pairs :=
+  repeat match goal with
+  | [ x : _ * _ |- _ ] => destruct x
+  end.
+
+Ltac destruct_ands :=
+  repeat match goal with
+  | [ H: _ /\ _ |- _ ] =>
+      let H1 := fresh H "1" in
+      let H2 := fresh H "2" in
+      destruct H as [H1 H2]
+  end.
+
+Ltac solve_equiv :=
+  constructor;
+  repeat (
+    repeat intro;
+    destruct_pairs;
+    simpl in *;
+    destruct_ands;
+    subst;
+    try reflexivity;
+    try symmetry; try assumption;
+    try easy
+  ).
+
 Lemma In_to_InA_Duo_eq :
   forall {A B} (x : A) (y : B) (l : list (A * B)),
     In (x, y) l -> SetoidList.InA (Interface.Duo eq eq) (x, y) l.
 Proof.
   intros A B x y l Hin.
   apply SetoidList.In_InA.
-  - unfold Interface.Duo. constructor.
-    + intros [a b]; split; reflexivity.
-    + intros [a b] [a' b']. intros H.
-      inversion H; simpl in *; subst; easy.
-    + intros [a b] [a' b'] [a'' b''].
-      intros H H'; inversion H; inversion H';
-      simpl in *; subst; easy.
+  - unfold Interface.Duo.
+    solve_equiv. 
   - exact Hin.
 Qed.
 
@@ -88,21 +117,53 @@ Lemma var_atomics_only_initial :
     forall x atomics,
       In (x, atomics) (smap.bindings (var_atomics_to_atomics var_atomics initial))
         ->
-      smap.In x initial.
+      (* Would be nice if we could use smap.In, but that one unfolds a bit strangely making it harder to work with *)
+      exists initial_atoms, smap.MapsTo x initial_atoms initial.
 Proof.
-Admitted.
+  induction var_atomics as [| v var_atomics IH].
+  - intros initial x atomics.
+    intros Hin. 
+    apply In_to_InA_Duo_eq in Hin.
+    rewrite smap.bindings_spec1 in Hin.
+    simpl in Hin.
+    exists atomics.
+    exact Hin.
+  - intros initial x atomics.
+    simpl. intros Hin.
+    unfold to_atomics_new_map in Hin.
+    remember (var_name (Atomic.var v)) as name.
+    destruct (smap.find name initial) as [atomics' |] eqn:Hfind.
+    + rewrite smap.find_spec in Hfind.
+      destruct (String.string_dec name x) as [Hxname|Hxname].
+      * subst x.
+        exists atomics'.
+        apply Hfind.
+      * apply IH in Hin.
+        destruct Hin as [x_atoms Hx].
+        rewrite <- smap.find_spec in Hx.
+        rewrite smap.add_spec2 in Hx.
+        -- rewrite smap.find_spec in Hx.
+          exists x_atoms.
+          exact Hx.
+        -- exact Hxname.
+    + apply IH in Hin. exact Hin.
+Qed.
+
+Definition find_default (x : string) (m : AtomicsMap) :=
+  match smap.find x m with
+  | Some atoms => atoms
+  | None => nil
+  end.
 
 Lemma var_atomics_correct :
-  forall var_atomics initial initial_atoms,
+  forall var_atomics initial,
     forall x atomics,
       In (x, atomics) (smap.bindings (var_atomics_to_atomics var_atomics initial))
-        ->
-      smap.MapsTo x initial_atoms initial
         ->
       forall a,
         In a atomics
           ->
-        In a initial_atoms
+        In a (find_default x initial)
           \/
         exists v_a,
           In v_a var_atomics
@@ -112,45 +173,59 @@ Lemma var_atomics_correct :
           var_name (Atomic.var v_a) = x.
 Proof.
   induction var_atomics as [| v var_atomics IH].
-  - intros init initial_atomics x atomics. simpl.
+  - intros init x atomics. simpl.
     intros Hin. apply In_to_InA_Duo_eq in Hin.
     rewrite smap.bindings_spec1 in Hin.
-    intros Hmap.
     intros a Hinatom.
     left.
-    rewrite <- smap.find_spec in *. 
-    rewrite Hmap in Hin; inversion Hin; subst initial_atomics.
+    rewrite <- smap.find_spec in *.
+    unfold find_default. rewrite Hin.
     exact Hinatom.
-  - intros initial initial_atoms x atomics Hin Hinit.
+  - intros initial x atomics Hin.
     intros a Hinatom.
     simpl in Hin.
-    apply IH with (a := a) (initial_atoms := previous_or_add x v initial) in Hin.
+    pose proof Hin as Hinit.
+    apply var_atomics_only_initial in Hinit.
+    destruct Hinit as (x_init & Hinit).
+    apply IH with (a := a) in Hin.
     + destruct Hin as [Hprevadd | Hv].
-      * unfold previous_or_add in Hprevadd.
+      * unfold find_default in Hprevadd.
         destruct (x =? (var_name (Atomic.var v)))%string eqn:Hvx.
         {
+          clear -Hvx Hprevadd Hinit. 
+          rewrite String.eqb_eq in Hvx.
+          unfold to_atomics_new_map in Hprevadd, Hinit.
+          rewrite <- Hvx in *.
+          unfold find_default.
+          destruct (smap.find x initial) eqn:Hfind_init.
+          2: { rewrite Hfind_init in Hprevadd. destruct Hprevadd. }
+          rewrite smap.add_spec1 in Hprevadd.
           simpl in Hprevadd.
           destruct Hprevadd.
-          - clear -H Hvx.
-            right. exists v.
+          - right. exists v.
             split; [|split] .
             + left. reflexivity.
             + unfold var_atomic_equiv.
               unfold var_atm_to_atm in H.
               inversion H. simpl.
               split; reflexivity.
-            + rewrite String.eqb_eq in Hvx.
-              symmetry. exact Hvx.
-          - unfold find_previous in H.
-            rewrite <- smap.find_spec in Hinit.
-            rewrite Hinit in H.
-            left. exact H.  
+            + symmetry. exact Hvx.
+          - left. exact H.  
         }
         {
-          unfold find_previous in Hprevadd.
-          rewrite <- smap.find_spec in Hinit.
-          rewrite Hinit in Hprevadd.
-          left. apply Hprevadd. 
+          clear -Hvx Hprevadd Hinit.
+          unfold to_atomics_new_map in Hprevadd, Hinit.
+          remember (var_name (Atomic.var v)) as v_name.
+          rewrite String.eqb_neq in Hvx.
+          unfold find_default.
+          destruct (smap.find v_name initial).
+          - rewrite <- smap.find_spec in Hinit.
+            rewrite smap.add_spec2 in Hprevadd, Hinit;
+            try (symmetry; assumption).
+            rewrite Hinit in *.
+            left. exact Hprevadd.
+          - rewrite <- smap.find_spec in Hinit. rewrite Hinit in *.
+            left. exact Hprevadd.
         }
       * clear -Hv.
         right.
@@ -160,22 +235,7 @@ Proof.
         -- right. exact Hin.
         -- exact Hequiv.
         -- exact Hname.
-    + clear -Hinit.
-      rewrite <- smap.find_spec.
-      unfold previous_or_add.
-      destruct (x =? (var_name (Atomic.var v)))%string eqn:Hvx.
-      * rewrite String.eqb_eq in Hvx. rewrite <- Hvx.
-        rewrite smap.add_spec1.
-        f_equal.
-      * rewrite String.eqb_neq in Hvx.
-        rewrite smap.add_spec2.
-        2: easy.
-        unfold find_previous.
-        rewrite <- smap.find_spec in Hinit.
-        destruct (smap.find x initial) eqn:Hfind.
-        -- reflexivity.
-        -- discriminate Hinit.
-    + exact Hinatom.  
+    + exact Hinatom.
 Qed.
 
 Record Domain := mkDom {
@@ -214,43 +274,62 @@ Definition var_to_atoms (v : Var) :=
     nil
   end.
 
+Definition var_to_atoms_name (v : Var) :=
+  (var_name v, var_to_atoms v).
+
+Definition var_to_atoms_map (vs : list Var) :=
+  map (var_to_atoms_name) vs.
+
+
+
 Definition add_atoms_from_var (m : AtomicsMap) (v : Var) : AtomicsMap :=
   let name := var_name v in
-  let atoms := var_to_atoms v ++ find_previous name m in
+  let atoms := var_to_atoms v in
   smap.add name atoms m. 
 
-Definition vars_to_atoms (l : list Var) : AtomicsMap :=
-  fold_left add_atoms_from_var l smap.empty.
+Definition vars_to_atoms_rec (l : list Var) (init : AtomicsMap) :=
+  fold_left add_atoms_from_var l init.
 
+Definition vars_to_atoms (l : list Var) : AtomicsMap :=
+  vars_to_atoms_rec l smap.empty.
+(* This sucks.... *)
 (* Lemma vars_to_atoms_correct :
-  forall vs,
-    NoDup (map var_name vs)
+  forall x sol vs init,
+    let atoms := (find_default x (vars_to_atoms_rec vs init)) in
+    smap.MapsTo x atoms (vars_to_atoms_rec vs init)
       ->
-    forall 
-    smap.MapsTo  *)
+    (exists atoms', smap.MapsTo x atoms' init)
+      \/
+    exists (v : Var),
+      var_name v = x /\ In v vs /\ (forall a, In a atoms -> atomic_holds (sol.(find_value) v) a).
+Proof.
+  intros x sol.
+  induction vs as [| v vs IH].
+  - intros init atoms. intros Hmap. unfold vars_to_atoms_rec in Hmap.
+    simpl in Hmap.
+    left. exists atoms. 
+    exact Hmap. 
+  - intros init. unfold vars_to_atoms_rec. simpl.
+    intros Hmap.
+    apply IH in Hmap; clear IH.
+    unfold find_default in *.
+    destruct Hmap as [Hinit | Hv]; destruct (String.string_dec (var_name v) x) as [Hvx | Hvx].
+    + unfold add_atoms_from_var in Hinit.
+      right. exists v. split; [|split].
+      * exact Hvx.
+      * left. reflexivity.
+      *   
+      * admit.
+      * admit.
+    + 
+    + unfold find_default in Hmap.
+ *)
 
 Definition vars_with_atomics_to_domains (atomics : list Atomic.Atomic) (vs : list Var) :=
   var_atomics_to_domains atomics (vars_to_atoms vs).
 
 Definition NoDup_f {A B} (l : list A) (f : A -> B) :=
   NoDup (map f l).
-
-Ltac destruct_pairs :=
-  repeat match goal with
-  | [ x : _ * _ |- _ ] => destruct x
-  end.
-
-Ltac solve_equiv :=
-  constructor;
-  repeat (
-    repeat intro;
-    destruct_pairs;
-    simpl in *;
-    subst;
-    try reflexivity;
-    try symmetry; try assumption;
-    try easy
-  ).
 
 Lemma domains_nodup :
   forall atomics vs,
@@ -326,6 +405,17 @@ Qed.
 Definition default_dom :=
   mkDom ""%string None None sint.empty.
 
+Definition atoms_hold_for_var (atoms : list Atomic) (sol : Assignment) (v : Var) :=
+  forall a,
+    In a atoms ->
+    atomic_holds (sol.(find_value) v) a.
+
+Lemma vars_to_atoms_correct :
+forall vs sol x atoms_from_var, smap.MapsTo x atoms_from_var (vars_to_atoms vs) ->
+    exists v, In v vs /\ var_name v = x /\ atoms_hold_for_var atoms_from_var sol v.
+Proof.
+Admitted.
+
 Lemma to_domains_sound :
   forall sol dom var_atomics vs,
   (forall a, In a var_atomics ->
@@ -349,8 +439,58 @@ Proof.
   unfold vars_with_atomics_to_domains in Hin.
   unfold var_atomics_to_domains in Hin.
   unfold atomics_to_domains in Hin.
+  remember (smap.bindings
+    (var_atomics_to_atomics
+    var_atomics
+    (vars_to_atoms vs))) as bindings.
+  assert (map_valid to_domain_f bindings nil <> nil).
+  { intros Hnil. rewrite Hnil in Hin. destruct Hin. }
   rewrite map_valid_as_map with (d := default_dom) in Hin.
   - rewrite app_nil_r in Hin. rewrite <- in_rev in Hin.
     rewrite in_map_iff in Hin.
     destruct Hin as ((x & atoms) & Hto_dom & Hin).
+    subst bindings.
+    apply map_valid_all_some with (a := (x, atoms)) in H; try assumption.
+    unfold option_map_default in Hto_dom.
+    destruct (to_domain_f (x, atoms)) eqn:Hdom; try contradiction; clear H; subst d.
+    unfold to_domain_f in Hdom.
+    destruct (apply_atomics atoms None None sint.empty) as [[[lb ub] holes]|] eqn:Happly; try discriminate Hdom.
+    rename Hdom into Hdom_some; inversion Hdom_some as [Hdom]; clear Hdom_some.
+    specialize (var_atomics_correct var_atomics (vars_to_atoms vs) x atoms Hin) as Hvar_atomics.
+    apply var_atomics_only_initial in Hin.
+    destruct Hin as (var_atoms & Hvar_atoms).
+    assert (var_atoms = find_default x (vars_to_atoms vs)) as Hvar_atoms_find.
+    { unfold find_default. rewrite <- smap.find_spec in Hvar_atoms. rewrite Hvar_atoms. reflexivity. }
+    rewrite <- Hvar_atoms_find in Hvar_atomics; clear Hvar_atoms_find.
+    apply vars_to_atoms_correct with (sol := sol) in Hvar_atoms.
+    destruct Hvar_atoms as (v & Hinvs & Hname & Hvar_atoms).
+    exists v.
+    split; [|split].
+    + exact Hinvs.
+    + simpl. exact Hname.
+    + unfold domain_holds.
+      intros v'. simpl.
+      intros Hvname'.
+      assert (sol.(find_value) v' = sol.(find_value) v) as Hvv'.
+      { apply sol.(find_value_eq_name). rewrite Hvname'. rewrite Hname. reflexivity. }
+      rewrite Hvv'.
+      apply apply_atomics_some with (atoms := atoms).
+      * exact Happly.
+      * subst x. clear -Hvar_atoms_hold Hvar_atomics Hvar_atoms.
+        intros a Hin.
+        apply Hvar_atomics in Hin; clear Hvar_atomics.
+        destruct Hin as [Hin_var_atoms | Hex_atom].
+        { unfold atoms_hold_for_var in Hvar_atoms. apply Hvar_atoms. exact Hin_var_atoms. }
+        destruct Hex_atom as (v_a & Hin & Hequiv & Hname).
+        apply Hvar_atoms_hold in Hin; clear Hvar_atoms_hold.
+        unfold Atomic.test_atomic_assignment in Hin.
+        unfold var_atomic_equiv in Hequiv.
+        destruct Hequiv as (Hcmp & Hval).
+        assert (find_value sol (Atomic.var v_a) = find_value sol v).
+        { apply sol.(find_value_eq_name). exact Hname. }
+        unfold var_cmp_to_cmp in Hcmp.
+        unfold atomic_holds.
+        unfold Atomic.test_atomic in Hin.
+        destruct (Atomic.comparator v_a); rewrite <- Hcmp; lia.
   - intros Hnil. rewrite Hnil in Hin. destruct Hin.
+Qed.

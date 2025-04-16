@@ -595,3 +595,23 @@ Proof.
   - exact Hrec.
 Qed.
 
+Lemma apply_atomics_some :
+  forall atoms lb ub holes x,
+  apply_atomics atoms None None sint.empty = Some (lb, ub, holes)
+    ->
+  (forall a, In a atoms -> atomic_holds x a)
+    ->
+  current_bound_holds x lb ub
+    /\
+  is_not_holes x holes.
+Proof.
+  intros atoms lb ub holes x.
+  intros Hsome.
+  intros Hatoms.
+  apply apply_atomics_valid with (lb := None) (ub := None) (holes := sint.empty) in Hatoms.
+  - rewrite Hsome in Hatoms. exact Hatoms.
+  - unfold current_bound_holds. simpl. split; reflexivity.
+  - unfold is_not_holes. intros n Hin. exfalso.
+    specialize sint.empty_spec as Hempty.
+    specialize (Hempty n). contradiction.
+Qed.
