@@ -35,16 +35,6 @@ Definition var_cmp_to_cmp (var_cmp : Atomic.AtomicComparator) : AtomicComparator
 Definition var_atm_to_atm (atm : VarAtomic) : Atomic :=
   {| atm_cmp := (var_cmp_to_cmp (Atomic.comparator atm)); atm_val := (Atomic.value atm) |}.
 
-Definition find_previous (name : string) (m : AtomicsMap) :=
-  match smap.find name m with
-  | Some l => l 
-  | None => nil
-  end.
-
-Definition find_convert (name : string) (a : VarAtomic) (m : AtomicsMap) :=
-  let converted := var_atm_to_atm a in
-    converted :: (find_previous name m).
-
 Definition to_atomics_new_map (a : VarAtomic) (m : AtomicsMap) :=
   let name := (var_name (Atomic.var a)) in
   match smap.find name m with
@@ -102,14 +92,6 @@ Proof.
     solve_equiv. 
   - exact Hin.
 Qed.
-
-Definition previous_or_add (x : string) (v : VarAtomic) (m : AtomicsMap) :=
-  let add := 
-    if (x =? (var_name (Atomic.var v)))%string
-      then var_atm_to_atm v :: nil
-      else nil
-    in
-  add ++ find_previous x m.
 
 Lemma var_atomics_only_initial :
   forall var_atomics initial,
@@ -248,7 +230,7 @@ Definition domain_holds (dom : Domain) (sol : Assignment) :=
   forall v,
     var_name v = dom.(d_name)
       ->
-    current_bound_holds (sol.(find_value) v) (dom.(d_lb)) (dom.(d_ub)) /\ is_not_holes  (sol.(find_value) v) dom.(holes).
+    current_bound_holds (sol.(find_value) v) (dom.(d_lb)) (dom.(d_ub)) /\ is_not_holes (sol.(find_value) v) dom.(holes).
 
 Definition to_domain_f (elt : string * list Atomic) :=
   match elt with

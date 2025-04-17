@@ -513,9 +513,10 @@ Definition bounds_both_none (lb : option Z) (ub : option Z) :=
   | Some _ => false
   end.
 
+(* An optimization that could be done is that if the size of the holes is equal to the size of the interval, we can also return None without checking all values. *)
 Definition apply_holes (lb : option Z) (ub : option Z) (holes : sint.t) :=
   if bounds_both_none lb ub
-    then (lb, ub, holes)
+    then Some (lb, ub, holes)
     else
   let holes_list := sint.elements holes in
   let new_lb :=
@@ -528,7 +529,18 @@ Definition apply_holes (lb : option Z) (ub : option Z) (holes : sint.t) :=
     | None => None
     | Some ub => Some (apply_holes_side (rev holes_list) ub false)
     end in
-  (new_lb, new_ub, holes_in_bounds holes new_lb new_ub).
+  match check_current_bound new_lb new_ub holes with
+  | None => None
+  | Some _ =>
+  Some (new_lb, new_ub, holes_in_bounds holes new_lb new_ub)
+  end.
+
+Ltac destruct_leb :=
+  match goal with
+  | [ |- context[?a <=? ?b] ] =>
+      let H := fresh "Hleb" in
+      destruct (a <=? b) eqn:H
+  end.
 
 (* Note that we don't prove anything about actually strengthening the bounds, we just prove they are still valid bounds! *)
 (* For it actually working we rely on the fact that sint is ordered in increasing order but we don't use that anywhere in the proof, for example. *)
@@ -539,22 +551,22 @@ Lemma apply_holes_sound :
     is_not_holes x holes
       ->
     match apply_holes lb ub holes with
-    | (lb', ub', holes') =>
+    | Some (lb', ub', holes') =>
       current_bound_holds x lb' ub'
         /\
       is_not_holes x holes'
+    | None => False
     end.
 Proof.
   intros lb ub holes x.
   intros Hcurrent Hholes.
-  unfold apply_holes.
-  unfold bounds_both_none.
-  destruct lb as [lb_val|]; destruct ub as [ub_val |]; simpl;
+  unfold apply_holes, bounds_both_none, check_current_bound;
+  destruct lb as [lb_val|]; destruct ub as [ub_val |]; simpl; try destruct_leb;
   repeat split; try assumption; unfold current_bound_holds in Hcurrent;
   unfold option_bound in *; destruct Hcurrent as [Hlb Hub];
-  try apply apply_holes_side_lb; try apply apply_holes_side_ub;
+  try apply apply_holes_side_lb with (holes := (sint.elements holes)) in Hlb; try apply apply_holes_side_ub with (holes := (rev (sint.elements holes))) in Hub;
   try rewrite is_not_holes_list_rev;
-  try apply is_not_holes_to_list; try assumption;
+  try apply is_not_holes_to_list; try assumption; try lia;
   unfold is_not_holes; intros n;
   try rewrite split_below_spec; try rewrite split_above_spec;
   try rewrite <- in_rev; intros H; apply Hholes; apply H.
@@ -565,7 +577,7 @@ Definition apply_atomics (atomics : list Atomic) (lb : option Z) (ub : option Z)
   | None => None
   | Some (lb, ub, holes) =>
     let holes := holes_in_bounds holes lb ub in
-    Some (apply_holes lb ub holes)
+    apply_holes lb ub holes
   end.
 
 Lemma apply_atomics_valid :
@@ -615,3 +627,92 @@ Proof.
     specialize sint.empty_spec as Hempty.
     specialize (Hempty n). contradiction.
 Qed.
+
+Definition holes_consistent (lb : option Z) (ub : option Z) (holes : sint.t) :=
+  forall h, sint.In h holes ->
+    match lb with
+    | Some lb => h > lb
+    | None => True
+    end
+      /\
+    match ub with
+    | Some ub => h < ub
+    | None => True
+    end.
+
+Definition is_not_in (y : Z) (lb : option Z) (ub : option Z) (holes : sint.t) : bool :=
+    (match ub with
+    | Some ub => ub <? y
+    | None => false
+    end)
+      ||
+    (match lb with
+    | Some lb => y <? lb
+    | None => false
+    end)
+      ||
+    (sint.mem y holes).
+
+Definition bounds_exact (y : Z) (lb : option Z) (ub : option Z) :=
+  match ub with
+  | None => false
+  | Some ub =>
+    match lb with
+    | None => false
+    | Some lb =>
+      (lb =? y) && (ub =? y)
+    end
+  end.
+
+Definition check_holds (a : Atomic) (lb : option Z) (ub : option Z) (holes : sint.t) : bool :=
+  match a.(atm_cmp) with
+  | greater_equal =>
+    (* x >= c *)
+    match lb with
+    | Some lb => a.(atm_val) <=? lb
+    | None => false
+    end
+  | less_equal =>
+    (* x <= c *)
+    match ub with
+    | Some ub => ub <=? a.(atm_val)
+    | None => false
+    end
+  | equal =>
+    bounds_exact a.(atm_val) lb ub
+  | not_equal =>
+    is_not_in a.(atm_val) lb ub holes
+  end.
+
+Lemma check_holds_implies :
+  forall lb ub holes y a, 
+  current_bound_holds y lb ub
+    ->
+  is_not_holes y holes
+    ->
+  check_holds a lb ub holes = true
+    ->
+  atomic_holds y a.
+Proof.
+  unfold current_bound_holds, is_not_holes, check_holds, atomic_holds, is_not_in, option_bound, bounds_exact. 
+  intros lb ub holes y a.
+  intros Hcurrent Hholes Hcheck.
+  destruct lb as [lb_val|]; destruct ub as [ub_val|]; destruct (atm_cmp a); try lia; try (specialize (Hholes (atm_val a))); repeat rewrite orb_true_iff in Hcheck;
+  destruct Hcheck as [[H1 | H2] | H3]; try lia; apply Hholes; rewrite <- sint.mem_spec; exact H3.
+Qed.
+
+Compute 
+  let atms := mk_atm_ne 3 :: mk_atm_ge (-1) :: mk_atm_ne (-1) :: mk_atm_le 3 :: nil in
+    match apply_atomics atms None None sint.empty with
+    | None => None
+    | Some (lb, ub, holes) => Some (lb, ub, sint.elements (holes))
+    end
+  .
+
+Compute 
+  let atms := mk_atm_ne 3 :: mk_atm_ge 3 :: mk_atm_ne 4 :: mk_atm_le 4 :: nil in
+    match apply_atomics atms None None sint.empty with
+    | None => None
+    | Some (lb, ub, holes) => Some (lb, ub, sint.elements (holes))
+    end
+  .
