@@ -12,6 +12,8 @@ Require Coq.MSets.MSetAVL.
 Require Coq.MSets.MSetProperties.
 Require Coq.Structures.OrdersEx.
 
+Require Checker.Utility.
+
 (* ################################### *)
 (* ####### MSet instantiations ####### *)
 
@@ -700,6 +702,80 @@ Proof.
   destruct lb as [lb_val|]; destruct ub as [ub_val|]; destruct (atm_cmp a); try lia; try (specialize (Hholes (atm_val a))); repeat rewrite orb_true_iff in Hcheck;
   destruct Hcheck as [[H1 | H2] | H3]; try lia; apply Hholes; rewrite <- sint.mem_spec; exact H3.
 Qed.
+
+Import Utility.ListInd.
+Import Utility.ZRange.
+
+(* This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
+Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
+  let range := build_range lb ub in
+  let values := filter (fun y => negb (sint.mem y holes)) range in
+    fold_left (fun acc y => sint.add y acc) values sint.empty
+  .
+
+Lemma to_full_domain_correct :
+  forall lb ub holes,
+    (forall n, sint.In n (to_full_domain lb ub holes) <-> current_bound_holds n (Some lb) (Some ub) /\ is_not_holes n holes).
+Proof.
+  intros lb ub holes n.
+  unfold to_full_domain.
+  remember (filter
+    (fun y => negb (sint.mem y holes))
+    (build_range lb ub)) as values.
+  assert (In n values <-> current_bound_holds n (Some lb) (Some ub) /\ is_not_holes n holes).
+  {
+    subst values.
+    rewrite filter_In. rewrite negb_true_iff.
+    split; intros.
+    all: rewrite is_range_In with (s := lb) (e := ub) in *; try apply build_range_correct.
+    2: { destruct H as [Hin _]. apply build_range_In_bounds in Hin. assumption. }
+    all: unfold current_bound_holds in *; unfold option_bound in *; unfold is_not_holes in *.
+    - destruct H as [Hbound Hmem]. 
+      split; try lia. 
+      intros n' Hholes.
+      destruct (Z.eq_dec n n') as [Hnn' | Hnn'].
+      + subst n'. 
+        rewrite <- sint.mem_spec in Hholes. rewrite Hholes in Hmem. discriminate Hmem.
+      + exact Hnn'.
+    - split; try lia. 
+      destruct (sint.mem n holes) eqn:Hmem; try reflexivity.
+      exfalso.
+      destruct H as [_ Hholes].
+      specialize (Hholes n). apply Hholes; try reflexivity.
+      rewrite <- sint.mem_spec.
+      assumption. 
+    - lia.
+  }
+  rewrite <- H; clear Heqvalues H.
+  rewrite <- fold_left_rev_right.
+  rewrite in_rev.
+  set (P := fun (s : list Z) (acc : sint.t) =>
+    sint.In n acc <-> In n s).
+  (* Below proof could be reused. *)
+  enough (P (rev values) (fold_right sint.add sint.empty (rev values))).
+  { apply H. }
+  apply fold_ind.
+  - unfold P; clear P. split; intros.
+    + exfalso. apply (sint.empty_spec H).
+    + destruct H.
+  - intros n' acc s.
+    unfold P; clear P. intros IH.
+    destruct (Z.eq_dec n n') as [Hnn' | Hnn'].
+    + subst n'. rewrite sint.add_spec.
+      split.
+      * left. reflexivity.
+      * intros. left. reflexivity.
+    + rewrite sint.add_spec.
+      split.
+      * intros [Hnisn' | Hin].
+        -- subst n'. contradiction.
+        -- right. apply IH. exact Hin.
+      * intros [Hnisn' | Hin].
+        -- subst n'. contradiction.
+        -- right. apply IH. exact Hin.
+Qed.
+
+Open Scope Z_scope.
 
 Compute 
   let atms := mk_atm_ne 3 :: mk_atm_ge (-1) :: mk_atm_ne (-1) :: mk_atm_le 3 :: nil in

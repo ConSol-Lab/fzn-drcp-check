@@ -9,7 +9,26 @@ Require Coq.Structures.OrdersEx.
 Require MMaps.Interface.
 Require MMaps.RBT.
 
+Module ListInd.
+Import List.
+Lemma fold_ind {X} :
+  forall (Acc:Type)(P : list X -> Acc -> Type)(f : X -> Acc -> Acc)(i : Acc)(s:list X),
+  P nil i ->
+  (forall x a s',
+    P s' a -> P (x :: s') (f x a)) ->
+  P s (fold_right f i s).
+Proof.
+  intros Acc P f i s Hnil Hstep.
+  induction s as [| x s IH].
+  - simpl. exact Hnil.
+  - simpl. specialize (Hstep x (fold_right f i s)).
+    apply Hstep.
+    exact IH.
+Qed.
 
+
+
+End ListInd.
 
 Module ListEx.
   Import List.
@@ -307,17 +326,8 @@ Proof.
     + simpl. apply perm_skip. apply IHl.
     + simpl. remember (filter (fun x : A => negb (f x)) l) as l1; clear Heql1.
       remember (filter f l) as l2; clear Heql2.
-      apply perm_trans with (l' := (a :: l2 ++ l1)).
-      * apply perm_skip. exact IHl.
-      * assert (a :: l1 = (a :: nil) ++ l1).
-        { simpl. reflexivity. }
-        rewrite H. 
-        rewrite app_assoc.
-        assert (a :: l2 ++ l1 = (a :: l2) ++ l1).
-        { simpl. reflexivity. }
-        rewrite H0.
-        apply Permutation_app_tail.
-        apply Permutation_cons_append.
+      apply Permutation_cons_app.
+      exact IHl.
 Qed.
 
 
@@ -366,6 +376,7 @@ Definition filter_f_option {A B} (f : A -> option B) (a : A) :=
   | None => false
   end.
 
+(* This one is usually more useful. *)
 Lemma flat_map_option_as_filter_map :
   forall A B (f : A -> option B) d l,
   flat_map_option f l = map (option_map_default f d) (filter (filter_f_option f) l).
@@ -394,9 +405,6 @@ Proof.
     rewrite IHl. reflexivity.
     + simpl. rewrite IHl. reflexivity.
 Qed.
-
-Definition NoDup_f {A B} (l : list A) (f : A -> B) :=
-  NoDup (map f l) .
 
 Lemma nodup_map (A B : Type) (eq_dec : forall x y : A, {x = y}+{x <> y}) (eq_dec_b : forall x y : B, {x = y}+{x <> y}) :
   forall (f : A -> B) (l : list A),
@@ -448,8 +456,6 @@ Proof.
       rewrite count_occ_cons_eq in Hnodup; try easy. 
       lia.
 Qed.
-
- 
 
 Lemma nodup_key :
   forall K B A (l : list A) (a_k : A -> K) (f : A -> B) (b_k : B -> K),
@@ -684,6 +690,17 @@ Definition is_range (s : Z) (e : Z) (l : list Z) :=
   (forall n, s <= n <= e <-> In n l)
     /\
   succ_seq l.
+
+Lemma is_range_In (s e : Z) (l : list Z) :
+  is_range s e l
+    ->
+  forall n, In n l <-> s <= n <= e.
+Proof.
+  intros Hrange.
+  intros n.
+  unfold is_range in Hrange.
+  symmetry. apply Hrange.
+Qed.
 
 Lemma is_range_endpoints :
   forall l s e a a',
@@ -1118,6 +1135,22 @@ Proof.
   lia.
 Qed.
 
+Lemma build_range_In_bounds :
+  forall s e n,
+    In n (build_range s e) -> s <= e.
+Proof.
+  intros s e n.
+  intros Hin.
+  unfold build_range in Hin.
+  destruct (s <=? e) eqn:Hse.
+  - rewrite <- Z.leb_le. exact Hse.
+  - assert (Z.to_nat (e - s + 1) = O).
+    { lia. }
+    rewrite H in Hin. simpl in Hin.
+    contradiction.
+Qed.
+
+
 (* Lemma build_range_nodup :
   forall s e,
     NoDup (build_range s e).
@@ -1150,6 +1183,7 @@ End ZRange.
 Module Maps.
 Import String.
 Import List.
+Import ListInd.
 Module smap := RBT.Make OrdersEx.String_as_OT.
 
 Definition build_map_step {A B} (f_key : A -> string) (f : A -> B) (a : A) (m : smap.t B) :=
@@ -1172,21 +1206,6 @@ Lemma build_map_as_right :
 Proof.
   intros A B f_key f l init.
   unfold build_map_rec. rewrite fold_left_rev_right. reflexivity.
-Qed.
-
-Lemma fold_ind {X} :
-  forall (Acc:Type)(P : list X -> Acc -> Type)(f : X -> Acc -> Acc)(i : Acc)(s:list X),
-  P nil i ->
-  (forall x a s',
-    P s' a -> P (x :: s') (f x a)) ->
-  P s (fold_right f i s).
-Proof.
-  intros Acc P f i s Hnil Hstep.
-  induction s as [| x s IH].
-  - simpl. exact Hnil.
-  - simpl. specialize (Hstep x (fold_right f i s)).
-    apply Hstep.
-    exact IH.
 Qed.
 
 Definition build_map {A B} (f_key : A -> string) (f : A -> B) (l : list A) :=
