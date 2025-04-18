@@ -447,3 +447,65 @@ Proof.
         destruct (Atomic.comparator v_a); rewrite <- Hcmp; lia.
   - intros Hnil. rewrite Hnil in Hin. destruct Hin.
 Qed.
+
+Definition Consequent := (string * Atomic)%type.
+Definition Premises := list (string * Atomic).
+
+Definition Inference := (Premises * Consequent)%type.
+Definition Nogood := list (string * Atomic)%type.
+
+Inductive Step :=
+| step_inference (premises : list (string * Atomic)) (consequent : string * Atomic)
+.
+
+Definition check_premise (domains : smap.t Domain) (premise : string * Atomic) := 
+  match premise with
+  | (x, a) =>
+    match smap.find x domains with
+    | Some dom =>
+      check_holds a dom.(d_lb) dom.(d_ub) dom.(holes)
+    | None => false
+    end
+  end.
+
+Definition apply_consequent (domains : smap.t Domain) (consequent : string * Atomic) : option (smap.t Domain) :=
+  match consequent with
+  | (x, a) =>
+    let (bounds, holes) := 
+      match smap.find x domains with
+      | Some dom => (dom.(d_lb), dom.(d_ub), dom.(holes))
+      | None => (None, None, sint.empty)
+      end in
+    let (lb, ub) := bounds in
+    match apply_atomics (a :: nil) lb ub holes with
+    | None => None
+    | Some (lb, ub, holes) => 
+      let new_dom := mkDom x lb ub holes in
+      Some (smap.add x new_dom domains)
+    end
+  end.
+
+Inductive StepCheck :=
+| step_domains (domains : smap.t Domain)
+| nogood_valid
+| step_reject.
+
+Definition check_inference (premises : list (string * Atomic)) (consequent : string * Atomic) (domains : smap.t Domain) :=
+  if forallb (check_premise domains) premises
+    then 
+      match apply_consequent domains consequent with
+      | None => nogood_valid
+      | Some domains => step_domains domains
+      end
+    else step_reject.
+
+Fixpoint check_combine (steps : list Step) (domains : smap.t Domain) : bool :=
+  match steps with
+  | nil => false
+  | step_inference premises consequent :: steps' => 
+    match check_inference premises consequent domains with
+    | step_domains new_domains => check_combine steps' new_domains
+    | nogood_valid => true
+    | step_reject => false
+    end
+  end.

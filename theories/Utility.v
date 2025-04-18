@@ -1186,36 +1186,34 @@ Import List.
 Import ListInd.
 Module smap := RBT.Make OrdersEx.String_as_OT.
 
-Definition build_map_step {A B} (f_key : A -> string) (f : A -> B) (a : A) (m : smap.t B) :=
-  smap.add (f_key a) (f a) m
+Definition build_map_step {A B} (f_key : A -> string) (f : A -> option B) (a : A) (m : smap.t B) :=
+  match f a with
+  | Some b => smap.add (f_key a) b m
+  | None => m
+  end
 .
 
-Definition build_map_rec {A B} (f_key : A -> string) (f : A -> B) (l : list A) (init : smap.t B) :=
+(* We use fold_left because it it is tail-recursive *)
+Definition build_map_rec {A B} (f_key : A -> string) (f : A -> option B) (l : list A) (init : smap.t B) :=
   fold_left (fun x y => build_map_step f_key f y x) l init.
-(* 
-Definition exists_unique {A} (a : A) (l : list A) (P : A -> Prop) :=
-  exists a, In a l /\ P a /\
-    forall a', In a' l /\ P a /\ a = a'. *)
-(* forall vs sol x atoms_from_var, smap.MapsTo x atoms_from_var (vars_to_atoms vs) ->
-    exists v, In v vs /\ var_name v = x /\ atoms_hold_for_var atoms_from_var sol v.
-P *)
 
+(* However, fold_right has a nice induction principle that's easy to work with. *)
 Lemma build_map_as_right :
-  forall A B (f_key : A -> string) (f : A -> B) (l : list A) init,
+  forall A B (f_key : A -> string) (f : A -> option B) (l : list A) init,
   build_map_rec f_key f l init = fold_right (build_map_step f_key f) init (rev l).
 Proof.
   intros A B f_key f l init.
   unfold build_map_rec. rewrite fold_left_rev_right. reflexivity.
 Qed.
 
-Definition build_map {A B} (f_key : A -> string) (f : A -> B) (l : list A) :=
+Definition build_map {A B} (f_key : A -> string) (f : A -> option B) (l : list A) :=
   build_map_rec f_key f l smap.empty.
 
 Lemma build_map_maps_to :
-  forall A B f_key (f : A -> B) (l : list A) x b,
+  forall A B f_key (f : A -> option B) (l : list A) x b,
   smap.MapsTo x b (build_map f_key f l)
     ->
-  exists a, In a l /\ f_key a = x /\ f a = b.
+  exists a, In a l /\ f_key a = x /\ f a = Some b.
 Proof.
   intros A B f_key f l x b.
 
@@ -1223,7 +1221,7 @@ Proof.
     fun (s : list A) (acc : smap.t B) =>
       smap.MapsTo x b acc
         ->
-      exists a, In a s /\ f_key a = x /\ f a = b 
+      exists a, In a s /\ f_key a = x /\ f a = Some b 
   ).
   unfold build_map.
   rewrite build_map_as_right.
@@ -1243,25 +1241,28 @@ Proof.
     intros H. 
     unfold build_map_step in H.
     rewrite <- smap.find_spec in H.
-    destruct (String.string_dec x (f_key a)) as [Hxa| Hxa].
-    + rewrite <- Hxa in *.
-      rewrite smap.add_spec1 in H.
-      inversion H.
+    enough (smap.find x bmap = Some b \/ (f_key a = x /\ f a = Some b)) as [Hsame | Hadd].
+    + clear H. simpl. rewrite smap.find_spec in Hsame.
+      apply IH in Hsame.
+      destruct Hsame as (a' & Hin & Hfkey & Hfb).
+      exists a'.
+      repeat split; trivial.
+      right. assumption.
+    + clear -Hadd. destruct Hadd as [Hxa Hfa]. 
       exists a.
       split; [|split].
       * left. reflexivity.
-      * rewrite Hxa. reflexivity.
-      * reflexivity.
-    + rewrite smap.add_spec2 in H.
-      2: { symmetry. exact Hxa. }
-      rewrite smap.find_spec in H.
-      apply IH in H.
-      destruct H as (a' & Hin & Hfkey & Hfb).
-      exists a'.
-      repeat split; try assumption.
-      right. exact Hin.
+      * assumption.
+      * assumption.
+    + destruct (String.string_dec x (f_key a)) as [Hxa| Hxa]; destruct (f a) as [b'|] eqn:Hfa.
+      * rewrite <- Hxa in H. 
+        rewrite smap.add_spec1 in H.
+        right. now split.
+      * left. assumption.
+      * rewrite smap.add_spec2 in H; try easy.
+        left. assumption.
+      * left. assumption.
 Qed.
-
 
 
 
