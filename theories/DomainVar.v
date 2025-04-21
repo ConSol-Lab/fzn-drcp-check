@@ -1,4 +1,3 @@
-Require Import Coq.Logic.FinFun.
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
 Require Import String.
@@ -468,7 +467,7 @@ Definition check_premise (domains : smap.t Domain) (premise : string * Atomic) :
     end
   end.
 
-Definition apply_consequent (domains : smap.t Domain) (consequent : string * Atomic) : option (smap.t Domain) :=
+Definition apply_variable_atomic (domains : smap.t Domain) (consequent : string * Atomic) : option (smap.t Domain) :=
   match consequent with
   | (x, a) =>
     let (bounds, holes) := 
@@ -493,7 +492,7 @@ Inductive StepCheck :=
 Definition check_inference (premises : list (string * Atomic)) (consequent : string * Atomic) (domains : smap.t Domain) :=
   if forallb (check_premise domains) premises
     then 
-      match apply_consequent domains consequent with
+      match apply_variable_atomic domains consequent with
       | None => nogood_valid
       | Some domains => step_domains domains
       end
@@ -509,3 +508,8 @@ Fixpoint check_combine (steps : list Step) (domains : smap.t Domain) : bool :=
     | step_reject => false
     end
   end.
+
+
+Definition check_premises_conflict (premises : list (string * Atomic)) (steps : list Step) :=
+  let domains := atomics_to_domains premises in
+    false.

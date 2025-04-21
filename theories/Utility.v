@@ -298,6 +298,25 @@ Proof.
     rewrite count_occ_app. lia.
 Qed.
 
+Lemma permutation_remove_once {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) :
+  forall (a : A) l l',
+  Permutation (a :: l) l'
+    ->
+  Permutation l (remove_once eq_dec a l').
+Proof.
+  intros a l l'.
+  repeat rewrite Permutation_count_occ with (eq_dec := eq_dec).
+  intros H.
+  intros a'.
+  specialize (H a'); simpl in H.
+  destruct (eq_dec a a') as [Haa'|Haa'].
+  + subst a'. rewrite <- remove_once_one_less_count.
+    rewrite <- H. lia.
+  + rewrite <- remove_once_one_same_if_neq.
+    * exact H.
+    * exact Haa'.
+Qed.
+
 Lemma sub_list_map {A B} (eq_dec_a : forall x y : A, {x = y} + {x <> y}) (eq_dec_b : forall x y : B, {x = y} + {x <> y}) :
   forall (f : A -> B) (l1 l2 : list A),
   sub_list eq_dec_a l1 l2
