@@ -167,14 +167,14 @@ Definition is_not_holes_list (x : Z) (holes : list Z) :=
 
 Definition option_min (bound : option Z) (new : Z) :=
   match bound with
-  | Some bound => Some (Z.min bound new)
-  | None => Some new
+  | Some bound => Z.min bound new
+  | None => new
   end.
 
 Definition option_max (bound : option Z) (new : Z) :=
   match bound with
-  | Some bound => Some (Z.max bound new)
-  | None => Some new
+  | Some bound => Z.max bound new
+  | None => new
   end.
 
 Definition check_current_bound (lb : option Z) (ub : option Z) (holes : sint.t) :=
@@ -203,8 +203,8 @@ Definition is_in_bounds (lb : option Z) (ub : option Z) (x : Z) :=
 
 Definition apply_atomic (atomic : Atomic) (lb : option Z) (ub : option Z) (holes : sint.t) :=
   match atomic.(atm_cmp) with
-  | less_equal => check_current_bound lb (option_min ub atomic.(atm_val)) holes
-  | greater_equal => check_current_bound (option_max lb atomic.(atm_val)) ub holes
+  | less_equal => check_current_bound lb (Some (option_min ub atomic.(atm_val))) holes
+  | greater_equal => check_current_bound (Some (option_max lb atomic.(atm_val))) ub holes
   | equal =>
       if is_in_bounds lb ub atomic.(atm_val)
         then Some (Some atomic.(atm_val), Some atomic.(atm_val), holes)
@@ -950,60 +950,108 @@ Proof.
   intros x. unfold stronger_domain. easy.
 Defined.
 
+Instance stronger_domain_trans : RelationClasses.Transitive stronger_domain.
+Proof.
+  intros x y z.
+  unfold stronger_domain.
+  intros Hxy Hyz.
+  intros n Hinx.
+  apply Hyz.
+  apply Hxy.
+  assumption.
+Qed.
+
+Lemma dom_equiv_is_stronger :
+  forall dom dom',
+    dom_equiv dom dom'
+      ->
+    stronger_domain dom dom'.
+Proof.
+  intros dom dom'.
+  unfold dom_equiv, stronger_domain.
+  intros Hequiv.
+  intros n. now rewrite Hequiv.
+Qed.
+
 Lemma check_current_bound_min :
   forall lb ub holes y lby uby holesy,
-  check_current_bound lb (option_min ub (atm_val y)) holes = Some (lby, uby, holesy)
+  check_current_bound lb (Some (option_min ub (atm_val y))) holes = Some (lby, uby, holesy)
     ->
   holesy = holes
     /\
   lby = lb
     /\
-  uby = option_min ub (atm_val y).
+  uby = Some (option_min ub (atm_val y)).
 Proof.
   intros lb ub holes y lby uby holesy.
   intros Hcheck.
   unfold check_current_bound in Hcheck.
-  destruct (option_min ub (atm_val y)) as [min_ub|] eqn:Hmin;
   destruct lb as [lb|];
-  try destruct (lb <=? min_ub); inversion Hcheck;
+  try destruct (lb <=? option_min ub (atm_val y)); inversion Hcheck;
   try subst lby; try subst uby; try subst holesy;
   repeat split; reflexivity.
 Qed.
 
+
+
+Lemma check_current_bound_min_match :
+  forall lb ub holes y,
+  match check_current_bound lb (Some (option_min ub (atm_val y))) holes with
+  | Some (lby, uby, holesy) =>
+    holesy = holes
+      /\
+    lby = lb
+      /\
+    uby = Some (option_min ub (atm_val y))
+  | None =>
+    match lb with
+    | None => False
+    | Some lb_val =>
+      option_min ub (atm_val y) < lb_val
+    end
+  end.
+Proof.
+  intros lb ub holes y.
+  destruct (check_current_bound lb (Some (option_min ub (atm_val y))) holes) as [[[lby uby] holesy]|] eqn:Hcheck.
+  - apply check_current_bound_min. assumption.
+  - unfold check_current_bound in Hcheck.
+    destruct lb as [lb_val|].
+Admitted.
+
+
 Lemma check_current_bound_max :
   forall lb ub holes y lby uby holesy,
-  check_current_bound (option_max lb (atm_val y)) ub holes = Some (lby, uby, holesy)
+  check_current_bound (Some (option_max lb (atm_val y))) ub holes = Some (lby, uby, holesy)
     ->
   holesy = holes
     /\
-  lby = option_max lb (atm_val y)
+  lby = Some (option_max lb (atm_val y))
     /\
   uby = ub.
 Proof.
   intros lb ub holes y lby uby holesy.
   intros Hcheck.
   unfold check_current_bound in Hcheck.
-  destruct (option_max lb (atm_val y)) as [max_lb|] eqn:Hmax;
   destruct ub as [ub|];
-  try destruct (max_lb <=? ub); inversion Hcheck;
+  try destruct (option_max lb (atm_val y) <=? ub); inversion Hcheck;
   try subst lby; try subst uby; try subst holesy;
   repeat split; reflexivity.
 Qed.
 
 Lemma option_min_swap :
   forall b x y,
-    option_min (option_min b x) y = option_min (option_min b y) x.
+    option_min (Some (option_min b x)) y = option_min (Some (option_min b y)) x.
 Proof.
   intros b x y; unfold option_min.
-  destruct b; f_equal; lia.
+  destruct b; lia.
 Qed.
 
 Lemma option_max_swap :
   forall b x y,
-    option_max (option_max b x) y = option_max (option_max b y) x.
+    option_max (Some (option_max b x)) y = option_max (Some (option_max b y)) x.
 Proof.
   intros b x y; unfold option_max.
-  destruct b; f_equal; lia.
+  destruct b; lia.
 Qed.
 
 
@@ -1069,6 +1117,198 @@ Proof.
   (right; right; assumption).
 Qed.
 
+Lemma is_in_dom_add :
+  forall y lb ub holes a, 
+  is_in_dom y (Some (lb, ub, sint.add a holes))
+    <->
+  is_in_dom y (Some (lb, ub, holes)) /\ y <> a.
+Proof.
+  intros y lb ub holes a.
+  unfold is_in_dom.
+  rewrite sint.add_spec.
+  rewrite not_in_add.
+  split; intros H;
+  destruct_ands;
+  repeat split; easy.
+Qed.
+
+Lemma min_le_both :
+  forall n m k,
+    n <= Z.min m k
+      <->
+    n <= m /\ n <= k.
+Proof. lia. Qed.
+
+Lemma is_in_dom_min :
+  forall y lb ub holes b, 
+  is_in_dom y (Some (lb, Some (option_min ub b), holes))
+    <->
+  is_in_dom y (Some (lb, ub, holes)) /\ y <= b.
+Proof.
+  intros y lb ub holes b.
+  unfold is_in_dom.
+  unfold option_min.
+  destruct ub as [ub|].
+  - rewrite min_le_both.
+    split; intros H; destruct_ands;
+    repeat split; easy.
+  - split; intros H; destruct_ands;
+    repeat split; easy.
+Qed.
+
+
+Lemma is_in_bounds_false_in_dom_not :
+  forall lb ub holes y a, 
+  is_in_bounds lb ub a = false
+    ->
+  is_in_dom y (Some (lb, ub, holes))
+    ->
+  y <> a.
+Proof.
+  intros lb ub holes y a.
+  unfold is_in_bounds, is_in_dom.
+  destruct lb as [lb|]; destruct ub as [ub|];
+  intros Hnotbounds Hdom; lia.
+Qed.
+
+Lemma dom_effect :
+  forall a lb ub holes,
+    forall n, 
+      is_in_dom n (apply_atomic a lb ub holes)
+        <->
+      is_in_dom n (Some (lb, ub, holes)) /\ atomic_holds n a.
+Proof.
+  intros a lb ub holes.
+  intros n.
+  unfold apply_atomic, atomic_holds, check_current_bound.
+  unfold is_in_bounds, option_min, option_max.
+  unfold is_in_dom.
+  destruct (atm_cmp a);
+  destruct lb as [lb|]; destruct ub as [ub|];
+  try (destruct (lb <=? atm_val a) eqn:Hlbatom);
+  try (destruct (atm_val a <=? ub) eqn:Hubatom);
+  simpl; try easy;
+  simplify_bounds; simpl;
+  try rewrite sint.add_spec;
+  try rewrite not_in_add;
+  split; intros; destruct_ands;
+  repeat split; try easy; lia.
+Qed.
+
+
+Lemma input_equiv_apply :
+  forall a lb ub holes lb' ub' holes',
+    dom_equiv (Some (lb, ub, holes)) (Some (lb', ub', holes'))
+      ->
+    dom_equiv (apply_atomic a lb ub holes) (apply_atomic a lb' ub' holes').
+Proof.
+  intros a lb ub holes lb' ub' holes'.
+  unfold dom_equiv.
+  intros Hequiv y.
+  repeat rewrite dom_effect.
+  rewrite Hequiv.
+  (* So much effort below... *)
+  intros Hequiv.
+  
+  unfold apply_atomic.
+  destruct (atm_cmp a).
+  - specialize (check_current_bound_min_match lb ub holes a) as Hmin.
+    specialize (check_current_bound_min_match lb' ub' holes' a) as Hmin'.
+
+
+    destruct (check_current_bound lb (Some (option_min ub(atm_val a))) holes) as [[[lba uba] holesa]|] eqn:Hcheck; destruct (check_current_bound lb' (Some (option_min ub' (atm_val a))) holes') as [[[lba' uba'] holesa']|] eqn:Hcheck'.
+    + destruct_ands; subst. clear -Hequiv.
+      admit.
+    + destruct lb' as [lb'|]; try contradiction; clear Hcheck'. destruct_ands; subst; clear Hcheck.
+      symmetry. rewrite none_if_stronger.
+      unfold dom_equiv in Hequiv; unfold stronger_domain.
+      intros y.
+      intros H.
+      rewrite is_in_dom_min in H.
+      destruct H as [Hdom Hya].
+      pose proof Hdom as Hdom'.
+      rewrite Hequiv in Hdom'; clear Hequiv.
+      exfalso.
+      unfold is_in_dom in *.
+      unfold option_min in Hmin'.
+      destruct ub; destruct ub'; destruct lb; 
+      lia.
+    + destruct lb as [lb|]; try contradiction; clear Hcheck'. destruct_ands; subst; clear Hcheck.
+      rewrite none_if_stronger.
+      unfold dom_equiv in Hequiv; unfold stronger_domain.
+      intros y.
+      intros H.
+      rewrite is_in_dom_min in H.
+      destruct H as [Hdom' Hya].
+      pose proof Hdom' as Hdom.
+      rewrite <- Hequiv in Hdom; clear Hequiv.
+      exfalso.
+      unfold is_in_dom in *.
+      unfold option_min in Hmin.
+      destruct ub; destruct ub'; destruct lb'; 
+      lia.
+    + reflexivity.
+
+
+      
+
+
+
+
+  
+
+Lemma input_equiv :
+  forall atoms lb ub holes lb' ub' holes',
+    dom_equiv (Some (lb, ub, holes)) (Some (lb', ub', holes'))
+      ->
+    dom_equiv (apply_atomics_rec atoms lb ub holes) (apply_atomics_rec atoms lb' ub' holes').
+Proof.
+  induction atoms.
+  - intros. simpl. exact H.
+  - intros. simpl.
+    destruct (apply_atomic a lb ub holes) as [[[lba uba] holesa]|] eqn:Ha;
+    destruct (apply_atomic a lb' ub' holes') as [[[lba' uba'] holesa']|] eqn:Ha'.
+    + apply IHatoms; clear IHatoms.
+      unfold apply_atomic in Ha, Ha'.
+      destruct (atm_cmp a).
+      * apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst.
+        admit.
+      * apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst.
+        admit.
+      * destruct_is_in_bounds;
+        invert_some_eq; try easy.
+        unfold dom_equiv in *; unfold is_in_dom in *.
+        intros y.
+        specialize (H y).
+        admit.
+      * destruct_is_in_bounds;
+        invert_some_eq; try easy;
+        unfold dom_equiv in *;
+        intros y;
+        repeat rewrite is_in_dom_add;
+        rewrite H;
+        try reflexivity;
+        split; intros Hdom; try apply Hdom;
+        split; try assumption.
+        1: rewrite <- H in Hdom.
+        all: apply is_in_bounds_false_in_dom_not with (a := (atm_val a)) in Hdom; try easy.
+    + symmetry. apply none_if_stronger.
+      assert (dom_equiv None (Some (lba, uba, holesa))) as Hanone.
+      { admit. }
+      transitivity (Some (lba, uba, holesa)).
+      * apply stronger_than_input.
+      * apply dom_equiv_is_stronger.
+        symmetry. exact Hanone.
+Admitted. 
+
+
+
+
+
+      
+          
+
+
 Lemma permute_rec_equiv :
   forall atoms atoms' lb ub holes,
     Permutation atoms atoms'
@@ -1112,101 +1352,24 @@ Proof.
           try easy; destruct_ands; repeat split; 
           try rewrite or_swap_first_second;
           try easy; try lia. 
-          1: { rewrite or_swap_first_second. try easy. }
-          all: rewrite <- or_assoc. rewrite or_comm. rewrite or_assoc.
-
-          - apply check_current_bound_min in Hy, Hyx, Hx, Hxy; destruct_ands; subst.
-            rewrite option_min_swap. reflexivity.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            reflexivity.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try reflexivity;
-            destruct_is_in_bounds;
-            invert_some_eq; try easy.
-            unfold dom_equiv; unfold is_in_dom.
-            intros n.
-            unfold is_in_bounds in *;
-            unfold option_min in *;
-            destruct ub as [ub|]; destruct lb as [lb|];
-            repeat split; destruct_ands; try easy;
-            lia.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try reflexivity;
-            destruct_is_in_bounds;
-            invert_some_eq; try easy;
-            unfold dom_equiv; unfold is_in_dom;
-            intros n; unfold is_in_bounds in *;
-            unfold option_min in *;
-            destruct lbyx as [lb|]; destruct ubx as [ub|];
-            repeat rewrite sint.add_spec;
-            repeat rewrite not_in_add; split; intros H;
-            destruct_ands; repeat split; try easy;
-            lia.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try rewrite option_min_swap; try rewrite option_max_swap;
-            try reflexivity.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try rewrite option_min_swap; try rewrite option_max_swap;
-            try reflexivity.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try rewrite option_min_swap; try rewrite option_max_swap;
-            try reflexivity;
-            destruct_is_in_bounds;
-            invert_some_eq; try easy;
-            unfold dom_equiv; unfold is_in_dom;
-            intros n; unfold is_in_bounds in *;
-            unfold option_min in *;
-            unfold option_max in *;
-            destruct lb as [lb|]; destruct ub as [ub|];
-            repeat rewrite sint.add_spec;
-            repeat rewrite not_in_add; split; intros H;
-            destruct_ands; repeat split; try easy; lia.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try rewrite option_min_swap; try rewrite option_max_swap;
-            try reflexivity;
-            destruct_is_in_bounds;
-            invert_some_eq; try easy;
-            unfold dom_equiv; unfold is_in_dom;
-            intros n; unfold is_in_bounds in *;
-            unfold option_min in *;
-            unfold option_max in *;
-            destruct_all_option_Z;
-            repeat rewrite sint.add_spec;
-            repeat rewrite not_in_add; split; intros H;
-            destruct_ands; repeat split; try easy; lia.
-          - apply_lemmas_with check_current_bound_min check_current_bound_max; destruct_ands; subst;
-            try rewrite option_min_swap; try rewrite option_max_swap;
-            try reflexivity;
-            destruct_is_in_bounds;
-            invert_some_eq; try easy;
-            unfold dom_equiv; unfold is_in_dom;
-            intros n; unfold is_in_bounds in *;
-            unfold option_min in *;
-            unfold option_max in *.
-            destruct lb as [lb|]; destruct ub as [ub|];
-            repeat rewrite sint.add_spec;
-            repeat rewrite not_in_add; split; intros H;
-            destruct_ands; repeat split; try easy; lia.
-          -
-
-
        }
+        admit.
       * simpl apply_atomics_rec at 2.
         rewrite Hx; rewrite Hxy.
         symmetry. rewrite none_if_stronger.
         rewrite <- Hxy.
         apply stronger_than_in.
         { left. reflexivity. }
-
+        admit.
 
         
       * admit.
       * admit.
-      * reflexivity.
-      * reflexivity.
       * admit.
-      * reflexivity.
-      * reflexivity.
+      * admit.
+      * admit.
+      * admit.
+      * admit.
     + subst l; subst l''.
       assert (In a atoms') as Hinatoms'.
       { apply Permutation_in with (l := l');
@@ -1223,6 +1386,7 @@ Proof.
         apply stronger_than_in.
         -- exact Hinatoms'.
         -- reflexivity.
+Admitted.
         
       (* TODO: to show that In atom = None -> other is None. Really have to show with min/max I think *)
 
