@@ -409,6 +409,13 @@ Definition option_map_default {A B} (f : A -> option B) (d : B) : A -> B :=
     | None => d
     end.
 
+Definition option_map_flat {A} (f : A -> option A) (a : option A) : option A :=
+  match a with
+  | Some a => f a
+  | None => None
+  end.
+
+
 Definition filter_option {A} (a : option A) :=
   match a with
   | Some _ => true

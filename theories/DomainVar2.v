@@ -147,6 +147,37 @@ Proof.
   assumption.
 Qed.
 
+Ltac destruct_apply_atomics_rec_tuple :=
+  repeat match goal with
+  | |- context[apply_atomics_rec ?atoms ?lb ?ub ?holes] =>
+      let result := fresh "result" in
+      remember (apply_atomics_rec atoms lb ub holes) as result;
+      destruct result as [ [[?lb_res ?ub_res] ?holes_res] | ]
+  end.
+  
+Lemma apply_atomics_dom_cons_equiv :
+  forall atoms atoms' dom,
+    domain_equiv (apply_atomics_dom (atoms ++ atoms') dom) (
+      match apply_atomics_dom atoms' dom with 
+      | Some dom' => apply_atomics_dom atoms dom'
+      | None => None
+      end
+    ).
+Proof.
+  intros atoms atoms' dom.
+  unfold domain_equiv.
+  unfold apply_atomics_dom.
+  unfold apply_atomics.
+  simpl.
+  unfold dom_equiv.
+  intros y.
+  destruct (apply_atomics_rec
+(atoms ++ atoms') (d_lb dom)
+(d_ub dom) (d_holes dom)) as [[[lb ub] holes]|] eqn:Hres;
+  try destruct (apply_holes lb ub
+(holes_in_bounds holes lb ub)) as [[[lbh ubh] holesh]|] eqn:Hresh.
+  
+
 Lemma domains_from_var_atomics_correct :
   forall vs x atoms dom_map,
     check_in_vs vs x = true

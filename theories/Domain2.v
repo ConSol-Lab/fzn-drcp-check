@@ -13,6 +13,10 @@ Require Coq.MSets.MSetProperties.
 Require Coq.Structures.OrdersEx.
 
 Require Checker.Utility.
+Import Utility.ListEx.
+Import Utility.ListInd.
+Import Utility.ZRange.
+
 
 (* ################################### *)
 (* ####### MSet instantiations ####### *)
@@ -56,15 +60,6 @@ Definition mk_atm_eq (c : Z) :=
   {| atm_cmp := equal; atm_val := c |}.
 
 Open Scope Z_scope.
-
-(* This is much more efficient than using filter twice. *)
-Definition in_interval (s : sint.t) (from : Z) (to : Z) : sint.t :=
-  let t := sint.this s in
-  let split_1 := sint.Raw.t_right (sint.Raw.split (from - 1) t) in
-  let ok_1 := sint.Raw.split_ok2 (from - 1) (sint.is_ok s) in
-  let split_2 := sint.Raw.t_left (sint.Raw.split (to + 1) split_1) in
-  let ok_2 := sint.Raw.split_ok1 (to + 1) ok_1 in
-  {| sint.this := split_2; sint.is_ok := ok_2 |}.
 
 Definition split_above (s : sint.t) (from : Z) : sint.t :=
   let result := sint.Raw.t_right (sint.Raw.split (from - 1) (sint.this s)) in
@@ -112,65 +107,10 @@ Proof.
   - exact (sint.is_ok s).
 Qed.
 
-Lemma in_interval_spec :
-  forall s lb ub,
-    forall n, 
-      sint.In n (in_interval s lb ub) 
-        <->
-      sint.In n s /\ lb <= n <= ub.
-Proof.
-  specialize sint.Raw.split_spec2 as Hsplit_r.
-  specialize sint.Raw.split_spec1 as Hsplit_l.
-  intros s lb ub n.
-  unfold in_interval.
-  unfold sint.In; unfold sint.Raw.In; simpl.
-  specialize (Hsplit_r (sint.this s) (lb-1) n (sint.is_ok s)).
-  specialize (sint.Raw.split_ok2 (lb - 1) (sint.is_ok s)) as Hok_1.
-  remember (sint.Raw.t_right (sint.Raw.split (lb-1) (sint.this s))) as split_1.
-  specialize (Hsplit_l split_1 (ub+1) n Hok_1).
-  rewrite Hsplit_l. rewrite Hsplit_r.
-  repeat rewrite Z.compare_lt_iff.
-  split.
-  - clear. intros H.
-    destruct H as [[Hin Hl] Hr].
-    split.
-    + exact Hin.
-    + lia.
-  - clear. intros H.
-    destruct H as [Hin [Hl Hr]].
-    repeat split.
-    + exact Hin.
-    + lia.
-    + lia.
-Qed.  
-
 Definition check_bound (lb : Z) (ub : Z) (holes : sint.t) := 
   if lb <=? ub
     then Some (lb, ub, holes)
     else None.
-
-Definition option_bound (x : Z) (bound : option Z) (P : Z -> Prop) :=
-  match bound with
-  | None => True
-  | Some bound => P bound
-  end.
-
-Definition current_bound_holds (x : Z) (lb : option Z) (ub : option Z) :=
-  option_bound x lb (Z.ge x)
-    /\
-  option_bound x ub (Z.le x). 
-
-Definition is_not_holes (x : Z) (holes : sint.t) :=
-  forall n,
-    sint.In n holes
-      ->
-    x <> n.
-
-Definition is_not_holes_list (x : Z) (holes : list Z) :=
-  forall n,
-    In n holes
-      ->
-    x <> n.
 
 Definition option_min (bound : option Z) (new : Z) :=
   match bound with
@@ -248,87 +188,6 @@ Ltac simplify_bounds :=
       try (rewrite Heq; try reflexivity; try lia)
   end.
 
-Definition atomic_holds_for_implied (atomic : Atomic) (lb : option Z) (ub : option Z) (holes : sint.t) :=
-  forall x,
-    current_bound_holds x lb ub
-      ->
-    is_not_holes x holes
-      ->
-    atomic_holds x atomic.
-
-
-(* We don't use this lemma elsewhere because the we don't prove that the tightening done in the apply holes step works, but this does at least provide strong evidence that the apply_atomic_rec really works! *)
-Lemma apply_atomic_tightens :
-  forall atomic lb ub holes,
-    match apply_atomic atomic lb ub holes with
-    | Some (lb', ub', holes') =>
-      atomic_holds_for_implied atomic lb' ub' holes'
-    | None => True
-    end.
-Proof.
-  intros atomic lb ub holes.
-  unfold apply_atomic.
-  unfold atomic_holds_for_implied.
-  unfold atomic_holds.
-  unfold current_bound_holds.
-  unfold is_in_bounds.
-  unfold check_current_bound.
-  unfold option_min; unfold option_max.
-  unfold option_bound.
-  destruct (atm_cmp atomic); destruct lb as [lb_val |]; destruct ub as [ub_val |];
-  try (destruct (lb_val <=? atm_val atomic) eqn:Hlbatom);
-  try (destruct (atm_val atomic <=? ub_val) eqn:Hubatom); simpl;
-  try reflexivity; try simplify_bounds; try reflexivity;
-  intros x; intros Hbound; intros Hholes; try lia;
-  unfold is_not_holes in Hholes; apply Hholes; rewrite sint.add_spec; 
-  left; reflexivity.
-Qed.
-
-
-Lemma apply_atomic_correct :
-  forall atomic lb ub holes x,
-    current_bound_holds x lb ub
-      ->
-    is_not_holes x holes
-      ->
-    atomic_holds x atomic
-      ->
-    match apply_atomic atomic lb ub holes with
-    | Some (lb', ub', holes') =>
-      current_bound_holds x lb' ub'
-        /\
-      is_not_holes x holes'
-    | None => False
-    end. 
-Proof.
-  intros atomic lb ub holes x.
-  intros Hcurrent Hholes Hatom.
-  assert (x <> atm_val atomic -> is_not_holes x (sint.add (atm_val atomic) holes)) as Hholeadd.
-  {
-    intros Hnot.
-    unfold is_not_holes in *.
-    intros n.
-    rewrite sint.add_spec.
-    intros H.
-    destruct H.
-    - rewrite H. exact Hnot.
-    - apply Hholes. exact H.
-  }
-  unfold apply_atomic.
-  unfold atomic_holds in Hatom.
-  unfold current_bound_holds in *.
-  unfold check_current_bound.
-  unfold option_min; unfold option_max.
-  unfold option_bound in *.
-  unfold is_in_bounds.
-  destruct atomic.(atm_cmp); destruct lb as [lb_val |]; destruct ub as [ub_val |];
-  try (destruct (lb_val <=? atm_val atomic) eqn:Hlbatom);
-  try (destruct (atm_val atomic <=? ub_val) eqn:Hubatom); simpl;
-  repeat split; try apply Hholeadd; try assumption; try lia;
-  (assert (lb_val <= ub_val) as Hlbub by lia);
-  simplify_bounds;
-  repeat split; try assumption; try reflexivity; try lia.
-Qed.
 
 Fixpoint apply_atomics_rec (atomics : list Atomic) (dom : Domain):=
   match atomics with
@@ -339,43 +198,6 @@ Fixpoint apply_atomics_rec (atomics : list Atomic) (dom : Domain):=
     | Some (lb, ub, holes) => apply_atomics_rec atomics' (mkDom lb ub holes)
     end
   end.
-
-Definition domain_holds (y : Z) (dom : Domain) :=
-    current_bound_holds y dom.(d_lb) dom.(d_ub) /\ is_not_holes y dom.(d_holes).
-
-Lemma apply_atomics_rec_correct :
-  forall atomics dom y,
-    domain_holds y dom
-      ->
-    (forall a, In a atomics -> atomic_holds y a)
-      ->
-    match apply_atomics_rec atomics dom with
-    | None => False
-    | Some dom' =>
-      domain_holds y dom'
-    end.
-Proof.
-  induction atomics.
-  - intros dom y. intros Hdom Hatoms.
-    simpl. exact Hdom.
-  - intros dom y. intros Hdom Hinholds.
-    simpl.
-    specialize (apply_atomic_correct) as Happly_correct.
-    assert (atomic_holds y a) as Ha_holds.
-    {
-      clear -Hinholds. apply Hinholds. simpl. left. reflexivity.
-    }
-    eapply Happly_correct in Ha_holds.
-    + destruct (apply_atomic a (d_lb dom) (d_ub dom)
-(d_holes dom)) as [[[lba' uba'] holesa']|] eqn:Ha.
-      * rewrite Ha in Ha_holds.
-        apply IHatomics; try easy.
-        intros a' Hin. apply Hinholds.
-        right. exact Hin.
-      * rewrite Ha in Ha_holds. exact Ha_holds.
-    + apply Hdom.
-    + apply Hdom.
-Qed.
 
 Definition holes_in_bounds (holes : sint.t) (lb : option Z) (ub : option Z) :=
   let holes_above := 
@@ -388,7 +210,7 @@ Definition holes_in_bounds (holes : sint.t) (lb : option Z) (ub : option Z) :=
   | Some ub => split_below holes_above ub
   end.
 
-Lemma holes_split_equiv :
+(* Lemma holes_split_equiv :
   forall lb ub holes x,
     current_bound_holds x lb ub /\ is_not_holes x holes
       <->
@@ -404,7 +226,7 @@ Proof.
   try destruct (lb_val <=? n) eqn:Hln; try destruct (n <=? ub_val) eqn:Hun;
   intros H; try lia; apply Hholes;
   repeat split; try apply H; lia.
-Qed.
+Qed. *)
 
 Definition apply_hole (hole : Z) (bound : Z) (up : bool) :=
   if (hole =? bound)
@@ -424,7 +246,7 @@ Fixpoint apply_holes_side (holes : list Z) (bound : Z) (up : bool) :=
 
 Lemma apply_holes_side_correct :
   forall holes up bound new_bound x,
-    is_not_holes_list x holes
+    ~ In x holes
       ->
     apply_holes_side holes bound up = new_bound
       ->
@@ -444,12 +266,13 @@ Proof.
     intros x Hnotholes Happly. simpl in Happly. subst new_bound.
     destruct up; intros H; assumption.
   - intros up bound new_bound x Hnotholes Happly.
-    assert (is_not_holes_list x holes' /\ x <> h) as [Hnotholes' Hxnh].
+    assert (~ In x holes' /\ x <> h) as [Hnotholes' Hxnh].
     {
       split.
-      - intros n Hin. apply Hnotholes.
+      - intros Hin. apply Hnotholes.
         right. exact Hin.
-      - apply Hnotholes. left. reflexivity.
+      - intros Hxh. subst x. apply Hnotholes. 
+        left. reflexivity.
     }
     clear Hnotholes.
     simpl in Happly; unfold apply_hole in Happly.
@@ -460,29 +283,20 @@ Qed.
 
 Lemma is_not_holes_to_list :
   forall x holes,
-    is_not_holes x holes
+    ~ sint.In x holes
       ->
-    is_not_holes_list x (sint.elements holes).
+    ~ In x (sint.elements holes).
 Proof.
   intros x holes Hholes.
-  unfold is_not_holes_list.
-  intros n. intros H.
+  intros H.
   apply SetoidList.In_InA with (eqA := Z.eq) in H.
   - rewrite sint.elements_spec1 in H. apply Hholes. exact H.
   - apply Z.eq_equiv.
 Qed.
 
-Lemma is_not_holes_list_rev :
-  forall x holes,
-    is_not_holes_list x (rev holes) <-> is_not_holes_list x holes.
-Proof.
-  intros x holes. unfold is_not_holes_list.
-  split; intros H; intros n; specialize (H n); rewrite <- in_rev in *; assumption.
-Qed.
-
 Lemma apply_holes_side_lb :
   forall x lb holes,
-    is_not_holes_list x holes
+    ~ In x holes
       ->
     x >= lb
       ->
@@ -498,7 +312,7 @@ Qed.
 
 Lemma apply_holes_side_ub :
   forall x ub holes,
-    is_not_holes_list x holes
+    ~ In x holes
       ->
     x <= ub
       ->
@@ -551,92 +365,110 @@ Ltac destruct_leb :=
       destruct (a <=? b) eqn:H
   end.
 
-(* Note that we don't prove anything about actually strengthening the bounds, we just prove they are still valid bounds! *)
-(* For it actually working we rely on the fact that sint is ordered in increasing order but we don't use that anywhere in the proof, for example. *)
-Lemma apply_holes_sound :
-  forall lb ub holes x,
-    current_bound_holds x lb ub
-      ->
-    is_not_holes x holes
-      ->
-    match apply_holes lb ub holes with
-    | Some (lb', ub', holes') =>
-      current_bound_holds x lb' ub'
-        /\
-      is_not_holes x holes'
-    | None => False
-    end.
-Proof.
-  intros lb ub holes x.
-  intros Hcurrent Hholes.
-  unfold apply_holes, bounds_both_none, check_current_bound;
-  destruct lb as [lb_val|]; destruct ub as [ub_val |]; simpl; try destruct_leb;
-  repeat split; try assumption; unfold current_bound_holds in Hcurrent;
-  unfold option_bound in *; destruct Hcurrent as [Hlb Hub];
-  try apply apply_holes_side_lb with (holes := (sint.elements holes)) in Hlb; try apply apply_holes_side_ub with (holes := (rev (sint.elements holes))) in Hub;
-  try rewrite is_not_holes_list_rev;
-  try apply is_not_holes_to_list; try assumption; try lia;
-  unfold is_not_holes; intros n;
-  try rewrite split_below_spec; try rewrite split_above_spec;
-  try rewrite <- in_rev; intros H; apply Hholes; apply H.
-Qed.
+Definition apply_atomics (atomics : list Atomic) (to_apply : option Domain) : option Domain :=
+  let applied := option_map_flat (apply_atomics_rec atomics) to_apply in
+  option_map_flat apply_holes applied.
 
-Definition apply_atomics (atomics : list Atomic) (lb : option Z) (ub : option Z) (holes : sint.t) :=
-  match apply_atomics_rec atomics lb ub holes with
-  | None => None
+Definition is_in_dom (y : Z) (dom : option (option Z * option Z * sint.t)) :=
+  match dom with
+  | None => False
   | Some (lb, ub, holes) =>
-    let holes := holes_in_bounds holes lb ub in
-    apply_holes lb ub holes
+      (match ub with
+      | Some ub => y <= ub
+      | None => True
+      end)
+        /\
+      (match lb with
+      | Some lb => lb <= y
+      | None => True
+      end)
+        /\
+      (~ sint.In y holes)
   end.
 
-Lemma apply_atomics_valid :
-   forall atomics lb ub holes x,
-    current_bound_holds x lb ub
-      ->
-    is_not_holes x holes
-      ->
-    (forall a, In a atomics -> atomic_holds x a)
-      ->
-    match apply_atomics atomics lb ub holes with
-    | None => False
-    | Some (lb', ub', holes') =>
-      current_bound_holds x lb' ub'
-        /\
-      is_not_holes x holes'
-    end.
+Definition dom_equiv dom1 dom2 :=
+  forall y, is_in_dom y dom1 <-> is_in_dom y dom2.
+
+Instance dom_equiv_equiv : RelationClasses.Equivalence dom_equiv.
 Proof.
-  intros atomics lb ub holes x.
-  intros Hcurrent Hholes Hatomics.
-  unfold apply_atomics.
-  specialize (apply_atomics_rec_correct atomics lb ub holes x Hcurrent Hholes Hatomics) as Hrec.
-  destruct (apply_atomics_rec atomics lb ub holes) as [[[lb' ub'] holes'] |].
-  - specialize apply_holes_sound as Hholes_sound.
-    rewrite holes_split_equiv in Hrec.
-    apply Hholes_sound; apply Hrec.
-  - exact Hrec.
+  constructor.
+  - intros x. unfold dom_equiv. reflexivity.
+  - intros x y. unfold dom_equiv; easy.
+  - intros x y z. unfold dom_equiv. 
+    intros H1 H2.
+    intros n.
+    rewrite H1. rewrite <- H2. reflexivity.
+Defined.
+
+Definition stronger_domain (dom1 dom2 : option (option Z * option Z * sint.t)) :=
+  forall n, is_in_dom n dom1 -> is_in_dom n dom2.
+
+Lemma none_if_stronger :
+  forall dom,
+    dom_equiv None dom <-> stronger_domain dom None.
+Proof.
+  intros dom; unfold dom_equiv, stronger_domain.
+  split.
+  + intros Hequiv. intros n. rewrite Hequiv; easy.
+  + intros Hstrong. intros n. split.
+    * intros Hnone. unfold is_in_dom in Hnone.
+      contradiction.
+    * intros Hindom. apply Hstrong in Hindom.
+      assumption.
 Qed.
 
-Lemma apply_atomics_some :
-  forall atoms lb ub holes x,
-  apply_atomics atoms None None sint.empty = Some (lb, ub, holes)
-    ->
-  (forall a, In a atoms -> atomic_holds x a)
-    ->
-  current_bound_holds x lb ub
-    /\
-  is_not_holes x holes.
+Instance stronger_domain_refl : RelationClasses.Reflexive stronger_domain.
 Proof.
-  intros atoms lb ub holes x.
-  intros Hsome.
-  intros Hatoms.
-  apply apply_atomics_valid with (lb := None) (ub := None) (holes := sint.empty) in Hatoms.
-  - rewrite Hsome in Hatoms. exact Hatoms.
-  - unfold current_bound_holds. simpl. split; reflexivity.
-  - unfold is_not_holes. intros n Hin. exfalso.
-    specialize sint.empty_spec as Hempty.
-    specialize (Hempty n). contradiction.
+  intros x. unfold stronger_domain. easy.
+Defined.
+
+Instance stronger_domain_trans : RelationClasses.Transitive stronger_domain.
+Proof.
+  intros x y z.
+  unfold stronger_domain.
+  intros Hxy Hyz.
+  intros n Hinx.
+  apply Hyz.
+  apply Hxy.
+  assumption.
 Qed.
 
+Lemma dom_equiv_is_stronger :
+  forall dom dom',
+    dom_equiv dom dom'
+      ->
+    stronger_domain dom dom'.
+Proof.
+  intros dom dom'.
+  unfold dom_equiv, stronger_domain.
+  intros Hequiv.
+  intros n. now rewrite Hequiv.
+Qed.
+
+
+Lemma atom_eq_dec : forall a a' : Atomic, {a = a'} + {a <> a'}.
+Proof. repeat decide equality. Qed.
+
+
+
+
+Open Scope Z_scope.
+
+Compute 
+  let atms := mk_atm_ne 3 :: mk_atm_ge (-1) :: mk_atm_ne (-1) :: mk_atm_le 3 :: nil in
+    match apply_atomics atms None None sint.empty with
+    | None => None
+    | Some (lb, ub, holes) => Some (lb, ub, sint.elements (holes))
+    end
+  .
+
+Compute 
+  let atms := mk_atm_ne 3 :: mk_atm_ge 3 :: mk_atm_ne 4 :: mk_atm_le 4 :: nil in
+    match apply_atomics atms None None sint.empty with
+    | None => None
+    | Some (lb, ub, holes) => Some (lb, ub, sint.elements (holes))
+    end
+  .
 Definition holes_consistent (lb : option Z) (ub : option Z) (holes : sint.t) :=
   forall h, sint.In h holes ->
     match lb with
@@ -710,9 +542,6 @@ Proof.
   destruct Hcheck as [[H1 | H2] | H3]; try lia; apply Hholes; rewrite <- sint.mem_spec; exact H3.
 Qed.
 
-Import Utility.ListInd.
-Import Utility.ZRange.
-
 (* This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
 Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
   let range := build_range lb ub in
@@ -781,21 +610,3 @@ Proof.
         -- subst n'. contradiction.
         -- right. apply IH. exact Hin.
 Qed.
-
-Open Scope Z_scope.
-
-Compute 
-  let atms := mk_atm_ne 3 :: mk_atm_ge (-1) :: mk_atm_ne (-1) :: mk_atm_le 3 :: nil in
-    match apply_atomics atms None None sint.empty with
-    | None => None
-    | Some (lb, ub, holes) => Some (lb, ub, sint.elements (holes))
-    end
-  .
-
-Compute 
-  let atms := mk_atm_ne 3 :: mk_atm_ge 3 :: mk_atm_ne 4 :: mk_atm_le 4 :: nil in
-    match apply_atomics atms None None sint.empty with
-    | None => None
-    | Some (lb, ub, holes) => Some (lb, ub, sint.elements (holes))
-    end
-  .

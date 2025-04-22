@@ -1402,16 +1402,37 @@ Proof.
   + reflexivity.
 Qed.
 
+Definition default_empty := (Some 1, Some 0, sint.empty).
+
+Lemma dom_equiv_none_default_empty : 
+  dom_equiv None (Some default_empty).
+Proof.
+  rewrite none_if_stronger.
+  unfold stronger_domain. intros n Hin.
+  unfold is_in_dom in Hin. unfold default_empty in Hin.
+  exfalso. lia.
+Qed.
+
+Definition 
+
+Lemma dom_equiv_option_empty :
+  forall atoms lb ub holes, 
+  dom_equiv (apply_atomics atoms lb ub holes) (Some )
+
 (* Lemma apply_atomics_app :
-  forall atoms atoms' lb ub ,
-    dom_equiv (apply_atomics_dom (atoms ++ atoms') dom) (
-      match apply_atomics_dom atoms' dom with 
-      | Some dom' => apply_atomics_dom atoms dom'
+  forall atoms atoms' lb ub holes,
+    dom_equiv (apply_atomics (atoms ++ atoms') lb ub holes) (
+      match apply_atomics atoms' lb ub holes with 
+      | Some (lb', ub', holes') => apply_atomics atoms lb' ub' holes'
       | None => None
       end
     ).
 Proof.
-(*  *)
+  intros atoms atoms' lb ub holes.
+  destruct (apply_atomics atoms' lb ub holes) as [[[lb' ub'] holes']|] eqn:Happly.
+  - unfold apply_atomics.
+ *)
+(* 
     
   destruct lb as [lb|]; destruct ub as [ub|]; simpl;
   intros y.

@@ -454,6 +454,7 @@ Definition Inference := (Premises * Consequent)%type.
 Definition Nogood := list (string * Atomic)%type.
 
 Inductive Step :=
+(* consequent can be false of course *)
 | step_inference (premises : list (string * Atomic)) (consequent : string * Atomic)
 .
 
