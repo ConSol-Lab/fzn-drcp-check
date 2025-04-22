@@ -1413,12 +1413,6 @@ Proof.
   exfalso. lia.
 Qed.
 
-Definition 
-
-Lemma dom_equiv_option_empty :
-  forall atoms lb ub holes, 
-  dom_equiv (apply_atomics atoms lb ub holes) (Some )
-
 (* Lemma apply_atomics_app :
   forall atoms atoms' lb ub holes,
     dom_equiv (apply_atomics (atoms ++ atoms') lb ub holes) (

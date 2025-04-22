@@ -33,38 +33,6 @@ Definition check_in_vs (vs : option sstr.t) (x : string) :=
   | Some vs => sstr.mem x vs
   end.
 
-Fixpoint fold_left_error {Acc X} (f : Acc -> X -> option Acc) (xl : list X) (acc : Acc) : option Acc :=
-  match xl with
-  | nil => Some acc
-  | x :: xl' => 
-    match f acc x with
-    | None => None
-    | Some acc => fold_left_error f xl' acc
-    end
-  end.
-
-Definition fold_left_error_f {Acc X } (f : Acc -> X -> option Acc) (acc : option Acc) (x : X) :=
-  match acc with
-  | None => None
-  | Some acc => f acc x
-  end.
-
-Lemma fold_left_error_as_fold_left :
-  forall (Acc X : Type) (f : Acc -> X -> option Acc) xl acc,
-    fold_left_error f xl acc = fold_left (fold_left_error_f f) xl (Some acc).
-Proof.
-  intros Acc X f. induction xl as [| x xl IH].
-  - intros acc. simpl. reflexivity.
-  - intros acc. simpl.
-    destruct (f acc x) eqn:Hfx.
-    + apply IH.
-    + rewrite <- fold_left_rev_right. unfold fold_left_error_f. 
-      clear. induction xl as [| x xl IH].
-      * reflexivity.
-      * simpl. rewrite fold_right_app. simpl.
-        exact IH.
-Qed.
-
 Definition initial_dom := mkDom None None sint.empty.
 
 Definition apply_atomics_dom (atoms : list Atomic) (dom : Domain) :=
