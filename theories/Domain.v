@@ -730,6 +730,25 @@ Qed.
   dom_equiv (apply_atomics_rec_opt atoms dom) ()
  *)
 
+(* Definition atoms_for_dom (atoms : list Atomic) (dom : option Domain) :=
+  forall y,
+    is_in_dom y dom
+      <->
+     *)
+
+Lemma dom_effect_atomics :
+  forall atoms y dom,
+    is_in_dom y (apply_atomics atoms dom)
+      <->
+    is_in_dom y dom /\ (forall a, In a atoms -> atomic_holds y a).
+Proof.
+  intros atoms y dom.
+  unfold apply_atomics.
+  specialize (apply_holes_equiv (apply_atomics_rec_opt atoms dom) y) as Heqv.
+  rewrite <- Heqv.
+  apply dom_effect_rec.
+Qed.
+  
    
 Lemma apply_atomics_app :
   forall atoms atoms' dom,
@@ -752,6 +771,34 @@ Proof.
     + simpl. reflexivity.
     + simpl. apply IHatoms'.
 Qed.
+
+Lemma apply_atomics_app_swap :
+  forall atoms atoms' dom,
+  dom_equiv (apply_atomics (atoms ++ atoms') dom)
+  (apply_atomics (atoms' ++ atoms) dom).
+Proof.
+  intros atoms atoms' dom.
+  unfold dom_equiv. intros y.
+  repeat rewrite dom_effect_atomics.
+  setoid_rewrite in_app_iff.
+  setoid_rewrite or_comm at 1.
+  reflexivity.
+Qed.
+
+Instance apply_atomics_proper : 
+  Morphisms.Proper (Morphisms.respectful eq (Morphisms.respectful dom_equiv dom_equiv)) apply_atomics.
+Proof.
+  intros atoms atoms' Hatoms d1 d2 Heqv.
+  subst atoms'.
+  unfold dom_equiv.
+  intros y.
+  repeat rewrite dom_effect_atomics.
+  specialize (Heqv y).
+  rewrite Heqv.
+  reflexivity.
+Defined.
+
+
   (* apply apply_holes_side_lb  in 
   3: { specialize repeat split; try rewrite <- le_ge. }
   try enough (y >= apply_holes_side (sint.elements holes) lb true) by (destruct_or; try contradiction; repeat split; try easy; lia);
