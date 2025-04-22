@@ -333,6 +333,32 @@ Proof.
   exact Hperm.
 Qed.
 
+Lemma permutation_filter {A} (eq_dec : forall x y : A, {x = y} + {x <> y}) :
+  forall (pred : A -> bool) l l',
+    Permutation l l'
+      ->
+    Permutation (filter pred l) (filter pred l').
+Proof.
+  intros pred.
+  induction l.
+  - intros l'.
+    intros Hperm.
+    apply Permutation_nil in Hperm; subst l'. simpl.
+    apply perm_nil.
+  - intros l'.
+    intros Hperm. simpl.
+    destruct (pred a) eqn:Hpred.
+    + apply Permutation_in with (x := a) in Hperm.
+      * assert (In a (filter pred l')).
+        { rewrite filter_In. split; assumption. }
+        admit.
+      * left. reflexivity.
+    + apply permutation_remove_once with (eq_dec := eq_dec) in Hperm.
+      apply IHl in Hperm.
+      (* TODO *)
+Admitted. 
+  
+
 Lemma permutation_partition {A} :
   forall (f : A -> bool) l,
   Permutation l (fst (partition f l) ++ snd (partition f l)).

@@ -909,13 +909,39 @@ Defined.
 Lemma atom_eq_dec : forall a a' : Atomic, {a = a'} + {a <> a'}.
 Proof. repeat decide equality. Qed.
 
+Lemma current_bound_is_not_holes_iff_is_in_dom :
+  forall lb ub holes y,
+    is_in_dom y (Some (lb, ub, holes))
+      <->
+    current_bound_holds y lb ub
+      /\
+    is_not_holes y holes.
+Proof.
+  intros lb ub holes.
+  intros y.
+  unfold is_in_dom.
+  unfold current_bound_holds, option_bound.
+  unfold is_not_holes.
+  split; intros H.
+  - repeat split.
+    + destruct lb; try reflexivity. lia.
+    + destruct ub; try reflexivity. lia.
+    + intros n Hin Hyn. apply H.
+      subst y. assumption.
+  - repeat split.
+    + destruct ub; try reflexivity. lia.
+    + destruct lb; try reflexivity. lia.
+    + intros Hin. destruct H as [_ H].
+      apply H in Hin. contradiction.
+Qed.
+
 Require Checker.Utility.
 Import Utility.ListEx.
 
 Definition stronger_domain (dom1 dom2 : option (option Z * option Z * sint.t)) :=
   forall n, is_in_dom n dom1 -> is_in_dom n dom2.
 
-Lemma stronger_than_in :
+(* Lemma stronger_than_in :
   forall lb ub holes lb' ub' holes' a atoms,
     In a atoms
       ->
@@ -929,7 +955,7 @@ Lemma stronger_than_input :
   forall lb ub holes atoms,
     stronger_domain (apply_atomics_rec atoms lb ub holes) (Some (lb, ub, holes)).
 Proof.
-Admitted.
+Admitted. *)
 
 Lemma none_if_stronger :
   forall dom,
@@ -991,33 +1017,6 @@ Proof.
   try subst lby; try subst uby; try subst holesy;
   repeat split; reflexivity.
 Qed.
-
-
-
-Lemma check_current_bound_min_match :
-  forall lb ub holes y,
-  match check_current_bound lb (Some (option_min ub (atm_val y))) holes with
-  | Some (lby, uby, holesy) =>
-    holesy = holes
-      /\
-    lby = lb
-      /\
-    uby = Some (option_min ub (atm_val y))
-  | None =>
-    match lb with
-    | None => False
-    | Some lb_val =>
-      option_min ub (atm_val y) < lb_val
-    end
-  end.
-Proof.
-  intros lb ub holes y.
-  destruct (check_current_bound lb (Some (option_min ub (atm_val y))) holes) as [[[lby uby] holesy]|] eqn:Hcheck.
-  - apply check_current_bound_min. assumption.
-  - unfold check_current_bound in Hcheck.
-    destruct lb as [lb_val|].
-Admitted.
-
 
 Lemma check_current_bound_max :
   forall lb ub holes y lby uby holesy,
@@ -1258,7 +1257,7 @@ Proof.
 Qed.
  
 
-Lemma input_equiv :
+(* Lemma input_equiv :
   forall atoms lb ub holes lb' ub' holes',
     dom_equiv (Some (lb, ub, holes)) (Some (lb', ub', holes'))
       ->
@@ -1291,7 +1290,7 @@ Proof.
         symmetry. exact H.
     + reflexivity.
 Qed.
-
+ *)
 Lemma permute_rec_equiv :
   forall atoms atoms' lb ub holes,
     Permutation atoms atoms'
@@ -1303,91 +1302,12 @@ Proof.
   unfold dom_equiv.
   intros y.
   repeat rewrite dom_effect_rec.
-  (* lol *)
-  induction atoms.
-  - intros atoms' lb ub holes Hpermute.
-    apply Permutation_nil in Hpermute; subst atoms'.
-    simpl. unfold dom_equiv. intros y. reflexivity.
-  - intros atoms' lb ub holes.
-    intros Hpermute_a.
-    inversion Hpermute_a.
-    + subst l; subst x; subst atoms'.
-      rename H2 into Hpermute.
-      simpl.
-      destruct (apply_atomic a lb ub holes) as [[[lb' ub'] holes']|] eqn:Ha.
-      * apply IHatoms. exact Hpermute.  
-      * reflexivity.
-    + subst a; subst atoms'; subst atoms.
-      destruct (apply_atomic y lb ub holes) as [[[lby uby] holesy]|] eqn:Hy; try destruct (apply_atomic x lby uby holesy) as [[[lbyx ubyx] holesyx]|] eqn:Hyx; try destruct (apply_atomic x lb ub holes)  as [[[lbx ubx] holesx]|] eqn:Hx; try destruct (apply_atomic y lbx ubx holesx) as [[[lbxy ubxy] holesxy]|] eqn:Hxy.
-      * simpl; rewrite Hy; rewrite Hyx; rewrite Hx; rewrite Hxy.
-        clear IHatoms.
-        unfold dom_equiv.
-        intros n.
-        repeat rewrite dom_effect_rec.
-        enough (dom_equiv (Some (lbxy, ubxy, holesxy)) (Some (lbyx, ubyx, holesyx))).
-        { unfold dom_equiv in H. rewrite H. reflexivity. }
-        rewrite <- Hxy; clear Hxy.
-        rewrite <- Hyx; clear Hyx.
-        unfold dom_equiv.
-        clear n; intros n.
-        repeat rewrite dom_effect.
-        rewrite <- Hx; clear Hx.
-        rewrite <- Hy; clear Hy.
-        repeat rewrite dom_effect.
-        split; intros H; destruct_ands;
-        split; try assumption;
-        split; assumption.
-      * admit.        
-      * admit.
-      * admit.
-      * admit.
-      * admit.
-      * admit.
-      * admit.
-      * admit.
-    + subst l; subst l''.
-      assert (forall a', In a' atoms' <-> In a' (a :: atoms)) as Hin_iff.
-      { intros a'.
-        split.
-        - intros Hin.
-          symmetry in Hpermute_a.
-          apply Permutation_in with (l := atoms');
-          assumption.
-        - intros Hin.
-          apply Permutation_in with (l := (a :: atoms));
-          assumption. }
-      simpl.
-      clear -Hin_iff.
-      destruct (apply_atomic a lb ub holes) as [[[lb' ub'] holes']|] eqn:Ha.
-      * unfold dom_equiv; intros n.
-        repeat rewrite dom_effect_rec.
-        rewrite <- Ha.
-        rewrite dom_effect.
-        split; intros; destruct_ands;
-        split; try assumption;
-        try (split; try assumption).
-        -- intros a'. rewrite Hin_iff.
-          intros [Haa' | Hin].
-          ++ subst a'. assumption.
-          ++ apply H2. assumption.
-        -- apply H2. rewrite Hin_iff. left. reflexivity.
-        -- intros a'. intros Hin.
-          apply H2. rewrite Hin_iff.
-          right. assumption. 
-      * rewrite none_if_stronger. rewrite <- Ha.
-        apply stronger_than_in.
-        -- exact Hinatoms'.
-        -- reflexivity.
-Admitted.
-        
-      (* TODO: to show that In atom = None -> other is None. Really have to show with min/max I think *)
-
-      
-
-  intros Hpermute.
-  inversion Hpermute.
-  - subst atoms; subst atoms'. simpl. unfold dom_equiv. intros y. reflexivity.
-  - subst atoms; subst atoms'.
+  split; intros H;
+  split; try apply H; 
+  intros a Hin; apply H.
+  - now apply Permutation_in with (l := atoms').
+  - now apply Permutation_in with (l := atoms).
+Qed.
 
 Lemma apply_holes_equiv :
   forall lb ub holes, 
@@ -1429,8 +1349,69 @@ Proof.
     { rewrite Heqapply_ub. exact Hholes_rev. }
     lia.
 Qed.
-    
-(* 
+
+
+
+Lemma holes_in_bounds_equiv :
+  forall lb ub holes,
+    dom_equiv (Some (lb, ub, holes_in_bounds holes lb ub)) (Some (lb, ub, holes)).
+Proof.
+  specialize holes_split_equiv as Hsplit.
+  intros lb ub holes.
+  unfold dom_equiv.
+  intros y. split; intros.
+  - rewrite current_bound_is_not_holes_iff_is_in_dom in H.
+    rewrite <- Hsplit in H.
+    rewrite current_bound_is_not_holes_iff_is_in_dom.
+    assumption.
+  - rewrite current_bound_is_not_holes_iff_is_in_dom.
+    rewrite <- Hsplit.
+    rewrite <- current_bound_is_not_holes_iff_is_in_dom.
+    assumption.
+Qed. 
+
+Lemma permute_apply_equiv :
+  forall atoms atoms' lb_in ub_in holes_in,
+    Permutation atoms atoms'
+      ->
+    dom_equiv (apply_atomics atoms lb_in ub_in holes_in) (apply_atomics atoms' lb_in ub_in holes_in).
+Proof.
+  intros atoms atoms' lb_in ub_in holes_in.
+  intros Hpermute.
+  unfold apply_atomics.
+  destruct (apply_atomics_rec atoms lb_in ub_in holes_in) as [[[lb ub] holes]|] eqn:Hres;
+  destruct (apply_atomics_rec atoms' lb_in ub_in holes_in) as [[[lb' ub'] holes']|] eqn:Hres'.
+  + repeat rewrite apply_holes_equiv.
+    repeat rewrite holes_in_bounds_equiv.
+    rewrite <- Hres.
+    rewrite <- Hres'.
+    apply permute_rec_equiv.
+    exact Hpermute.
+  + rewrite apply_holes_equiv.
+    rewrite holes_in_bounds_equiv.
+    rewrite <- Hres.
+    rewrite <- Hres'.
+    apply permute_rec_equiv.
+    exact Hpermute.
+  + rewrite apply_holes_equiv.
+    rewrite holes_in_bounds_equiv.
+    rewrite <- Hres.
+    rewrite <- Hres'.
+    apply permute_rec_equiv.
+    apply Hpermute.
+  + reflexivity.
+Qed.
+
+(* Lemma apply_atomics_app :
+  forall atoms atoms' lb ub ,
+    dom_equiv (apply_atomics_dom (atoms ++ atoms') dom) (
+      match apply_atomics_dom atoms' dom with 
+      | Some dom' => apply_atomics_dom atoms dom'
+      | None => None
+      end
+    ).
+Proof.
+(*  *)
     
   destruct lb as [lb|]; destruct ub as [ub|]; simpl;
   intros y.
