@@ -828,7 +828,7 @@ Qed.
 
 Open Scope Z_scope.
 
-Definition holes_consistent (lb : option Z) (ub : option Z) (holes : sint.t) :=
+(* Definition holes_consistent (lb : option Z) (ub : option Z) (holes : sint.t) :=
   forall h, sint.In h holes ->
     match lb with
     | Some lb => h > lb
@@ -839,7 +839,7 @@ Definition holes_consistent (lb : option Z) (ub : option Z) (holes : sint.t) :=
     | Some ub => h < ub
     | None => True
     end.
-
+ *)
 Definition is_not_in (y : Z) (lb : option Z) (ub : option Z) (holes : sint.t) : bool :=
     (match ub with
     | Some ub => ub <? y
@@ -884,25 +884,24 @@ Definition check_holds (a : Atomic) (lb : option Z) (ub : option Z) (holes : sin
     is_not_in a.(atm_val) lb ub holes
   end.
 
-(* Lemma check_holds_implies :
-  forall lb ub holes y a, 
-  current_bound_holds y lb ub
+Lemma check_holds_implies :
+  forall dom y a,
+  is_in_dom y (Some dom)
     ->
-  is_not_holes y holes
-    ->
-  check_holds a lb ub holes = true
+  check_holds a dom.(d_lb) dom.(d_ub) dom.(d_holes) = true
     ->
   atomic_holds y a.
 Proof.
-  unfold current_bound_holds, is_not_holes, check_holds, atomic_holds, is_not_in, option_bound, bounds_exact. 
-  intros lb ub holes y a.
-  intros Hcurrent Hholes Hcheck.
+  intros dom y a. 
+  unfold is_in_dom, check_holds, atomic_holds, bounds_exact, is_not_in.
+  destruct dom as [lb ub holes].
+  intros Hcurrent Hcheck; simpl in *.
   destruct lb as [lb_val|]; destruct ub as [ub_val|]; destruct (atm_cmp a); try lia; try (specialize (Hholes (atm_val a))); repeat rewrite orb_true_iff in Hcheck;
-  destruct Hcheck as [[H1 | H2] | H3]; try lia; apply Hholes; rewrite <- sint.mem_spec; exact H3.
+  destruct Hcheck as [[H1 | H2] | H3]; try lia; destruct_ands; intros Hya; subst; rewrite sint.mem_spec in H3; contradiction.
 Qed.
 
 (* This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
-Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
+(* Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
   let range := build_range lb ub in
   let values := filter (fun y => negb (sint.mem y holes)) range in
     fold_left (fun acc y => sint.add y acc) values sint.empty
