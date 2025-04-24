@@ -16,6 +16,7 @@ Require Checker.Utility.
 Import Utility.ListEx.
 Import Utility.ListInd.
 Import Utility.ZRange.
+Import Utility.Tactics.
 
 
 (* ################################### *)
@@ -401,7 +402,7 @@ Proof.
     intros H1 H2.
     intros n.
     rewrite H1. rewrite <- H2. reflexivity.
-Defined.
+Qed.
 
 Definition stronger_domain (dom1 dom2 : option Domain) :=
   forall n, is_in_dom n dom1 -> is_in_dom n dom2.
@@ -423,7 +424,7 @@ Qed.
 Instance stronger_domain_refl : RelationClasses.Reflexive stronger_domain.
 Proof.
   intros x. unfold stronger_domain. easy.
-Defined.
+Qed.
 
 Instance stronger_domain_trans : RelationClasses.Transitive stronger_domain.
 Proof.
@@ -760,6 +761,7 @@ Proof.
   reflexivity.
 Qed.
 
+
 Instance apply_atomics_proper : 
   Morphisms.Proper (Morphisms.respectful eq (Morphisms.respectful dom_equiv dom_equiv)) apply_atomics.
 Proof.
@@ -771,7 +773,33 @@ Proof.
   specialize (Heqv y).
   rewrite Heqv.
   reflexivity.
-Defined.
+Qed.
+
+Definition initial_dom := mkDom None None sint.empty.
+
+
+Lemma dom_equiv_holds :
+  forall dom atoms y,
+    (forall a, In a atoms -> atomic_holds y a) 
+      ->
+    dom_equiv dom (apply_atomics atoms (Some initial_dom))
+      ->
+    is_in_dom y dom.
+Proof.
+  intros dom atoms y Hhold.
+  unfold dom_equiv.
+  intros Hequiv.
+  specialize (Hequiv y).
+  rewrite Hequiv.
+  rewrite dom_effect_atomics.
+  split.
+  - unfold initial_dom. unfold is_in_dom.
+    repeat split; try reflexivity.
+    intros Hin.
+    apply (sint.empty_spec Hin).
+  - apply Hhold.
+Qed. 
+
 
 
   (* apply apply_holes_side_lb  in 

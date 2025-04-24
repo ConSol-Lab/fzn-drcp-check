@@ -1503,6 +1503,7 @@ Proof.
   discriminate H.
 Qed. 
 
+
 Lemma in_smap_not_none :
   forall A B (d : B) (f : A -> option B) (m : smap.t A),
     (exists x, smap.In x (smap_valid d f m))
@@ -1604,6 +1605,28 @@ Definition map_from_prod_list {A} (f : string -> bool) (l : list (string * A)) :
 
 Definition filter_pair_on_key {A} (x : string) (l : list (string * A)) : list A :=
     flat_map_option (fun a => if (fst a =? x)%string then Some (snd a) else None) l.
+
+Lemma filter_pair_on_key_no_x :
+  forall A (l : list (string * A)) x,
+    (forall a, ~ In (x, a) l)
+      ->
+    filter_pair_on_key x l = nil.
+Proof.
+  intros A l x.
+  intros Hnin.
+  destruct (filter_pair_on_key x l) eqn:Hfilter.
+  - reflexivity.
+  - specialize (Hnin a).
+    assert (In a (filter_pair_on_key x l)).
+    { rewrite Hfilter. left. reflexivity. }
+    unfold filter_pair_on_key in H.
+    rewrite in_flat_map_option in H.
+    destruct H as [[x' a'] [Hin  H']].
+    simpl in H'.
+    destruct (x' =? x)%string eqn:Hxx'.
+    + inversion H'. subst. rewrite String.eqb_eq in Hxx'. subst. contradiction.
+    + discriminate H'.
+Qed.
 
 Definition map_from_prod_list_P {A} (f : string -> bool) (l : list (string * A)) (m : smap.t (list A)) :=
   forall x, 
@@ -1758,9 +1781,86 @@ Lemma in_map_prod_list :
     forall a, In a al <-> In a (filter_pair_on_key x l).
 Proof.
   intros A f l al x.
+  intros Hin.
+  rewrite In_to_InA_Duo_eq in Hin.
+  apply smap.bindings_spec1 in Hin.
   specialize map_from_prod_list_spec with (f := f) (l := l) as Hspec.
   unfold map_from_prod_list_P in Hspec.
   specialize (Hspec x).
+  rewrite <- smap.find_spec in Hin.
+  rewrite Hin in Hspec.
+  destruct Hspec as [Hfx Hinl].
+  intros a.
+  rewrite Hinl.
+  unfold filter_pair_on_key.
+  rewrite in_flat_map_option.
+  split; intros H.
+  - exists (x, a).
+    split; try assumption.
+    simpl. destruct (x =? x)%string eqn:Hx.
+    + reflexivity.
+    + rewrite String.eqb_neq in Hx; contradiction.
+  - destruct H as [[x' a'] [H Heq]].
+    simpl in Heq.
+    destruct (x' =? x)%string eqn:Hxx'.
+    + inversion Heq.
+      rewrite String.eqb_eq in Hxx'; subst.
+      exact H.
+    + discriminate Heq.
+Qed.
+
+Lemma is_empty_map_exists :
+  forall A (m : smap.t A),
+    smap.is_empty m = false
+      ->
+    exists x, smap.In x m.
+Proof.
+  intros A m.
+  intros Hempty.
+  rewrite <- not_true_iff_false in Hempty.
+  rewrite smap.is_empty_spec in Hempty.
+  destruct (smap.exists_ (fun x y => true) m) eqn:Hx.
+  + rewrite smap.exists_spec in Hx.
+    rewrite existsb_exists in Hx.
+    destruct Hx as [[x a] [H _]].
+    rewrite In_to_InA_Duo_eq in H.
+    rewrite smap.bindings_spec1 in H.
+    exists x. exists a.
+    exact H.
+  + exfalso.
+    apply Hempty.
+    intros x.
+    rewrite smap.exists_spec in Hx.
+    rewrite <- not_true_iff_false in Hx.
+    destruct (smap.find x m) eqn:Hfind; try reflexivity.
+    rewrite existsb_exists in Hx.
+    exfalso.
+    apply Hx.
+    exists (x, a).
+    split; try reflexivity.
+    rewrite In_to_InA_Duo_eq.
+    rewrite smap.bindings_spec1.
+    rewrite <- smap.find_spec.
+    exact Hfind.
+Qed.
+
+Lemma find_none_bindings :
+  forall A (m : smap.t A) x,
+    smap.find x m = None
+      ->
+    forall a, ~ In (x, a) (smap.bindings m).
+Proof.
+  intros A m x.
+  intros Hfind.
+  intros a Hin.
+  rewrite In_to_InA_Duo_eq in Hin.
+  rewrite smap.bindings_spec1 in Hin.
+  rewrite <- smap.find_spec in Hin.
+  rewrite Hfind in Hin.
+  discriminate Hin.
+Qed.
+
+(* 
   destruct al; try contradiction.
   intros H; clear H.
   destruct (smap.find) as [l'|] eqn:Hfind.
@@ -1824,5 +1924,5 @@ Proof.
           exact Hin.
         -- discriminate Hx.
 Qed.
- 
+  *)
 End Maps.
