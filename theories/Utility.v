@@ -9,6 +9,35 @@ Require Coq.Structures.OrdersEx.
 Require MMaps.Interface.
 Require MMaps.RBT.
 
+Module Tactics.
+  Import Bool.
+  Ltac destruct_ands :=
+  repeat match goal with
+  | [ H: _ /\ _ |- _ ] =>
+      let H1 := fresh H "1" in
+      let H2 := fresh H "2" in
+      destruct H as [H1 H2]
+  end.
+
+(* Pushes ~ inwards between boolean statements *)
+Ltac normalize_bool_in H :=
+  repeat (
+    rewrite <- andb_true_iff in H ||
+    rewrite <- andb_false_iff in H ||
+    rewrite <- orb_true_iff in H ||
+    rewrite <- orb_false_iff in H
+  ); repeat (
+    rewrite not_true_iff_false in H ||
+    rewrite not_false_iff_true in H
+  ); repeat (
+    rewrite andb_true_iff in H ||
+    rewrite andb_false_iff in H ||
+    rewrite orb_true_iff in H ||
+    rewrite orb_false_iff in H
+  ).
+
+End Tactics.
+
 Module ListInd.
 Import List.
 Lemma fold_ind {X} :
@@ -1267,11 +1296,17 @@ Fixpoint has_n_true (n : nat) (l : list bool) (current : nat) : bool :=
 
 End ZRange.
 
+Require MMaps.Facts.
+
 Module Maps.
 Import String.
 Import List.
 Import ListInd.
+Import ListEx.
+Import Bool.
+Import Tactics.
 Module smap := RBT.Make OrdersEx.String_as_OT.
+Module smap_prps := Facts.Properties OrdersEx.String_as_OT smap.
 
 Definition build_map_step {A B} (f_key : A -> string) (f : A -> option B) (a : A) (m : smap.t B) :=
   match f a with
@@ -1424,5 +1459,370 @@ Proof.
         apply Hxx'.
         symmetry. exact Hxix'.
 Qed.
-       
+
+Definition opt_is_none {A} (x : string) (a : option A) : bool :=
+  match a with
+  | None => true
+  | Some _ => false
+  end.
+
+Definition check_none {A} (m : smap.t (option A)) : bool :=
+  smap.exists_ opt_is_none m.
+
+Definition smap_unwrap {A} (d : A) (m : smap.t (option A)) : smap.t A :=
+  smap.map (option_default d) m.
+
+Definition smap_valid {A B} (d : B) (f : A -> option B) (m : smap.t A) : smap.t B :=
+  let opt_map := smap.map f m in
+  if check_none opt_map
+    then smap.empty
+    else smap_unwrap d opt_map.
+
+Definition valid_f {A B} (d : B) (f : A -> option B) (x : (string * A)) :=
+  match x with
+  | (x, a) =>
+    (x, option_map_default f d a)
+  end.
+
+Lemma in_smap_check_none_false :
+  forall A B (d : B) (f : A -> option B) (m : smap.t A),
+    (exists x, smap.In x (smap_valid d f m))
+      ->
+    check_none (smap.map f m) = false.
+Proof.
+  intros A B d f m.
+  intros [x Hin].
+  unfold smap_valid in Hin.
+  destruct (check_none (smap.map f m));
+  try reflexivity.
+  destruct Hin as [a Hmap].
+  assert (smap.MapsTo x a (smap.empty)).
+  { exact Hmap. }
+  rewrite <- smap.find_spec in H.
+  rewrite smap.empty_spec in H.
+  discriminate H.
+Qed. 
+
+Lemma in_smap_not_none :
+  forall A B (d : B) (f : A -> option B) (m : smap.t A),
+    (exists x, smap.In x (smap_valid d f m))
+      ->
+  forall x a, In (x, a) (smap.bindings m) -> f a <> None.
+Proof.
+  intros A B d f m.
+  intros Hex.
+  apply in_smap_check_none_false in Hex as Hnonone.
+  destruct Hex as [x' Hinvalid].
+  intros x a Hin.
+  unfold smap_valid in Hinvalid.
+  rewrite Hnonone in Hinvalid.
+  unfold smap_unwrap in Hinvalid.
+  unfold check_none in Hnonone.
+  rewrite smap.exists_spec in Hnonone.
+  rewrite <- not_true_iff_false in Hnonone.
+  rewrite existsb_exists in Hnonone.
+  intros Hfanone. 
+  apply Hnonone.
+  exists (x, None).
+  split.
+  - rewrite smap.map_spec. rewrite in_map_iff. 
+    exists (x, a).
+    split.
+    + rewrite Hfanone. reflexivity.
+    + exact Hin.
+  - reflexivity.
+Qed.
+
+Lemma smap_valid_spec :
+  forall A B (d : B) (f : A -> option B) (m : smap.t A),
+    (exists x, smap.In x (smap_valid d f m))
+      ->
+    smap.bindings (smap_valid d f m) = map (valid_f d f) (smap.bindings m).
+Proof.
+  intros A B d f m Hex.
+  unfold smap_valid.
+  apply in_smap_check_none_false with (d := d) in Hex as Hnonone.
+  rewrite Hnonone.
+  unfold smap_unwrap.
+  repeat rewrite smap.map_spec.
+  remember (smap.bindings m) as l.
+  clear Hex Hnonone Heql.
+  rewrite map_map.
+  apply map_ext_in.
+  intros [x a].
+  intros Hin.
+  unfold option_default.
+  unfold valid_f.
+  unfold option_map_default.
+  reflexivity.
+Qed.
+
+Lemma smap_valid_nonempty_input :
+  forall A B (d : B) (f : A -> option B) (m : smap.t A),
+    (exists e,
+      In e (smap.bindings m))
+        ->
+      check_none (smap.map f m) = false
+        ->
+      smap.is_empty (smap_valid d f m) = false.
+Proof.
+  intros A B d f m.
+  intros Hex Hcheck.
+  rewrite <- not_true_iff_false.
+  rewrite smap_prps.is_empty_no_binding.
+  unfold smap_valid.
+  rewrite Hcheck.
+  unfold smap_unwrap.
+  repeat rewrite smap.map_spec.
+  rewrite map_map.
+  intros H.
+  destruct Hex as [[x a] Hin].
+  specialize (H x (option_map_default f d a)).
+  apply H.
+  rewrite in_map_iff.
+  exists (x, a).
+  split.
+  - reflexivity.
+  - apply Hin.
+Qed.
+
+Definition add_to_map_from_prod {A} (f : string -> bool) (m : smap.t (list A)) (e : string * A) : smap.t (list A) :=
+  match e with
+  | (x, a) =>
+    if f x then
+      let prev := 
+        match smap.find x m with
+        | Some prev => prev
+        | None => nil
+        end in
+      smap.add x (a :: prev) m
+    else m
+  end.
+
+Definition map_from_prod_list {A} (f : string -> bool) (l : list (string * A)) : smap.t (list A) :=
+  fold_left (add_to_map_from_prod f) l smap.empty.
+
+Definition filter_pair_on_key {A} (x : string) (l : list (string * A)) : list A :=
+    flat_map_option (fun a => if (fst a =? x)%string then Some (snd a) else None) l.
+
+Definition map_from_prod_list_P {A} (f : string -> bool) (l : list (string * A)) (m : smap.t (list A)) :=
+  forall x, 
+  match smap.find x m with
+  | None => f x = false \/ forall a, ~ In (x, a) l
+  | Some al => f x = true /\ forall a, In a al <-> In (x, a) l 
+  end.
+
+Lemma map_from_prod_list_spec :
+  forall A f (l : list (string * A)),
+  map_from_prod_list_P f l (map_from_prod_list f l).
+Proof.
+  intros A f l.
+  enough (map_from_prod_list_P f (rev l) (map_from_prod_list f l)).
+  {
+    unfold map_from_prod_list_P in *.
+    specialize in_rev as Hrev.
+    intros x; specialize (H x).
+    destruct (smap.find x).
+    - setoid_rewrite in_rev at 2; apply H.
+    - setoid_rewrite in_rev. apply H. 
+  }
+  unfold map_from_prod_list.
+  rewrite <- fold_left_rev_right.
+  apply fold_ind.
+  - unfold map_from_prod_list_P.
+    intros x.
+    rewrite smap.empty_spec.
+    right. intros a Hin.
+    destruct Hin.
+  - clear l. intros [x a] m l.
+    unfold map_from_prod_list_P.
+    intros IH.
+    intros x'.
+    unfold add_to_map_from_prod.
+    destruct (f x) eqn:Hfx. 
+    { 
+      destruct (String.string_dec x x') as [Hxx' | Hxx'].
+      - subst x'.
+        rewrite smap.add_spec1.
+        split; try assumption.
+        intros a'.
+        specialize (IH x).
+        destruct (smap.find x m) as [l'|] eqn:Hfind.
+        (* This stuff should really be automated... *)
+        + specialize IH as [_ IH].
+          simpl. rewrite IH.
+          split; intros H; destruct H;
+          try inversion H;
+          try subst; try now left.
+          all: try now right.
+        + destruct IH as [IH|IH]; try now rewrite Hfx in IH.
+          split; intros H.
+          * destruct H.
+            -- subst. left. reflexivity.
+            -- destruct H.
+          * destruct H.
+            -- inversion H; subst.
+              left. reflexivity.
+            -- exfalso. specialize (IH a'). apply IH.
+              exact H. 
+      - rewrite smap.add_spec2;
+        try assumption. 
+        specialize (IH x').
+        destruct (smap.find) as [l'|].
+        + split; try apply IH.
+          specialize IH as [_ IH].
+          intros a'. rewrite IH.
+          split; intros H.
+          * right. assumption.
+          * destruct H as [Hfalse | Hin].
+            -- inversion Hfalse; subst; contradiction.
+            -- exact Hin.   
+        + destruct IH.
+          * left. assumption.
+          * right. intros a'.
+            rewrite not_in_cons.
+            split.
+            -- intros Hfalse; inversion Hfalse; subst; contradiction.
+            -- apply H.
+    }
+    {
+      specialize (IH x').
+      destruct (smap.find x' m) as [l'|].
+      - split; try apply IH.
+        intros a'.
+        split; intros H.
+        + right. apply IH. exact H.
+        + destruct H;
+          destruct IH as [IHf IHin].
+          * inversion H; subst.
+            rewrite Hfx in IHf.
+            discriminate IHf.
+          * rewrite IHin. apply H.
+      - destruct (String.string_dec x x') as [Hxx' | Hxx'].
+        + subst x'. left. exact Hfx.
+        + destruct IH as [IH|IH].
+          * left. exact IH.
+          * right. intros a'.
+            intros [Heq | Hl].
+            -- inversion Heq; subst.
+              contradiction.
+            -- specialize (IH a').
+              apply IH. exact Hl.
+    }
+Qed.  
+
+Ltac destruct_pairs :=
+  repeat match goal with
+  | [ x : _ * _ |- _ ] => destruct x
+  end.
+
+Ltac solve_equiv :=
+  constructor;
+  repeat (
+    repeat intro;
+    destruct_pairs;
+    simpl in *;
+    destruct_ands;
+    subst;
+    try reflexivity;
+    try symmetry; try assumption;
+    try easy
+  ).
+
+Lemma In_to_InA_Duo_eq :
+  forall {A B} (x : A) (y : B) (l : list (A * B)),
+    In (x, y) l <-> SetoidList.InA (Interface.Duo eq eq) (x, y) l.
+Proof.
+  intros A B x y l.
+  split.
+  - apply SetoidList.In_InA.
+    unfold Interface.Duo.
+    solve_equiv. 
+  - intros H.
+    induction l.
+    + inversion H.
+    + inversion H.
+      * subst y0 l0.
+        unfold Interface.Duo in H1.
+        destruct_pairs.
+        destruct_ands; simpl in *; subst.
+        left. reflexivity.
+      * subst y0 l0. apply IHl in H1.
+        right. exact H1.
+Qed.
+
+Lemma in_map_prod_list :
+  forall A f (l : list (string * A)) al x,
+    In (x, al) (smap.bindings (map_from_prod_list f l))
+      ->
+    forall a, In a al <-> In a (filter_pair_on_key x l).
+Proof.
+  intros A f l al x.
+  specialize map_from_prod_list_spec with (f := f) (l := l) as Hspec.
+  unfold map_from_prod_list_P in Hspec.
+  specialize (Hspec x).
+  destruct al; try contradiction.
+  intros H; clear H.
+  destruct (smap.find) as [l'|] eqn:Hfind.
+  - remember (a :: al) as al'; clear Heqal'.
+    split; intros H.
+    + destruct_ands; split; try assumption.
+      apply In_to_InA_Duo_eq in H.
+      rewrite smap.bindings_spec1 in H.
+      rewrite <- smap.find_spec in H.
+      rewrite Hfind in H.
+      inversion H; subst.
+      intros a' Hin.
+      unfold filter_pair_on_key.
+      rewrite in_flat_map_option.
+      exists (x, a').
+      split.
+      * apply Hspec2. exact Hin.
+      * simpl. destruct (x =? x)%string eqn:Hx.
+        -- reflexivity.
+        -- rewrite String.eqb_neq in Hx; contradiction. 
+    + destruct Hspec as [_ Hspec].
+      rewrite In_to_InA_Duo_eq.
+      rewrite smap.bindings_spec1.
+      rewrite <- smap.find_spec.
+      rewrite Hfind.
+      f_equal.
+
+
+  - destruct Hspec as [Hfalse | Hnin].
+    + split; intros H.
+      * apply In_to_InA_Duo_eq in H.
+        rewrite smap.bindings_spec1 in H.
+        rewrite <- smap.find_spec in H.
+        rewrite Hfind in H.
+        discriminate H.
+      * destruct H as [_ HFalse].
+        rewrite Hfalse in HFalse.
+        discriminate HFalse.
+    + split; intros H.
+      * apply In_to_InA_Duo_eq in H.
+        rewrite smap.bindings_spec1 in H.
+        rewrite <- smap.find_spec in H.
+        rewrite Hfind in H.
+        discriminate H.
+      * destruct H as [Hin Hf].
+        exfalso.
+        specialize (Hin a).
+        assert (In a (a :: al)).
+        { left. reflexivity. }
+        apply Hin in H; clear Hin.
+        unfold filter_pair_on_key in H.
+        rewrite in_flat_map_option in H.
+        destruct H as [[x' a'] H].
+        destruct H as [Hin Hx].
+        simpl in Hx.
+        destruct (x' =? x)%string eqn:Hxx'.
+        -- rewrite String.eqb_eq in Hxx'.
+          inversion Hx; subst.
+          specialize (Hnin a).
+          apply Hnin.
+          exact Hin.
+        -- discriminate Hx.
+Qed.
+ 
 End Maps.

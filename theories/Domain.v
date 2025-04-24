@@ -452,31 +452,6 @@ Qed.
 Lemma atom_eq_dec : forall a a' : Atomic, {a = a'} + {a <> a'}.
 Proof. repeat decide equality. Qed.
 
-Ltac destruct_ands :=
-  repeat match goal with
-  | [ H: _ /\ _ |- _ ] =>
-      let H1 := fresh H "1" in
-      let H2 := fresh H "2" in
-      destruct H as [H1 H2]
-  end.
-
-(* Pushes ~ inwards between boolean statements *)
-Ltac normalize_bool_in H :=
-  repeat (
-    rewrite <- andb_true_iff in H ||
-    rewrite <- andb_false_iff in H ||
-    rewrite <- orb_true_iff in H ||
-    rewrite <- orb_false_iff in H
-  ); repeat (
-    rewrite not_true_iff_false in H ||
-    rewrite not_false_iff_true in H
-  ); repeat (
-    rewrite andb_true_iff in H ||
-    rewrite andb_false_iff in H ||
-    rewrite orb_true_iff in H ||
-    rewrite orb_false_iff in H
-  ).
-
 Lemma not_in_add :
   forall n y s,
   ~ (n = y \/ sint.In n s)
