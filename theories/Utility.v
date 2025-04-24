@@ -1606,6 +1606,28 @@ Definition map_from_prod_list {A} (f : string -> bool) (l : list (string * A)) :
 Definition filter_pair_on_key {A} (x : string) (l : list (string * A)) : list A :=
     flat_map_option (fun a => if (fst a =? x)%string then Some (snd a) else None) l.
 
+Lemma filter_pair_on_key_spec (A : Type) :
+  forall (l : list (string * A)) x a,
+    In a (filter_pair_on_key x l) <-> In (x, a) l.
+Proof.
+  intros l x a.
+  unfold filter_pair_on_key.
+  rewrite in_flat_map_option.
+  split; intros H.
+  - destruct H as [[x' a'] [Hin Hxa]].
+    simpl in Hxa.
+    destruct (x' =? x)%string eqn:Hxx'.
+    + inversion Hxa. rewrite String.eqb_eq in Hxx'.
+      now subst.
+    + discriminate Hxa.
+  - exists (x, a).
+    split.
+    + assumption.
+    + simpl. destruct (x =? x)%string eqn:Hxx'.
+      * reflexivity.
+      * rewrite String.eqb_neq in Hxx'; contradiction.
+Qed.
+
 Lemma filter_pair_on_key_no_x :
   forall A (l : list (string * A)) x,
     (forall a, ~ In (x, a) l)
@@ -1617,15 +1639,10 @@ Proof.
   destruct (filter_pair_on_key x l) eqn:Hfilter.
   - reflexivity.
   - specialize (Hnin a).
+    rewrite <- filter_pair_on_key_spec in Hnin.
     assert (In a (filter_pair_on_key x l)).
     { rewrite Hfilter. left. reflexivity. }
-    unfold filter_pair_on_key in H.
-    rewrite in_flat_map_option in H.
-    destruct H as [[x' a'] [Hin  H']].
-    simpl in H'.
-    destruct (x' =? x)%string eqn:Hxx'.
-    + inversion H'. subst. rewrite String.eqb_eq in Hxx'. subst. contradiction.
-    + discriminate H'.
+    contradiction.
 Qed.
 
 Definition map_from_prod_list_P {A} (f : string -> bool) (l : list (string * A)) (m : smap.t (list A)) :=

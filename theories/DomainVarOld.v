@@ -17,7 +17,13 @@ Import Utility.Maps.
 Require MMaps.Interface.
 Require MMaps.RBT.
 
-Definition AtomicsMap := smap.t (list Atomic).
+(* ################################# *)
+
+(* This file originally served as interface between the old checker and new checker. *)
+
+(* ################################ *)
+
+(* Definition AtomicsMap := smap.t (list Atomic).
 
 Definition VarAtomic := Atomic.Atomic.
 
@@ -513,4 +519,4 @@ Fixpoint check_combine (steps : list Step) (domains : smap.t Domain) : bool :=
 
 Definition check_premises_conflict (premises : list (string * Atomic)) (steps : list Step) :=
   let domains := atomics_to_domains premises in
-    false.
+    false. *)

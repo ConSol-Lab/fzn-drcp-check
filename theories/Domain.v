@@ -777,6 +777,17 @@ Qed.
 
 Definition initial_dom := mkDom None None sint.empty.
 
+Lemma all_in_inital_dom :
+  forall n,
+    is_in_dom n (Some initial_dom).
+    intros n.
+    unfold initial_dom.
+    simpl.
+    repeat split; try reflexivity.
+    intros Hin.
+    apply (sint.empty_spec Hin).
+Qed.
+
 
 Lemma dom_equiv_holds :
   forall dom atoms y,
@@ -793,10 +804,7 @@ Proof.
   rewrite Hequiv.
   rewrite dom_effect_atomics.
   split.
-  - unfold initial_dom. unfold is_in_dom.
-    repeat split; try reflexivity.
-    intros Hin.
-    apply (sint.empty_spec Hin).
+  - apply all_in_inital_dom.  
   - apply Hhold.
 Qed. 
 
