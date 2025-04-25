@@ -12,21 +12,21 @@ Import Utility.Tactics.
 Import Utility.Sets.
 Require Import Checker.Domain.
 
-(* This file adds variables to domains and the idea that atomic constraints can apply only to particular variables. It also provides functions to convert a list of atomic constraints into a map of domains, for which we use MMaps (defined in the Maps module in the Utility file). *)
+(** This file adds variables to domains and the idea that atomic constraints can apply only to particular variables. It also provides functions to convert a list of atomic constraints into a map of domains, for which we use MMaps (defined in the Maps module in the Utility file). *)
 
-(* We use a simple pair instead of a Record since it is just two things. *)
+(** We use a simple pair instead of a Record since it is just two things. *)
 Definition BoundAtomic := (string * Atomic)%type.
-(* smap is a map with string keys (short for `string_map`). *)
+(** smap is a map with string keys (short for `string_map`). *)
 Definition DomainMap := smap.t Domain.
 
-(* This is used when we want to ensure only a specific subset of variables ends up in the final map, which is useful when for example we want to prove we have parameters for all of them in a constraint. It is important in the implementation of the cumulative constraint. *)
+(** This is used when we want to ensure only a specific subset of variables ends up in the final map, which is useful when for example we want to prove we have parameters for all of them in a constraint. It is important in the implementation of the cumulative constraint. *)
 Definition check_in_vs (vs : option sstr.t) (x : string) :=
   match vs with
   | None => true
   | Some vs => sstr.mem x vs
   end.
 
-(* This applies a single atomic to the current domains, ensuring that only the domain of the variable it applies to is updated. It returns None if the domain of that variable becomes empty. *)
+(** This applies a single atomic to the current domains, ensuring that only the domain of the variable it applies to is updated. It returns None if the domain of that variable becomes empty. *)
 Definition add_apply (vs : option sstr.t) (domains : DomainMap) (atom : (string * Atomic)) : option DomainMap :=
   match atom with
   | (x, atom) =>
@@ -44,22 +44,22 @@ Definition add_apply (vs : option sstr.t) (domains : DomainMap) (atom : (string 
     else Some domains
   end.
 
-(* This function is not very useful in practice, since it does 'apply_holes' for each single atomic, which is a lot of wasted work. However, it was developed first and shows that add_apply'ing multiple times is equivalent to using the domains_from_var_atomics_all below. Note, fold_left_error returns early when an intermediate step returns None. *)
+(** This function is not very useful in practice, since it does 'apply_holes' for each single atomic, which is a lot of wasted work. However, it was developed first and shows that add_apply'ing multiple times is equivalent to using the domains_from_var_atomics_all below. Note, fold_left_error returns early when an intermediate step returns None. *)
 Definition domains_from_var_atomics (atoms : list (string * Atomic)) (vs : option sstr.t) :=
   fold_left_error (add_apply vs) atoms smap.empty.
 
-(* Not used in practice, but is used for the specification. It simply filters all atomics for a particular key. *)
+(** Not used in practice, but is used for the specification. It simply filters all atomics for a particular key. *)
 Definition from_var_atoms (x : string) (atoms : list (string * Atomic)) : list Atomic :=
   filter_pair_on_key x atoms.
 
-(* Given a list of atomics, it builds a map that maps every variable to the list of atomics in the map. *)
+(** Given a list of atomics, it builds a map that maps every variable to the list of atomics in the map. *)
 Definition build_atoms_map (atoms : list (string * Atomic)) (vs : option sstr.t) :=
   map_from_prod_list (check_in_vs vs) atoms.
 
 Definition map_domains_apply_f (atoms : list Atomic) :=
   apply_atomics atoms (Some initial_dom).
 
-(* If multiple atomics are to be applied at once, this function is much more efficient since apply_atomics is called only once per variable. Note that `smap_valid` uses the MMap map operation so that the tree is not rebuilt, but it does have to check whether a none exists, iterating over all values and then mapping again to unwrap the options. The final empty check is to ensure equivalent behavior compared to domains_from_var_atomics. Use this for building the domains when you have multiple atomics that you immediately know must hold (like in premises). *)
+(** If multiple atomics are to be applied at once, this function is much more efficient since apply_atomics is called only once per variable. Note that `smap_valid` uses the MMap map operation so that the tree is not rebuilt, but it does have to check whether a none exists, iterating over all values and then mapping again to unwrap the options. The final empty check is to ensure equivalent behavior compared to domains_from_var_atomics. Use this for building the domains when you have multiple atomics that you immediately know must hold (like in premises). *)
 Definition domains_from_var_atomics_all (atoms : list (string * Atomic)) (vs : option sstr.t) :=
   let atoms_map := build_atoms_map atoms vs in
   let dom_map := smap_valid initial_dom map_domains_apply_f atoms_map in
@@ -70,11 +70,11 @@ Definition domains_from_var_atomics_all (atoms : list (string * Atomic)) (vs : o
         else None
     else Some dom_map.
 
-(* Not used in practice, but used in the specification. It represents applying all atomics for a particular variable in one go to an initial, full domain. *)
+(** Not used in practice, but used in the specification. It represents applying all atomics for a particular variable in one go to an initial, full domain. *)
 Definition applied_dom (x : string) (atoms : list (string * Atomic)) :=
   apply_atomics (from_var_atoms x atoms) (Some initial_dom).
 
-(* Useful lemma that can be used to show that when a domain map does not contain a particular variable, that must be because there are no atomics in the original list that mention it. *)
+(** Useful lemma that can be used to show that when a domain map does not contain a particular variable, that must be because there are no atomics in the original list that mention it. *)
 Lemma applied_exists_none :
   forall x atoms,
   dom_equiv (Some initial_dom) (applied_dom x atoms)
@@ -129,14 +129,14 @@ Proof.
     simpl. apply apply_holes_equiv.
 Qed.
 
-(* f here represents some assignment/solution. Indicates that all atomics are valid for their paticular variable. *)
+(** f here represents some assignment/solution. Indicates that all atomics are valid for their paticular variable. *)
 Definition valid_atoms (f : string -> Z) (atoms : list (string * Atomic)) :=
   forall x a,
     In (x, a) atoms
       ->
     atomic_holds (f x) a.
 
-(* If all atomics are valid and we get a domain equivalent to None, that means we have a contradiction. *)
+(** If all atomics are valid and we get a domain equivalent to None, that means we have a contradiction. *)
 Lemma applied_dom_none_false :
   forall atoms (f : string -> Z) x,
     valid_atoms f atoms
@@ -163,7 +163,7 @@ Qed.
     
 Definition default_atom := mk_atm_le 0.
 
-(* Copied from Rocq 9.0 stdlib *)
+(** Copied from Rocq 9.0 stdlib *)
 Lemma filter_rev {A} (pred : A -> bool) (l : list A) : filter pred (rev l) = rev (filter pred l).
 Proof.
   induction l; cbn [rev]; trivial.
@@ -171,7 +171,7 @@ Proof.
   case pred; cbn [app]; auto using app_nil_r.
 Qed.
 
-(* This proposition represents a map of domains being correct: i.e. the domain for each variable is equivalent to applying exactly all atomics related to that variable to the initial domain. It also supports a predicate so that certain variables can be ignored. *)
+(** This proposition represents a map of domains being correct: i.e. the domain for each variable is equivalent to applying exactly all atomics related to that variable to the initial domain. It also supports a predicate so that certain variables can be ignored. *)
 Definition domains_equiv_atoms_cond (pred : string -> bool) (atoms : list (string * Atomic)) (domains : DomainMap) :=
   forall x, 
   match smap.find x domains with
@@ -179,11 +179,11 @@ Definition domains_equiv_atoms_cond (pred : string -> bool) (atoms : list (strin
   | Some dom => pred x = true /\ dom_equiv (Some dom) (applied_dom x atoms)
   end.
 
-(* Same as above but the specific condition that the variable must be in vs or that vs is None. *)
+(** Same as above but the specific condition that the variable must be in vs or that vs is None. *)
 Definition domains_equiv_atoms_vs (vs : option sstr.t) (atoms : list (string * Atomic)) (domains : DomainMap) :=
   domains_equiv_atoms_cond (check_in_vs vs) atoms domains.
 
-(* Same but with no condition. *)
+(** Same but with no condition. *)
 Definition domains_equiv_atoms (atoms : list BoundAtomic) (domains : DomainMap) :=
   forall x,
     match smap.find x domains with
@@ -211,7 +211,7 @@ Proof.
     + right. easy.
 Qed.
 
-(* This represents the state of a domain map being correct. If it is None, that means at least one variable has an empty domain based on all the atomics. *)
+(** This represents the state of a domain map being correct. If it is None, that means at least one variable has an empty domain based on all the atomics. *)
 Definition domains_from_vars_P vs (atoms : list (string * Atomic)) (dom_map : option DomainMap) :=
   match dom_map with
   | Some dom_map => domains_equiv_atoms_vs vs atoms dom_map
@@ -219,7 +219,7 @@ Definition domains_from_vars_P vs (atoms : list (string * Atomic)) (dom_map : op
     dom_equiv (applied_dom x atoms) None
   end.
 
-(* Below a are a bunch of helper lemmas. *)
+(** Below a are a bunch of helper lemmas. *)
 Lemma applied_dom_cons_swap :
   forall x a atoms,
     dom_equiv (applied_dom x ((x, a) :: atoms))
@@ -268,9 +268,9 @@ Proof.
   reflexivity.
 Qed.
 
-(* Now come the proofs, which are all a bit too long and complicated for my taste. *)
+(** Now come the proofs, which are all a bit too long and complicated for my taste. *)
 
-(* This represents the correctness of add_apply on its own so that it can be used when applying a single atomic at a time to a domain map. The proof is more complicated than it maybe should be and has a lot of duplciation. *)
+(** This represents the correctness of add_apply on its own so that it can be used when applying a single atomic at a time to a domain map. The proof is more complicated than it maybe should be and has a lot of duplciation. *)
 Lemma add_apply_step :
   forall vs doms atoms,
     domains_equiv_atoms_vs vs atoms doms 

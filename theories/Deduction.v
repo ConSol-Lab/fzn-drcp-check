@@ -13,15 +13,15 @@ Import Utility.Sets.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
 
-(* This file represents the process of verifying a deduction step, although it does not actually mention the deduction itself so there is still some freedom to implement it. Given a number of valid inferences and premises we assume to hold, if the checker returns true we know we have a contradiction (hence of the premises must have been incorrect). *)
+(** This file represents the process of verifying a deduction step, although it does not actually mention the deduction itself so there is still some freedom to implement it. Given a number of valid inferences and premises we assume to hold, if the checker returns true we know we have a contradiction (hence of the premises must have been incorrect). *)
 
-(* An inference is a set of premises and a consequent. If the consequent is None, it represents a nogood. *)
+(** An inference is a set of premises and a consequent. If the consequent is None, it represents a nogood. *)
 Record Inference := {
   i_premises : list BoundAtomic;
   i_consequent : option BoundAtomic
 }.
 
-(* Check whether a premise holds. *)
+(** Check whether a premise holds. *)
 Definition check_premise (domains : DomainMap) (premise : BoundAtomic) := 
   match premise with
   | (x, a) =>
@@ -32,7 +32,7 @@ Definition check_premise (domains : DomainMap) (premise : BoundAtomic) :=
     end
   end.
 
-(* We either reject if not all the premises hold, apply the consequent or indicate it is valid because we derived a conflict. Note that we use add_apply without any condition on the variables (vs = None) since here we want to consider all variables. *)
+(** We either reject if not all the premises hold, apply the consequent or indicate it is valid because we derived a conflict. Note that we use add_apply without any condition on the variables (vs = None) since here we want to consider all variables. *)
 Inductive DeductStep :=
 | deduct_domains (domains : smap.t Domain)
 | deduct_valid
@@ -65,7 +65,7 @@ Fixpoint deduct_check_inferences (inferences : list Inference) (domains : Domain
 Definition check_deduct (premises : list BoundAtomic) (steps : list Inference) :=
   match domains_from_var_atomics_all premises None with
   | None =>
-    (* This means we have a trivial nogood, decide what to do *)
+    (** This means we have a trivial nogood, decide what to do *)
       true
   | Some domains => deduct_check_inferences steps domains
   end.
@@ -111,7 +111,7 @@ Proof.
     apply Hinprem.
 Qed.
 
-(* This is the main inductive proof. Separating it out is important so that we can put domains_equiv_atoms as a hypothesis so that we have enough information in our induction hypothesis. *)
+(** This is the main inductive proof. Separating it out is important so that we can put domains_equiv_atoms as a hypothesis so that we have enough information in our induction hypothesis. *)
 Lemma deduct_check_inferences_correct :
   forall assignment steps domains atoms,
     valid_atoms assignment atoms
@@ -196,7 +196,7 @@ Proof.
     + easy.
 Qed. 
 
-(* This is the main correctness proof that factors out the use of the domain map. *)
+(** This is the main correctness proof that factors out the use of the domain map. *)
 Lemma check_deduct_correct :
   forall assignment premises steps,
     valid_atoms assignment premises
