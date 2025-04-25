@@ -16,9 +16,9 @@ Import Utility.Sets.
 Import Utility.ZRange.
 Import Utility.Tactics.
 
-(* ################################### *)
-(* ####### MSet instantiations ####### *)
+(* This file contains general reasoning about domains using a holes-based representation of domains. It purposefully makes no mention of variables. *)
 
+(* The most important definitions in this file are Atomic, Domain, `apply_atomics`, `dom_equiv`, `dom_effect_atomics` and `check_holds`. *)
 Inductive AtomicComparator :=
   | less_equal
   | greater_equal
@@ -30,6 +30,7 @@ Record Atomic := {
     atm_val : Z
 }.
 
+(* A domain consists of a lower bound, upper bound and a set of holes (see the Sets module in Utility, `sint` is a custom name short for `set_int`). A None value for a bound represents infinity. Note that it is possible to represent empty domains. *)
 Record Domain := mkDom {
   d_lb : option Z;
   d_ub : option Z;
@@ -50,6 +51,7 @@ Definition mk_atm_eq (c : Z) :=
 
 Open Scope Z_scope.
 
+(* We use the implementation of an MSet as trees to define a more efficient implementation of cutting off a part of the tree above/below a certain value. *)
 Definition split_above (s : sint.t) (from : Z) : sint.t :=
   let result := sint.Raw.t_right (sint.Raw.split (from - 1) (sint.this s)) in
   let result_ok := sint.Raw.split_ok2 (from - 1) (sint.is_ok s) in
@@ -96,6 +98,7 @@ Proof.
   - exact (sint.is_ok s).
 Qed.
 
+(* The following are helper functions. *)
 Definition check_bound (lb : Z) (ub : Z) (holes : sint.t) := 
   if lb <=? ub
     then Some (lb, ub, holes)
@@ -113,6 +116,7 @@ Definition option_max (bound : option Z) (new : Z) :=
   | None => Some new
   end.
 
+(* If the lower bound is strictly greater than the upper bound and they are both defined, this returns None. *)
 Definition check_current_bound (dom : Domain) : option Domain :=
   match dom.(d_lb) with
   | None => Some dom
@@ -137,15 +141,18 @@ Definition is_in_bounds (lb : option Z) (ub : option Z) (x : Z) :=
   | Some ub => x <=? ub
   end.
 
+(* This is a very important function as transforms a domain into a new domain using information from an atomic constraint. It is only able to change the bounds based on LE/GE/EQ constraints. A NE constraint is simply added to the holes. It checks for inconsistencies between the bounds, but not between the holes and the bounds. *)
 Definition apply_atomic (dom : Domain) (atomic : Atomic) :=
   match atomic.(atm_cmp) with
   | less_equal => check_current_bound (mkDom dom.(d_lb) (option_min dom.(d_ub) atomic.(atm_val)) dom.(d_holes))
   | greater_equal => check_current_bound (mkDom (option_max dom.(d_lb) atomic.(atm_val)) dom.(d_ub) dom.(d_holes))
   | equal =>
+      (* If the value is outside the bounds we have an inconsistency. *)
       if is_in_bounds dom.(d_lb) dom.(d_ub) atomic.(atm_val)
         then Some (mkDom (Some atomic.(atm_val)) (Some atomic.(atm_val)) dom.(d_holes))
         else None
   | not_equal =>
+      (* If the value is outside the bounds we can discard it as the information is already present. *)
       if is_in_bounds dom.(d_lb) dom.(d_ub) atomic.(atm_val)
         then Some (mkDom dom.(d_lb) dom.(d_ub) (sint.add atomic.(atm_val) dom.(d_holes)))
         else Some dom
@@ -159,6 +166,7 @@ Definition atomic_holds (x : Z) (a : Atomic) :=
   | not_equal => x <> a.(atm_val)
   end.
 
+(* Tactic used to simplify goals resulting from  *)
 Ltac simplify_bounds :=
   repeat match goal with
   | [ |- context[Z.max ?l ?a <=? ?u] ] =>
@@ -177,9 +185,11 @@ Ltac simplify_bounds :=
       try (rewrite Heq; try reflexivity; try lia)
   end.
 
+(* fold_left_error returns early when any earlier step returns None. It is tail-recursive. *)
 Definition apply_atomics_rec (atomics : list Atomic) (dom : Domain):=
   fold_left_error apply_atomic atomics dom.
 
+(* This function removes all holes that are outside the given bounds. *)
 Definition holes_in_bounds lb ub holes :=
   let holes_above := 
     match lb with
@@ -190,13 +200,15 @@ Definition holes_in_bounds lb ub holes :=
   | None => holes_above
   | Some ub => split_below holes_above ub
   end.
-  
+
+(* Same as above but works on Domains. *)
 Definition tighten_holes (dom : Domain) :=
   match dom with
   | mkDom lb ub holes => 
     mkDom lb ub (holes_in_bounds lb ub holes)
   end.
 
+(* Maybe would have been better to define two separate functions. For now it works fine. It works based ont he principle that if we know e.g. x >= 3 and x != 3, then x >= 4. *)
 Definition apply_hole (hole : Z) (bound : Z) (up : bool) :=
   if (hole =? bound)
     then if up
@@ -204,6 +216,7 @@ Definition apply_hole (hole : Z) (bound : Z) (up : bool) :=
       else Some (bound - 1)
     else None.
 
+(* Applies all holes in a list in order. To ensure all information is used, they should be applied in increasing/decreasing order. *)
 Fixpoint apply_holes_side (holes : list Z) (bound : Z) (up : bool) :=
   match holes with
   | nil => bound
@@ -213,6 +226,7 @@ Fixpoint apply_holes_side (holes : list Z) (bound : Z) (up : bool) :=
     end
   end.
 
+(* This is only a soundness proof. It simply states that the new bounds are never incorrect, not that the bounds are as tight as they could be. *)
 Lemma apply_holes_side_correct :
   forall holes up bound new_bound x,
     ~ In x holes
@@ -303,12 +317,15 @@ Definition bounds_both_none (dom : Domain) :=
   | Some _ => false
   end.
 
-(* An optimization that could be done is that if the size of the holes is equal to the size of the interval, we can also return None without checking all values. *)
+(* This is the actual function that uses the holes to tighten the bounds. An optimization that could be done is that if the size of the holes is equal or greater than the size of the interval (after removing useless holes), we can also return None without checking all values. *)
 Definition apply_holes (dom : Domain) :=
+  (* We don't do anything if they are both None. *)
   if bounds_both_none dom
     then Some dom
     else
+  (* We ensure any useless holes are removed to reduce how much we hav to iterate. *)
   let dom := tighten_holes dom in
+  (* We iterate using lists since we need to reverse it. *)
   let holes_list := sint.elements dom.(d_holes) in
   let new_lb :=
     match dom.(d_lb) with
@@ -320,14 +337,18 @@ Definition apply_holes (dom : Domain) :=
     | None => None
     | Some ub => Some (apply_holes_side (rev holes_list) ub false)
     end in
+  (* We now again remove useless holes after checking that the new bounds haven't it clear the domain is infeasible. *)
   option_map tighten_holes (check_current_bound (mkDom new_lb new_ub dom.(d_holes))).
 
+(* Tactic to destruct a <= somewhere in the goal. *)
 Ltac destruct_leb :=
   match goal with
   | [ |- context[?a <=? ?b] ] =>
       let H := fresh "Hleb" in
       destruct (a <=? b) eqn:H
   end.
+
+(* The following steps are important to simplify proofs. If we do not accept an option as an argument, it means the functions change types and we cannot chain them, requiring lots of case analysis in proofs. We consider None to also represent a domain and for it to be equivalent with any empty domain. The reason we don't simply use a specific inconsistent domain instead is because it is very easy and cheap to check whether something is None and we often want to know whether our Domain is empty. *)
 
 Definition apply_atomic_opt (dom : option Domain) (a : Atomic) := fold_left_error_f apply_atomic dom a.
 
@@ -337,9 +358,11 @@ Definition apply_atomics_rec_opt (atomics : list Atomic) (dom : option Domain) :
 Definition apply_holes_opt (dom: option Domain) :=
   option_map_flat apply_holes dom.
 
+(* This is the main function we reason with outside this file. Because it operates on multiple atomics, we can represent chaining it as just the operation on the two lists concatenated together. *)
 Definition apply_atomics (atomics : list Atomic) (dom : option Domain) : option Domain :=
   apply_holes_opt (apply_atomics_rec_opt atomics dom).
 
+(* This is the main Prop that defines what a 'Domain' really is. As we mentioned before None is seen as a Domain, but since it is empty no value can be inside it and thus it should not be provable that a value is in it, hence the False. *)
 Definition is_in_dom (y : Z) (dom : option Domain) :=
   match dom with
   | None => False
@@ -357,10 +380,12 @@ Definition is_in_dom (y : Z) (dom : option Domain) :=
       (~ sint.In y holes)
   end.
 
+(* Two domains are equivalent iff one value is also in the other. This is an equivalence relation (and hence can be manipulated by the setoid rewriting machinery of Rocq). Remember that domains can be None. Any inconsistent domain is equivalent to any other inconsistent domain. Another reason this is very important is because, in general, two Domains can not be shown to be definitionally (Leibniz) equal because even if they have the same bounds and holes, the MSet implementation could still be different due to e.g. different tree balancing. *)
 Definition dom_equiv dom1 dom2 :=
   forall y, is_in_dom y dom1 <-> is_in_dom y dom2.
 
-Instance dom_equiv_equiv : RelationClasses.Equivalence dom_equiv.
+(* We register it as an equivalence relation to allow lots of nice rewriting. *)
+#[export] Instance dom_equiv_equiv : RelationClasses.Equivalence dom_equiv.
 Proof.
   constructor.
   - intros x. unfold dom_equiv. reflexivity.
@@ -436,6 +461,7 @@ Proof.
   intros [Hny | Hin]; contradiction.
 Qed.
 
+(* This lemma provides most of the magic that makes proving domain equivalence easy. It also serves as the correctness proof of apply_atomic. *)
 Lemma dom_effect :
   forall a dom,
     forall n, 
@@ -488,6 +514,7 @@ Proof.
   simpl; reflexivity.
 Qed.
 
+(* Another very important lemma. To show equivalence between applying two different set of atomics, all we need to show is that they have the same elements. This makes all kinds of results possible since it ensures the order does not matter. *)
 Lemma dom_effect_rec :
   forall atoms dom,
     forall n,
@@ -518,6 +545,7 @@ Proof.
       right. exact Hin.
 Qed. 
 
+(* Showing that it does not change the domain means we can easily get rid of it in proofs. *)
 Lemma tighten_holes_equiv :
   forall dom,
     dom_equiv (Some dom) (Some (tighten_holes dom)).
@@ -586,6 +614,7 @@ Lemma le_ge :
     n >= m <-> m <= n.
 Proof. lia. Qed.
 
+(* This is another important lemma that shows that applying holes does not change what values can be in the domain. Only the representation changes. The proof is quite annoying (it also runs checks quite slow) and has to discharge many cases, it could probably be improved. This is also important to showing that the order of atomics does not matter for what domain is represented. *)
 Lemma apply_holes_equiv :
   forall dom,
     dom_equiv dom (apply_holes_opt dom).
@@ -669,6 +698,7 @@ Proof.
   rewrite Heqv. reflexivity.
 Qed.
 
+(* This is the main tool used to prove results outside this file! It is like dom_effect_rec but then for the general apply_atomics, which includes apply_holes *)
 Lemma dom_effect_atomics :
   forall atoms y dom,
     is_in_dom y (apply_atomics atoms dom)
@@ -717,7 +747,8 @@ Proof.
   reflexivity.
 Qed.
 
-Instance apply_atomics_proper : 
+(* This is a very useful, as it allows rewriting inside of a dom_equiv that contains an apply_atomics if we know the initial domain given to apply_atomics is equivalent to some other domain! Lots of proofs would be made very tedious without it. *)
+#[export] Instance apply_atomics_proper : 
   Morphisms.Proper (Morphisms.respectful eq (Morphisms.respectful dom_equiv dom_equiv)) apply_atomics.
 Proof.
   intros atoms atoms' Hatoms d1 d2 Heqv.
@@ -730,11 +761,13 @@ Proof.
   reflexivity.
 Qed.
 
+(* The initial domain that represents all integers. *)
 Definition initial_dom := mkDom None None sint.empty.
 
 Lemma all_in_inital_dom :
   forall n,
     is_in_dom n (Some initial_dom).
+Proof.
     intros n.
     unfold initial_dom.
     simpl.
@@ -743,6 +776,7 @@ Lemma all_in_inital_dom :
     apply (sint.empty_spec Hin).
 Qed.
 
+(* Important lemma that tells you that if an atomic holds for a particular value and that atomic has been applied to the initial domain, we know that the value will still be in that domain. *)
 Lemma dom_equiv_holds :
   forall dom atoms y,
     (forall a, In a atoms -> atomic_holds y a) 
@@ -761,7 +795,6 @@ Proof.
   - apply all_in_inital_dom.  
   - apply Hhold.
 Qed. 
-
 
 Definition is_not_in (y : Z) (lb : option Z) (ub : option Z) (holes : sint.t) : bool :=
     (match ub with
@@ -787,6 +820,7 @@ Definition bounds_exact (y : Z) (lb : option Z) (ub : option Z) :=
     end
   end.
 
+(* This function checks whether a particular atomic holds for a given domain representation. Note that it might not return true for every atomic that holds! So we only know it is sound. It only does a very simple, cheap check. It should always work after apply_holes has been called but this has not been proved (should be possible, but quite challenging!). *)
 Definition check_holds (a : Atomic) (lb : option Z) (ub : option Z) (holes : sint.t) : bool :=
   match a.(atm_cmp) with
   | greater_equal =>
@@ -823,7 +857,7 @@ Proof.
   destruct Hcheck as [[H1 | H2] | H3]; try lia; destruct_ands; intros Hya; subst; rewrite sint.mem_spec in H3; contradiction.
 Qed.
 
-(* This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
+(* This turns a domain representation into a set of integers. Of course this is only possible when the domain is bounded. This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
 Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
   let range := build_range lb ub in
   let values := filter (fun y => negb (sint.mem y holes)) range in
@@ -889,3 +923,25 @@ Proof.
         -- subst n'. contradiction.
         -- right. apply IH. exact Hin.
 Qed.
+
+(* ################ TESTS ################ *)
+
+Definition show_dom (dom : option Domain) :=
+  match dom with
+  | Some (mkDom lb ub holes) =>
+    Some (lb, ub, sint.elements holes)
+  | None => None
+  end.
+
+Definition dom1 := (Some (mkDom (Some 0) (Some 8) (sint.build (0 :: 9 :: 5 :: 1 :: 11 :: 7 :: 8 :: 9 :: 2 :: nil)))).
+
+(* TODO: turn these into proofs. *)
+
+Compute show_dom dom1.
+(* Since we have 0,1,2 we expect >= 3. Since 7,8 we expect <= 6. We also have 5 so we expect it to be preserved. *)
+Compute (show_dom (apply_holes_opt dom1)).
+
+Definition dom2 := (Some (mkDom (Some (-3)) (Some 1) (sint.build (-3 :: -4 :: -1 :: -2 :: 0 :: 1 :: 9 :: -5 :: 2 :: 3 :: nil)))).
+(* We expect this to correctly identify that it's invalid since all possible values are also holes. So it should be None. *)
+Compute (show_dom (apply_holes_opt dom2)).
+

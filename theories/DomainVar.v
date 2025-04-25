@@ -12,18 +12,21 @@ Import Utility.Tactics.
 Import Utility.Sets.
 Require Import Checker.Domain.
 
-Definition AtomicsMap := smap.t (list Atomic).
+(* This file adds variables to domains and the idea that atomic constraints can apply only to particular variables. It also provides functions to convert a list of atomic constraints into a map of domains, for which we use MMaps (defined in the Maps module in the Utility file). *)
+
+(* We use a simple pair instead of a Record since it is just two things. *)
 Definition BoundAtomic := (string * Atomic)%type.
+(* smap is a map with string keys (short for `string_map`). *)
 Definition DomainMap := smap.t Domain.
 
-(* This is used when we want to ensure only a specific subset of variables ends up in the final map, which is useful when for example we want to prove we have parameters for all of them in a constraint. *)
+(* This is used when we want to ensure only a specific subset of variables ends up in the final map, which is useful when for example we want to prove we have parameters for all of them in a constraint. It is important in the implementation of the cumulative constraint. *)
 Definition check_in_vs (vs : option sstr.t) (x : string) :=
   match vs with
   | None => true
   | Some vs => sstr.mem x vs
   end.
 
-(* This applies a single atomic to the current domains. *)
+(* This applies a single atomic to the current domains, ensuring that only the domain of the variable it applies to is updated. It returns None if the domain of that variable becomes empty. *)
 Definition add_apply (vs : option sstr.t) (domains : DomainMap) (atom : (string * Atomic)) : option DomainMap :=
   match atom with
   | (x, atom) =>
@@ -56,7 +59,7 @@ Definition build_atoms_map (atoms : list (string * Atomic)) (vs : option sstr.t)
 Definition map_domains_apply_f (atoms : list Atomic) :=
   apply_atomics atoms (Some initial_dom).
 
-(* If multiple atomics are to be applied at once, this function is much more efficient since apply_atomics is called only once per variable. Note that `smap_valid` uses the MMap map operation so that the tree is not rebuilt, but it does have to check whether a none exists, iterating over all values and then mapping again to unwrap the options. The final empty check is to ensure equivalent behavior compared to domains_from_var_atomics. *)
+(* If multiple atomics are to be applied at once, this function is much more efficient since apply_atomics is called only once per variable. Note that `smap_valid` uses the MMap map operation so that the tree is not rebuilt, but it does have to check whether a none exists, iterating over all values and then mapping again to unwrap the options. The final empty check is to ensure equivalent behavior compared to domains_from_var_atomics. Use this for building the domains when you have multiple atomics that you immediately know must hold (like in premises). *)
 Definition domains_from_var_atomics_all (atoms : list (string * Atomic)) (vs : option sstr.t) :=
   let atoms_map := build_atoms_map atoms vs in
   let dom_map := smap_valid initial_dom map_domains_apply_f atoms_map in
@@ -158,8 +161,6 @@ Proof.
     exact Hin.
 Qed.
     
-
-
 Definition default_atom := mk_atm_le 0.
 
 (* Copied from Rocq 9.0 stdlib *)
@@ -170,23 +171,7 @@ Proof.
   case pred; cbn [app]; auto using app_nil_r.
 Qed.
 
-Definition domains_from_vars_P_old vs (atoms : list (string * Atomic)) (dom_map : option DomainMap) :=
-    match dom_map with
-    | Some dom_map =>
-      forall x,
-      check_in_vs vs x = true
-        ->
-      dom_equiv (applied_dom x atoms) 
-        (Some 
-          match smap.find x dom_map with 
-          | Some dom => dom
-          | None => initial_dom
-          end
-        )
-    | None => exists x,
-      dom_equiv (applied_dom x atoms) None
-    end.
-
+(* This proposition represents a map of domains being correct: i.e. the domain for each variable is equivalent to applying exactly all atomics related to that variable to the initial domain. It also supports a predicate so that certain variables can be ignored. *)
 Definition domains_equiv_atoms_cond (pred : string -> bool) (atoms : list (string * Atomic)) (domains : DomainMap) :=
   forall x, 
   match smap.find x domains with
@@ -194,9 +179,39 @@ Definition domains_equiv_atoms_cond (pred : string -> bool) (atoms : list (strin
   | Some dom => pred x = true /\ dom_equiv (Some dom) (applied_dom x atoms)
   end.
 
+(* Same as above but the specific condition that the variable must be in vs or that vs is None. *)
 Definition domains_equiv_atoms_vs (vs : option sstr.t) (atoms : list (string * Atomic)) (domains : DomainMap) :=
   domains_equiv_atoms_cond (check_in_vs vs) atoms domains.
 
+(* Same but with no condition. *)
+Definition domains_equiv_atoms (atoms : list BoundAtomic) (domains : DomainMap) :=
+  forall x,
+    match smap.find x domains with
+    | None => forall a, ~ In (x, a) atoms
+    | Some dom => dom_equiv (Some dom) (applied_dom x atoms)
+    end.
+
+Lemma check_in_vs_none_domains_equiv :
+  forall atoms doms,
+  domains_equiv_atoms_vs None atoms doms
+    <->
+  domains_equiv_atoms atoms doms.
+Proof.
+  intros atoms doms.
+  split; intros; 
+  unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond, domains_equiv_atoms in *.
+  - intros x; specialize (H x).
+    simpl in H.
+    destruct smap.find.
+    + apply H.
+    + now destruct H. 
+  - intros x; specialize (H x).
+    destruct smap.find.
+    + easy.
+    + right. easy.
+Qed.
+
+(* This represents the state of a domain map being correct. If it is None, that means at least one variable has an empty domain based on all the atomics. *)
 Definition domains_from_vars_P vs (atoms : list (string * Atomic)) (dom_map : option DomainMap) :=
   match dom_map with
   | Some dom_map => domains_equiv_atoms_vs vs atoms dom_map
@@ -204,13 +219,7 @@ Definition domains_from_vars_P vs (atoms : list (string * Atomic)) (dom_map : op
     dom_equiv (applied_dom x atoms) None
   end.
 
-(* Definition domains_equiv_atoms (atoms : list (string * Atomic)) (domains : DomainMap) :=
-  forall x,
-  match smap.find x domains with
-  | None => forall a, ~ In (x, a) atoms
-  | Some dom => dom_equiv (Some dom) (applied_dom x atoms)
-  end.
- *)
+(* Below a are a bunch of helper lemmas. *)
 Lemma applied_dom_cons_swap :
   forall x a atoms,
     dom_equiv (applied_dom x ((x, a) :: atoms))
@@ -259,6 +268,9 @@ Proof.
   reflexivity.
 Qed.
 
+(* Now come the proofs, which are all a bit too long and complicated for my taste. *)
+
+(* This represents the correctness of add_apply on its own so that it can be used when applying a single atomic at a time to a domain map. The proof is more complicated than it maybe should be and has a lot of duplciation. *)
 Lemma add_apply_step :
   forall vs doms atoms,
     domains_equiv_atoms_vs vs atoms doms 
@@ -365,55 +377,7 @@ Proof.
             assumption.
     + discriminate Haddapply.
 Qed. 
-  (* unfold add_apply.
-  destruct (check_in_vs vs x) eqn:Hcheck. 
-  - destruct apply_atomics as [d'|] eqn:Happly.
-    + intros x' Hcheck'.
-      destruct (String.string_dec x x') as [Hxx' | Hxx'].
-      * subst x'.
-        apply Hequiv in Hcheck; clear Hequiv.
-        unfold domains_equiv_atoms_x in *.
-        rewrite smap.add_spec1.
-        destruct smap.find as [d|].
-        -- rewrite <- Happly; rewrite Hcheck.
-          symmetry. apply applied_dom_cons_swap.
-        -- rewrite <- Happly.
-          symmetry.
-          apply applied_dom_cons_initial.
-          apply Hcheck.
-      * clear Happly.
-        apply Hequiv in Hcheck'; clear Hequiv.
-        unfold domains_equiv_atoms_x in *.
-        rewrite smap.add_spec2; try assumption.
-        destruct smap.find as [d|].
-        -- rewrite Hcheck'. 
-          symmetry.
-          apply applied_dom_cons_neq.
-          assumption.
-        -- intros a' [H | H]; try inversion H; subst;
-          try contradiction; apply (Hcheck' a' H).
-    + apply Hequiv in Hcheck; clear Hequiv.
-      unfold domains_equiv_atoms_x in Hcheck.
-      destruct smap.find.
-      * rewrite <- Happly; rewrite Hcheck.
-        apply applied_dom_cons_swap.
-      * rewrite <- Happly.
-        apply applied_dom_cons_initial.
-        apply Hcheck.
-  - intros x' Hcheck'.
-    destruct (String.string_dec x x') as [Hxx' | Hxx'].
-    { subst x'. rewrite Hcheck' in Hcheck. discriminate Hcheck. }
-    apply Hequiv in Hcheck'; clear Hequiv.
-    unfold domains_equiv_atoms_x in *.
-    destruct smap.find.
-    + rewrite Hcheck'.
-      symmetry.
-      apply applied_dom_cons_neq.
-      assumption.
-    + intros a' [H | H]; try inversion H; subst;
-      try contradiction; apply (Hcheck' a' H).
-Qed.
- *)
+ 
 Lemma domains_from_var_atomics_correct :
   forall vs atoms,
     domains_from_vars_P vs atoms (domains_from_var_atomics atoms vs). 
