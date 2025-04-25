@@ -10,20 +10,18 @@ Require Import Lia.
 Require Checker.Atomic.
 Require Import Checker.Variable.
 Require Import Checker.Domain.
-Require Coq.Structures.OrdersEx.
+Require Import Checker.DomainVar.
 Require Checker.Utility.
 Import Utility.ListEx.
+Import Utility.Sets.
 Import Utility.Maps.
-Require MMaps.Interface.
-Require MMaps.RBT.
+Import Utility.Tactics.
 
 (* ################################# *)
 
 (* This file originally served as interface between the old checker and new checker. *)
 
 (* ################################ *)
-
-(* Definition AtomicsMap := smap.t (list Atomic).
 
 Definition VarAtomic := Atomic.Atomic.
 
@@ -37,68 +35,43 @@ Definition var_cmp_to_cmp (var_cmp : Atomic.AtomicComparator) : AtomicComparator
   | Atomic.not_equal => not_equal
   end.
 
-Definition var_atm_to_atm (atm : VarAtomic) : Atomic :=
-  {| atm_cmp := (var_cmp_to_cmp (Atomic.comparator atm)); atm_val := (Atomic.value atm) |}.
+Definition var_atm_to_atm (atm : VarAtomic) : BoundAtomic :=
+  (var_name (Atomic.var atm), {| atm_cmp := (var_cmp_to_cmp (Atomic.comparator atm)); atm_val := (Atomic.value atm) |}).
 
-Definition to_atomics_new_map (a : VarAtomic) (m : AtomicsMap) :=
-  let name := (var_name (Atomic.var a)) in
-  match smap.find name m with
-  | Some l => 
-    let to_add := var_atm_to_atm a :: l in
-    smap.add name to_add m
-  | None => m
+Definition var_to_atoms (v : Var) :=
+  match v with
+  | interval v =>
+    (v.(name), mk_atm_ge v.(lower_bound)) ::
+    (v.(name), mk_atm_le v.(upper_bound)) ::
+    nil
   end.
 
-Fixpoint var_atomics_to_atomics (atomics : list VarAtomic) (m : AtomicsMap) :=
-  match atomics with
-  | nil => m
-  | a :: atomics' =>
-      var_atomics_to_atomics atomics' (to_atomics_new_map a m)
-  end.
+Definition var_atomics_to_atoms (v_a : VarAtomic) : list BoundAtomic :=
+  var_atm_to_atm v_a :: var_to_atoms (Atomic.var v_a).
+
+Definition var_atomics_to_atomics (atomics : list VarAtomic) : list BoundAtomic :=
+  flat_map var_atomics_to_atoms atomics.
+
+Definition sol_to_assignment (vs : list Var) (sol : Assignment) : string -> Z :=
+  fun x =>
+    match find (fun v =>
+      match v with
+      | interval v =>
+        (v.(name) =? x)%string
+      end
+    ) vs with
+    | None => Z0
+    | Some v => sol.(find_value) v
+    end
+  .
+
 
 Definition var_atomic_equiv (v_a : Atomic.Atomic) (a : Atomic) :=
   var_cmp_to_cmp (Atomic.comparator v_a) = a.(atm_cmp)
     /\
   (Atomic.value v_a) = a.(atm_val).
 
-Ltac destruct_pairs :=
-  repeat match goal with
-  | [ x : _ * _ |- _ ] => destruct x
-  end.
-
-Ltac destruct_ands :=
-  repeat match goal with
-  | [ H: _ /\ _ |- _ ] =>
-      let H1 := fresh H "1" in
-      let H2 := fresh H "2" in
-      destruct H as [H1 H2]
-  end.
-
-Ltac solve_equiv :=
-  constructor;
-  repeat (
-    repeat intro;
-    destruct_pairs;
-    simpl in *;
-    destruct_ands;
-    subst;
-    try reflexivity;
-    try symmetry; try assumption;
-    try easy
-  ).
-
-Lemma In_to_InA_Duo_eq :
-  forall {A B} (x : A) (y : B) (l : list (A * B)),
-    In (x, y) l -> SetoidList.InA (Interface.Duo eq eq) (x, y) l.
-Proof.
-  intros A B x y l Hin.
-  apply SetoidList.In_InA.
-  - unfold Interface.Duo.
-    solve_equiv. 
-  - exact Hin.
-Qed.
-
-Lemma var_atomics_only_initial :
+(* Lemma var_atomics_only_initial :
   forall var_atomics initial,
     forall x atomics,
       In (x, atomics) (smap.bindings (var_atomics_to_atomics var_atomics initial))
@@ -134,14 +107,14 @@ Proof.
         -- exact Hxname.
     + apply IH in Hin. exact Hin.
 Qed.
-
-Definition find_default (x : string) (m : AtomicsMap) :=
+ *)
+(* Definition find_default (x : string) (m : AtomicsMap) :=
   match smap.find x m with
   | Some atoms => atoms
   | None => nil
   end.
-
-Lemma var_atomics_correct :
+ *)
+(* Lemma var_atomics_correct :
   forall var_atomics initial,
     forall x atomics,
       In (x, atomics) (smap.bindings (var_atomics_to_atomics var_atomics initial))
@@ -223,129 +196,83 @@ Proof.
         -- exact Hname.
     + exact Hinatom.
 Qed.
-
-Record Domain := mkDom {
-  d_name : string;
-  d_lb : option Z;
-  d_ub : option Z;
-  holes : sint.t
-}.
-
-Definition domain_holds (dom : Domain) (sol : Assignment) :=
+ *)
+Definition domain_holds (x : string) (dom : Domain) (sol : Assignment) :=
   forall v,
-    var_name v = dom.(d_name)
+    var_name v = x
       ->
-    current_bound_holds (sol.(find_value) v) (dom.(d_lb)) (dom.(d_ub)) /\ is_not_holes (sol.(find_value) v) dom.(holes).
-
-Definition to_domain_f (elt : string * list Atomic) :=
-  match elt with
-  | (x, atomics) => match apply_atomics atomics None None sint.empty with
-    | Some (lb, ub, holes) => Some (mkDom x lb ub holes)
-    | None => None
-    end
+    is_in_dom (sol.(find_value) v) (Some dom).
+ 
+Definition var_atomics_to_domains (l : list VarAtomic) (vs : option sstr.t) :=
+  let atomics := var_atomics_to_atomics l in
+  match domains_from_var_atomics_all atomics vs with
+  | None => nil
+  | Some doms => smap.bindings doms
   end.
-
-Definition atomics_to_domains (l : list (string * list Atomic)) :=
-  map_valid to_domain_f l nil.
-  
-Definition var_atomics_to_domains (l : list VarAtomic) (init : AtomicsMap) :=
-  let per_name := smap.bindings (var_atomics_to_atomics l init) in
-  atomics_to_domains per_name.
-
-Definition var_to_atoms (v : Var) :=
-  match v with
-  | interval v =>
-    (mk_atm_ge v.(lower_bound)) ::
-    (mk_atm_le v.(upper_bound)) ::
-    nil
-  end.
-
-Definition vars_to_atoms (vs : list Var) : AtomicsMap :=
-  build_map var_name var_to_atoms vs.
-
-Definition vars_with_atomics_to_domains (atomics : list Atomic.Atomic) (vs : list Var) :=
-  var_atomics_to_domains atomics (vars_to_atoms vs).
-
-Lemma domains_nodup :
-  forall atomics vs,
-  NoDup (map d_name (vars_with_atomics_to_domains atomics vs)).
-Proof.
-  intros atomics vs.
-  unfold vars_with_atomics_to_domains.
-  unfold var_atomics_to_domains.
-  unfold atomics_to_domains.
-  remember
-    (var_atomics_to_atomics
-    atomics (vars_to_atoms vs)) as atm_map.
-  assert (NoDup (map fst (smap.bindings atm_map))).
-  {
-    (* This shouldn't be so hard... *)
-    specialize (smap.bindings_spec2w (atm_map)) as Hbind.
-    unfold smap.eq_key in Hbind.
-    remember (smap.bindings atm_map) as l.
-    clear -Hbind.
-    assert (forall (x y : string * list Atomic), {x = y} + {x <> y}).
-    { repeat decide equality. }
-    induction l.
-    - simpl. apply NoDup_nil.
-    - simpl. inversion Hbind; clear Hbind.
-      apply NoDup_cons.
-      + destruct (in_dec H a l) as [Hin | ].
-        * subst x; subst l0. apply SetoidList.In_InA with (eqA := (fun p p' => fst p = fst p')) in Hin.
-          contradiction.
-          solve_equiv.
-        * subst x; subst l0.
-          unfold not. intros Hfstin.
-          rewrite in_map_iff in Hfstin.
-          destruct Hfstin as [a' [Hfst Ha']].
-          rewrite SetoidList.InA_alt in H2.
-          assert (exists y, fst a = fst y /\ In y l).
-          { exists a'. split; easy. }
-          contradiction.
-      + apply IHl.
-        exact H3.
-  }
-  remember (smap.bindings atm_map) as bl.
-  destruct (map_valid to_domain_f bl nil) as [| d l'] eqn:Hvalid.
-  - simpl. apply NoDup_nil.
-  - remember (d :: l') as l.
-    assert (map_valid to_domain_f bl nil <> nil) as Hnnil.
-    { unfold not. intros Hnil. subst l. rewrite Hnil in Hvalid. discriminate Hvalid. }
-    specialize map_valid_all_some with (f := to_domain_f) (acc := nil) (l := bl) as Hsome.
-    specialize (Hsome Hnnil).
-    rewrite map_valid_as_map with (d := d) in Hvalid.
-    + rewrite app_nil_r in Hvalid.
-      rewrite <- map_rev in Hvalid.
-      rewrite <- Hvalid.
-      apply nodup_key with (a_k := fst).
-      * rewrite map_rev. apply NoDup_rev.
-        exact H.
-      * intros [x dom].
-        intros Hrev.
-        simpl.
-        rewrite <- in_rev in Hrev.
-        rename Hrev into Hin.
-        unfold option_map_default.
-        destruct (to_domain_f (x, dom)) as [dom' |] eqn:Hto_dom.
-        2: { apply Hsome in Hin. rewrite Hto_dom in Hin. contradiction. }
-        clear -Hto_dom.
-        unfold to_domain_f in Hto_dom.
-        destruct (apply_atomics dom None None
-          sint.empty) as [((lb & ub) & holes) |]; try discriminate Hto_dom.
-        inversion Hto_dom as [Hdom']; clear Hto_dom.
-        simpl. reflexivity.
-    + exact Hnnil.
-Qed.
-
-Definition default_dom :=
-  mkDom ""%string None None sint.empty.
 
 Definition atoms_hold_for_var (atoms : list Atomic) (sol : Assignment) (v : Var) :=
   forall a,
     In a atoms ->
     atomic_holds (sol.(find_value) v) a.
 
-Lemma vars_to_atoms_correct :
+Lemma var_atomics_to_atomics_hold :
+  forall sol var_atomics,
+ (forall a : Atomic.Atomic,
+  In a var_atomics ->
+  Atomic.test_atomic_assignment a sol = true)
+    ->
+  forall x v,
+    var_name v = x
+      ->
+    atoms_hold_for_var (from_var_atoms x (var_atomics_to_atomics var_atomics)) sol v.
+Proof.
+  intros sol var_atomics Hhold.
+  intros x v Hname.
+  unfold atoms_hold_for_var. intros a Hin.
+  unfold from_var_atoms in Hin.
+  rewrite filter_pair_on_key_spec in Hin.
+  unfold var_atomics_to_atomics in Hin.
+  rewrite in_flat_map in Hin.
+  destruct Hin as (v_a & Hinva & Hintoatoms).
+  apply Hhold in Hinva; clear Hhold.
+  unfold var_atomics_to_atoms in Hintoatoms.
+  unfold var_atm_to_atm, var_to_atoms in Hintoatoms.
+  destruct (Atomic.var v_a) as [a_var] eqn:Hvar.
+  unfold var_cmp_to_cmp, mk_atm_ge, mk_atm_le in Hintoatoms.
+  simpl in Hintoatoms; unfold atomic_holds.
+  destruct Hintoatoms as [Hconv | [Hlb | [Hub | Hfalse]]].
+  - inversion Hconv. subst x.
+    assert (var_name (interval a_var) = name a_var) as Hvname.
+    { simpl. reflexivity. }
+    rewrite <- Hvname in H0.
+    apply sol.(find_value_eq_name) in H0.
+    repeat rewrite <- H0 in *.
+    unfold Atomic.test_atomic_assignment in Hinva.
+    unfold Atomic.test_atomic in Hinva.
+    destruct (Atomic.comparator v_a); simpl;
+    rewrite Hvar in *; lia.
+  - inversion Hlb; subst; simpl in *.
+    assert (var_name (interval a_var) = name a_var) as Hvname.
+    { simpl. reflexivity. }
+    rewrite <- Hvname in H0.
+    apply sol.(find_value_eq_name) in H0.
+    repeat rewrite <- H0 in *.
+    specialize sol.(consistency_proof) with (v := interval a_var) as Hcons.
+    unfold is_in in Hcons; apply Is_true_eq_true in Hcons.
+    lia.
+  - inversion Hub; subst; simpl in *.
+    assert (var_name (interval a_var) = name a_var) as Hvname.
+    { simpl. reflexivity. }
+    rewrite <- Hvname in H0.
+    apply sol.(find_value_eq_name) in H0.
+    repeat rewrite <- H0 in *.
+    specialize sol.(consistency_proof) with (v := interval a_var) as Hcons.
+    unfold is_in in Hcons; apply Is_true_eq_true in Hcons.
+    lia.
+  - contradiction.
+Qed.
+
+(* Lemma vars_to_atoms_correct :
 forall vs sol x atoms_from_var, smap.MapsTo x atoms_from_var (vars_to_atoms vs) ->
     exists v, In v vs /\ var_name v = x /\ atoms_hold_for_var atoms_from_var sol v.
 Proof.
@@ -373,29 +300,55 @@ Proof.
       lia.
     + destruct Hnil.
 Qed.
-
+ *)
 Lemma to_domains_sound :
-  forall sol dom var_atomics vs,
+  forall sol var_atomics vs x dom,
   (forall a, In a var_atomics ->
     Atomic.test_atomic_assignment a sol = true)
     ->
-  In dom
-    (vars_with_atomics_to_domains
+  In (x, dom)
+    (var_atomics_to_domains
       var_atomics
-      vs)
+      (Some vs))
     ->
-  exists (v : Var),
-    In v vs 
-     /\
-    var_name v = (dom.(d_name))
-     /\
-    domain_holds dom sol.
+  sstr.In x vs
+    /\
+  forall v,
+    var_name v = x
+      ->
+    is_in_dom (sol.(find_value) v) (Some dom).
 Proof.
-  intros sol dom var_atomics vs.
+  intros sol var_atomics vs x dom.
   intros Hvar_atoms_hold.
   intros Hin.
-  unfold vars_with_atomics_to_domains in Hin.
   unfold var_atomics_to_domains in Hin.
+  destruct domains_from_var_atomics_all as [doms|] eqn:Hdoms.
+  - remember (var_atomics_to_atomics var_atomics) as atoms.
+    specialize domains_from_var_atomics_all_correct with (vs := (Some vs)) (atoms := atoms) as Hdoms_spec.
+    unfold domains_from_vars_P in Hdoms_spec.
+    rewrite Hdoms in Hdoms_spec; clear Hdoms.
+    specialize (Hdoms_spec x).
+    rewrite In_to_InA_Duo_eq in Hin;
+    rewrite smap.bindings_spec1 in Hin;
+    rewrite <- smap.find_spec in Hin.
+    rewrite Hin in Hdoms_spec.
+    destruct Hdoms_spec as [Hcheck Hequiv].
+    unfold check_in_vs in Hcheck.
+    split.
+    + rewrite <- sstr.mem_spec. apply Hcheck.
+    + intros v Hname.
+      apply var_atomics_to_atomics_hold with (v := v) (x := x) in Hvar_atoms_hold; try apply Hname.
+      rewrite <- Heqatoms in *; clear Heqatoms.
+      specialize (Hequiv (find_value sol v)).
+      rewrite Hequiv.
+      unfold applied_dom.
+      rewrite dom_effect_atomics.
+      split.
+      * apply all_in_inital_dom.
+      * apply Hvar_atoms_hold.
+  - destruct Hin.
+Qed.
+(* 
   unfold atomics_to_domains in Hin.
   remember (smap.bindings
     (var_atomics_to_atomics
@@ -451,72 +404,4 @@ Proof.
         unfold Atomic.test_atomic in Hin.
         destruct (Atomic.comparator v_a); rewrite <- Hcmp; lia.
   - intros Hnil. rewrite Hnil in Hin. destruct Hin.
-Qed.
-
-Definition Consequent := (string * Atomic)%type.
-Definition Premises := list (string * Atomic).
-
-Definition Inference := (Premises * Consequent)%type.
-Definition Nogood := list (string * Atomic)%type.
-
-Inductive Step :=
-(* consequent can be false of course *)
-| step_inference (premises : list (string * Atomic)) (consequent : string * Atomic)
-.
-
-Definition check_premise (domains : smap.t Domain) (premise : string * Atomic) := 
-  match premise with
-  | (x, a) =>
-    match smap.find x domains with
-    | Some dom =>
-      check_holds a dom.(d_lb) dom.(d_ub) dom.(holes)
-    | None => false
-    end
-  end.
-
-Definition apply_variable_atomic (domains : smap.t Domain) (consequent : string * Atomic) : option (smap.t Domain) :=
-  match consequent with
-  | (x, a) =>
-    let (bounds, holes) := 
-      match smap.find x domains with
-      | Some dom => (dom.(d_lb), dom.(d_ub), dom.(holes))
-      | None => (None, None, sint.empty)
-      end in
-    let (lb, ub) := bounds in
-    match apply_atomics (a :: nil) lb ub holes with
-    | None => None
-    | Some (lb, ub, holes) => 
-      let new_dom := mkDom x lb ub holes in
-      Some (smap.add x new_dom domains)
-    end
-  end.
-
-Inductive StepCheck :=
-| step_domains (domains : smap.t Domain)
-| nogood_valid
-| step_reject.
-
-Definition check_inference (premises : list (string * Atomic)) (consequent : string * Atomic) (domains : smap.t Domain) :=
-  if forallb (check_premise domains) premises
-    then 
-      match apply_variable_atomic domains consequent with
-      | None => nogood_valid
-      | Some domains => step_domains domains
-      end
-    else step_reject.
-
-Fixpoint check_combine (steps : list Step) (domains : smap.t Domain) : bool :=
-  match steps with
-  | nil => false
-  | step_inference premises consequent :: steps' => 
-    match check_inference premises consequent domains with
-    | step_domains new_domains => check_combine steps' new_domains
-    | nogood_valid => true
-    | step_reject => false
-    end
-  end.
-
-
-Definition check_premises_conflict (premises : list (string * Atomic)) (steps : list Step) :=
-  let domains := atomics_to_domains premises in
-    false. *)
+Qed. *)

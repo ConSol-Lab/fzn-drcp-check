@@ -12,16 +12,13 @@ Require Coq.Structures.OrdersEx.
 Require Checker.Utility.
 Import Utility.ListEx.
 Import Utility.ListInd.
+Import Utility.Sets.
 Import Utility.ZRange.
 Import Utility.Tactics.
 
 (* ################################### *)
 (* ####### MSet instantiations ####### *)
 
-Module sstr := MSetAVL.Make OrdersEx.String_as_OT.
-Module sint := MSetAVL.Make OrdersEx.Z_as_OT.
-Module sstr_prps := MSetProperties.Properties sstr.
-Module sint_prps := MSetProperties.Properties sint.
 Inductive AtomicComparator :=
   | less_equal
   | greater_equal

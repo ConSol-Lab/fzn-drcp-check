@@ -14,12 +14,15 @@ Require Checker.CumulativeUtil.
 Import CumulativeUtil.ResourceSum.
 Require Import Checker.Utility.
 Import ListEx.
+Import Sets.
 Require Import Lia.
+Require Checker.Utility.
+Require Import Checker.Domain.
+Require Import Checker.DomainVar.
+Require Import Checker.DomainVarOld.
 Require Import Checker.Atomic.
 Require Import Checker.Variable.
-Require Checker.Utility.
-(* Require Import Checker.Domain. *)
-(* Require Import Checker.DomainVar. *)
+
 Import Utility.Maps.
 Open Scope N_scope.
 
@@ -114,7 +117,10 @@ Definition constraint_to_vars (c : CumulativeConstraint) : list Var :=
     | (v, _, _) => v
     end
   ) c.(vs).
-(* 
+
+Definition constraint_to_vs (c : CumulativeConstraint) : sstr.t :=
+  sstr.build (map var_name (constraint_to_vars c)).
+
 Definition domain_to_bound (param_map : string -> (N * N)) (dom : string * Domain) :=
   match dom with
   | (x, dom) =>
@@ -130,14 +136,12 @@ Definition domain_to_bound (param_map : string -> (N * N)) (dom : string * Domai
     end
   end.
 
-Definition zn_interval := (Z * N)%type.
-
 Definition domains_to_bounds (doms : list (string * Domain)) (param_map : string -> (N * N)) : list (string * zn_interval * (N * N)) :=
-  flat_map_option (domain_to_bound param_map) doms. *)
+  flat_map_option (domain_to_bound param_map) doms.
 
-(* Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : list Atomic) :=
-  let vars := constraint_to_vars c in
-  let domains := vars_with_atomics_to_domains (map atomic_not inference) vars in
+Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : list Atomic) :=
+  let vs := constraint_to_vs c in
+  let domains := var_atomics_to_domains (map atomic_not inference) (Some vs) in
   domains_to_bounds domains (constraint_to_param_map c).
 
 Definition inference_negated (inference : list Atomic) (sol : Assignment) :=
@@ -551,40 +555,50 @@ Proof.
     unfold bounds in Hinbounds; clear bounds.
     unfold domains_to_bounds in Hinbounds.
     rewrite in_flat_map_option in Hinbounds.
-    destruct Hinbounds as [dom [Hdomin Hdomparam]].
+    destruct Hinbounds as [[d_name dom] [Hdomin Hdomparam]].
     unfold task_in_constraint.
 
     assert (exists v : Var, 
       In v (constraint_to_vars c) 
         /\
-      var_name v = (dom.(d_name))
+      var_name v = d_name
         /\
-      domain_holds dom sol
+      is_in_dom (sol.(find_value) v) (Some dom)
     ).
     {
-      apply to_domains_sound with (var_atomics := (map atomic_not inference)).
+      apply to_domains_sound with (sol := sol) in Hdomin.
+      - destruct Hdomin as [Hin Hdom].
+        unfold constraint_to_vs in Hin.
+        rewrite sstr.build_spec in Hin.
+        unfold constraint_to_vars in Hin.
+        rewrite map_map in Hin.
+        rewrite in_map_iff in Hin.
+        destruct Hin as ([[v p] u] & Hname & Hin).
+        exists v.
+        split.
+        + unfold constraint_to_vars. rewrite in_map_iff.
+          exists (v, p, u).
+          now split.
+        + split; try assumption.
+          apply Hdom.
+          assumption.
       - intros atom Hin. unfold inference_negated in Hneg.
         apply Is_true_eq_true.
         apply Hneg.
         exact Hin.
-      - exact Hdomin.
     }
     clear Hdomin; clear Hneg.
 
     destruct H as (v & Hvinc & Hvname & Hdomholds).
-    rename Hvname into Hvdom.
-    pose proof Hvdom as Hvname.
-    apply Hdomholds in Hvdom as (Hholds & _).
-    unfold Domain.current_bound_holds in Hholds.
-    unfold Domain.option_bound in Hholds.
 
     unfold domain_to_bound in Hdomparam.
-    destruct (d_lb dom) as [dom_lb|]; destruct (d_ub dom) as [dom_ub|]; try discriminate Hdomparam.
+    destruct dom as [d_lb d_ub d_holes].
+    destruct d_lb as [dom_lb|]; destruct d_ub as [dom_ub|]; try discriminate Hdomparam; simpl in *.
     inversion Hdomparam as [Hdomparams]; clear Hdomparam.
-    remember (constraint_to_param_map c (d_name dom)) as dom_params; destruct dom_params as [dom_p dom_u].
+    remember (constraint_to_param_map c d_name) as dom_params; destruct dom_params as [dom_p dom_u].
     remember (Z.to_N (dom_ub - dom_lb)) as dom_size.
 
-    apply value_from_x_is_v_sol with (sol := sol) (x := d_name dom) in Hvinc as Hvalue_is_var.
+    apply value_from_x_is_v_sol with (sol := sol) (x := d_name) in Hvinc as Hvalue_is_var.
     2: exact Hvname.
 
     assert (In (v, dom_p, dom_u) (vs c)) as Hvpuinc.
@@ -600,10 +614,7 @@ Proof.
         destruct Heqdom_params as (((v' & p') & u') & Heqs & Hin).
         inversion Heqs as [Hnamev']; subst; clear Heqs.
         assert ((v, p, u) = (v', dom_p, dom_u)) as Heqs.
-        {
-          rewrite <- Hnamev' in Hvname. 
-          apply c.(x_determine_params); assumption.
-        }
+        { now apply c.(x_determine_params). }
         inversion Heqs; subst.
         exact Hin.
       * rewrite in_map_iff.
@@ -642,8 +653,7 @@ Proof.
       unfold var_upper_bound in Hup.
       unfold var_lower_bound in Hlow.
       lia.
-    - unfold domain_holds in Hdomholds.
-      unfold make_activity. simpl. rewrite value_from_x_is_v_sol with (v := v).
+    - unfold make_activity. simpl. rewrite value_from_x_is_v_sol with (v := v).
       + lia.
       + exact Hvinc.
       + exact Hvname.
@@ -651,21 +661,24 @@ Proof.
   {
     unfold unique_bounds.
     unfold bounds; clear bounds.
-    remember (vars_with_atomics_to_domains
-(map atomic_not inference)
-(constraint_to_vars c)) as l.
+    remember (var_atomics_to_domains
+      (map atomic_not inference)
+      (Some (constraint_to_vs c))) as l.
     unfold domains_to_bounds.
     rewrite flat_map_option_as_filter_map with (d := default_bound).
-    apply nodup_key with (a_k := d_name).
-    - apply nodup_sublist with (l2 := (map d_name l)) (eq_dec := String.string_dec ).
-      + subst l. apply domains_nodup.
+    apply nodup_key with (a_k := fst).
+    - apply nodup_sublist with (l2 := (map fst l)) (eq_dec := String.string_dec ).
+      + subst l. unfold var_atomics_to_domains.
+        destruct domains_from_var_atomics_all.
+        * apply nodup_bindings_keys. 
+        * apply NoDup_nil.
       + rewrite sub_list_app_perm.
         remember (filter_f_option
           (domain_to_bound
           (constraint_to_param_map
           c))) as f.
         specialize (partition_as_filter) with (f := f) (l := l) as Hpartfilt.
-        exists (map d_name (snd (partition f l))).
+        exists (map fst (snd (partition f l))).
         rewrite <- map_app.
         apply Permutation.Permutation_map.
         assert (filter f l = fst (partition f l)).
@@ -679,7 +692,8 @@ Proof.
       destruct (domain_to_bound
         (constraint_to_param_map c) a) eqn:Hto_bound.
       + unfold domain_to_bound in Hto_bound.
-        destruct d_lb; destruct d_ub; try discriminate Hto_bound.
+        destruct a as [x' dom].
+        destruct (d_lb dom); destruct (d_ub dom); try discriminate Hto_bound.
         destruct p as [[x]].
         inversion Hto_bound; subst x.
         simpl. reflexivity.
@@ -1031,12 +1045,6 @@ Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z 
   | (_, _, (duration, _)) =>
     negb (has_n_true (N.to_nat duration) (make_active_list capacity profile activity))
   end.
-*)
-Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
-  let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
-  false
-.
-(**
 
 Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
   let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
@@ -1173,8 +1181,8 @@ Proof.
       -- exact Hunique.
     * apply Hcorrect.
 Qed.
- *)
-(* Lemma checker_not_cumulative :
+ 
+Lemma checker_not_cumulative :
   forall fact sol constr,
   Is_true (cumulative_decide constr sol)
   -> Is_true (cumulative_checker fact constr)
@@ -1362,23 +1370,22 @@ Proof.
   - exfalso. apply checker_not_cumulative with (fact := I) (sol := theta) (constr := C); try apply Is_true_eq_left; try assumption.
   apply neg_atomic. exact Hsat.
 Qed.
-*)
+
 Lemma cumulative_checker_valid : 
   forall fact sol constr,
   Is_true (cumulative_decide constr sol) ->
   Is_true (cumulative_checker fact constr) ->
   Is_true (satisfies_nogood fact sol).
 Proof.
-Admitted. 
-  (* intros fact sol constr.
+  intros fact sol constr.
   intros Hcumul Hchecked.
   apply is_true_not_false.
   intros Hsat.
   apply neg_atomic in Hsat.
   apply checker_not_cumulative with (fact := fact) (sol := sol) (constr := constr); assumption.
 Qed.
- *)
-(* Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) :=
+ 
+Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) :=
   {|
     var := interval {| name := x; lower_bound := Z0; size := 50 |} ; 
     comparator := atm_comparator ; 
@@ -1465,7 +1472,7 @@ Compute
         nil
       ) (Some (mkAtm "y" greater_equal 4)) in
   cumulative_checker fact constr.
- *)
+ 
 (* Compute 
   let cap := 1%N in
   let constr := build_cumulative 

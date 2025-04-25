@@ -4,6 +4,7 @@ Require Import Checker.Variable.
 Require Import Coq.NArith.NArith.
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.Lists.List.
+Import Utility.Sets.
 
 Module Z_String_as_OT := OrdersEx.PairOrderedType OrdersEx.Z_as_OT OrdersEx.String_as_OT.
 Module sintstr := MSetAVL.Make Z_String_as_OT.

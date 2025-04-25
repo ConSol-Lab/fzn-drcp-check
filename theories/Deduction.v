@@ -9,10 +9,10 @@ Import Utility.ListEx.
 Import Utility.ListInd.
 Import Utility.Maps.
 Import Utility.Tactics.
+Import Utility.Sets.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
 
-Definition BoundAtomic := (string * Atomic)%type.
 Record Inference := {
   i_premises : list BoundAtomic;
   i_consequent : option BoundAtomic
@@ -114,19 +114,22 @@ Qed.
 
 Lemma check_in_vs_none_domains_equiv :
   forall atoms doms,
-  (forall x : string,
-  check_in_vs None x = true ->
-  domains_equiv_atoms_x atoms doms x)
+  domains_equiv_atoms_vs None atoms doms
     <->
   domains_equiv_atoms atoms doms.
 Proof.
   intros atoms doms.
   split; intros; 
-  unfold domains_equiv_atoms, domains_equiv_atoms_x in *.
-  - intros x.
-    apply H.
-    reflexivity.
-  - apply H.
+  unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond, domains_equiv_atoms in *.
+  - intros x; specialize (H x).
+    simpl in H.
+    destruct smap.find.
+    + apply H.
+    + now destruct H. 
+  - intros x; specialize (H x).
+    destruct smap.find.
+    + easy.
+    + right. easy.
 Qed.
 
 Lemma deduct_check_inferences_correct :
@@ -234,10 +237,8 @@ Proof.
     + unfold domains_equiv_atoms.
       intros x. specialize (Hdomains x).
       destruct smap.find.
-      * symmetry. now apply Hdomains.
-      * apply applied_exists_none.
-        symmetry.
-        now apply Hdomains. 
+      * now apply Hdomains.
+      * now destruct Hdomains.
     + exact Hinfs.
   - intros _.
     destruct Hdomains as [x H].

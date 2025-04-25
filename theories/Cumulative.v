@@ -7,6 +7,7 @@ Require Import Lia.
 Require Import Checker.Domain.
 Require Import Checker.Utility.
 Import Utility.ListEx.
+Import Utility.Sets.
 Require Import Checker.Variable.
 
 Definition x_determines_var (l : list (Var * N * N)) :=

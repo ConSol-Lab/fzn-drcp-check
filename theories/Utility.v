@@ -2,10 +2,15 @@ From Coq Require Lists.List.
 From Coq Require Sorting.Sorted.
 From Coq Require Sorting.Permutation.
 Require Coq.ZArith.ZArith.
+Require Coq.ZArith.Int.
 Require Coq.NArith.NArith.
 Require Coq.Logic.FinFun.
 Require Lia.
+Require Coq.Structures.Orders.
 Require Coq.Structures.OrdersEx.
+Require Coq.MSets.MSetInterface.
+Require Coq.MSets.MSetAVL.
+Require Coq.MSets.MSetProperties.
 Require MMaps.Interface.
 Require MMaps.RBT.
 
@@ -1296,6 +1301,52 @@ Fixpoint has_n_true (n : nat) (l : list bool) (current : nat) : bool :=
 
 End ZRange.
 
+Module Sets.
+
+Import Orders.
+Import MSetInterface.
+Import ListInd.
+Import Int.
+Import MSetAVL.
+
+Module MakeUsual (X: UsualOrderedType) <: S with Module E := X.
+ Include IntMake(Z_as_Int)(X).
+  Definition build (values : list elt) :=
+    fold_left (fun acc y => add y acc) values empty.
+  
+  Lemma build_spec :
+    forall values (e : elt),
+      In e (build values) <-> List.In e values.
+  Proof.
+    intros values e.
+    set (P := fun (acc : t) (s : list elt) =>
+      forall e, In e acc <-> List.In e s).
+    enough (P (build values) (rev values)).
+    { unfold P in H; clear P.
+      rewrite H. rewrite <- in_rev. reflexivity. }
+    unfold build. rewrite <- fold_left_rev_right.
+    clear e. 
+    apply fold_ind.
+    - unfold P; clear P. split; intros H; try easy.
+    - intros e s l.
+      unfold P; clear P.
+      intros IH e'.
+      rewrite add_spec. rewrite IH. simpl.
+      assert (e' = e <-> e = e') by (now split).
+      rewrite H. reflexivity.
+  Qed.
+End MakeUsual.
+
+Import MSetProperties.
+
+Module sstr := MakeUsual OrdersEx.String_as_OT.
+Module sint := MakeUsual OrdersEx.Z_as_OT.
+Module sstr_prps := MSetProperties.Properties sstr.
+Module sint_prps := MSetProperties.Properties sint.
+
+
+End Sets.
+
 Require MMaps.Facts.
 
 Module Maps.
@@ -1631,18 +1682,18 @@ Qed.
 Lemma filter_pair_on_key_no_x :
   forall A (l : list (string * A)) x,
     (forall a, ~ In (x, a) l)
-      ->
+      <->
     filter_pair_on_key x l = nil.
 Proof.
   intros A l x.
-  intros Hnin.
-  destruct (filter_pair_on_key x l) eqn:Hfilter.
-  - reflexivity.
-  - specialize (Hnin a).
-    rewrite <- filter_pair_on_key_spec in Hnin.
-    assert (In a (filter_pair_on_key x l)).
-    { rewrite Hfilter. left. reflexivity. }
-    contradiction.
+  setoid_rewrite <- filter_pair_on_key_spec.
+  destruct filter_pair_on_key as [|a fl];
+  split; intros H; try easy.
+  specialize (H a).
+  simpl in H.
+  exfalso.
+  apply H.
+  left. reflexivity.
 Qed.
 
 Definition map_from_prod_list_P {A} (f : string -> bool) (l : list (string * A)) (m : smap.t (list A)) :=
@@ -1877,6 +1928,36 @@ Proof.
   discriminate Hin.
 Qed.
 
+Lemma nodup_bindings_keys {A} : 
+  forall (m : smap.t A), 
+  NoDup (map fst (smap.bindings m)).
+Proof.
+  intros m.
+  specialize (smap.bindings_spec2w m) as Hbind.
+  unfold smap.eq_key in Hbind.
+  remember (smap.bindings m) as l.
+  clear -Hbind.
+  induction l.
+  - simpl. apply NoDup_nil.
+  - simpl. inversion Hbind; clear Hbind.
+    subst a l0.
+    destruct x as [x a].
+    apply NoDup_cons.
+    + simpl.
+      intros Hin.
+      apply H1.
+      rewrite in_map_iff in Hin.
+      destruct Hin as [[x' a'] Hinl].
+      inversion Hinl; simpl in *; subst.
+      apply SetoidList.In_InA with (eqA := (fun p p' => fst p = fst p')) in H0.
+      * apply SetoidList.InA_eqA with (x := (x, a')).
+        -- solve_equiv.
+        -- reflexivity.
+        -- apply H0.      
+      * solve_equiv.
+    + apply IHl.
+      exact H2.
+Qed.
 (* 
   destruct al; try contradiction.
   intros H; clear H.
