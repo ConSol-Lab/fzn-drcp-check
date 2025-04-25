@@ -1,9 +1,6 @@
-Require Import Coq.Logic.FinFun.
 Require Import Coq.ZArith.ZArith.
-Require Import Coq.NArith.NArith.
 Require Import String.
 Require Import Coq.Lists.List.
-Require Import Coq.Sorting.Sorted.
 Require Import Arith.PeanoNat.
 Require Import Bool.
 
@@ -18,18 +15,13 @@ Import Utility.ListInd.
 Import Utility.ZRange.
 Import Utility.Tactics.
 
-
 (* ################################### *)
 (* ####### MSet instantiations ####### *)
 
 Module sstr := MSetAVL.Make OrdersEx.String_as_OT.
 Module sint := MSetAVL.Make OrdersEx.Z_as_OT.
-Module Z_String_as_OT := OrdersEx.PairOrderedType OrdersEx.Z_as_OT OrdersEx.String_as_OT.
-Module sintstr := MSetAVL.Make Z_String_as_OT.
 Module sstr_prps := MSetProperties.Properties sstr.
 Module sint_prps := MSetProperties.Properties sint.
-Module sintstr_prps := MSetProperties.Properties sintstr.
-
 Inductive AtomicComparator :=
   | less_equal
   | greater_equal
@@ -46,7 +38,6 @@ Record Domain := mkDom {
   d_ub : option Z;
   d_holes : sint.t
 }.
-
 
 Definition mk_atm_le (c : Z) :=
   {| atm_cmp := less_equal; atm_val := c |}.
@@ -189,7 +180,6 @@ Ltac simplify_bounds :=
       try (rewrite Heq; try reflexivity; try lia)
   end.
 
-
 Definition apply_atomics_rec (atomics : list Atomic) (dom : Domain):=
   fold_left_error apply_atomic atomics dom.
 
@@ -209,24 +199,6 @@ Definition tighten_holes (dom : Domain) :=
   | mkDom lb ub holes => 
     mkDom lb ub (holes_in_bounds lb ub holes)
   end.
-
-(* Lemma holes_split_equiv :
-  forall lb ub holes x,
-    current_bound_holds x lb ub /\ is_not_holes x holes
-      <->
-    current_bound_holds x lb ub /\ is_not_holes x (holes_in_bounds holes lb ub).
-Proof.
-  intros lb ub holes x.
-  unfold current_bound_holds; unfold option_bound.
-  unfold holes_in_bounds.
-  destruct lb as [lb_val |]; destruct ub as [ub_val |];
-  repeat split; destruct H as [Hbounds Hholes]; try assumption; try lia;
-  unfold is_not_holes in *; intros n; specialize (Hholes n); try rewrite split_below_spec in *;
-  try rewrite split_above_spec in *; try rewrite split_below_spec in *;
-  try destruct (lb_val <=? n) eqn:Hln; try destruct (n <=? ub_val) eqn:Hun;
-  intros H; try lia; apply Hholes;
-  repeat split; try apply H; lia.
-Qed. *)
 
 Definition apply_hole (hole : Z) (bound : Z) (up : bool) :=
   if (hole =? bound)
@@ -309,7 +281,6 @@ Proof.
   apply H; try reflexivity; assumption.
 Qed.
 
-
 Lemma apply_holes_side_ub :
   forall x ub holes,
     ~ In x holes
@@ -323,7 +294,6 @@ Proof.
   specialize apply_holes_side_correct with (up := false) (holes := holes) (bound := ub) as H. simpl in H.
   apply H; try reflexivity; assumption.
 Qed.
-
 
 Definition bounds_both_none (dom : Domain) :=
   match dom.(d_lb) with
@@ -702,16 +672,6 @@ Proof.
   rewrite Heqv. reflexivity.
 Qed.
 
-(* Definition atoms_for_dom (atoms : list Atomic) (dom : option Domain) :=
-  dom_equiv (apply_atomics_rec_opt atoms dom) ()
- *)
-
-(* Definition atoms_for_dom (atoms : list Atomic) (dom : option Domain) :=
-  forall y,
-    is_in_dom y dom
-      <->
-     *)
-
 Lemma dom_effect_atomics :
   forall atoms y dom,
     is_in_dom y (apply_atomics atoms dom)
@@ -724,7 +684,6 @@ Proof.
   rewrite <- Heqv.
   apply dom_effect_rec.
 Qed.
-  
    
 Lemma apply_atomics_app :
   forall atoms atoms' dom,
@@ -761,7 +720,6 @@ Proof.
   reflexivity.
 Qed.
 
-
 Instance apply_atomics_proper : 
   Morphisms.Proper (Morphisms.respectful eq (Morphisms.respectful dom_equiv dom_equiv)) apply_atomics.
 Proof.
@@ -788,7 +746,6 @@ Lemma all_in_inital_dom :
     apply (sint.empty_spec Hin).
 Qed.
 
-
 Lemma dom_equiv_holds :
   forall dom atoms y,
     (forall a, In a atoms -> atomic_holds y a) 
@@ -809,37 +766,6 @@ Proof.
 Qed. 
 
 
-
-  (* apply apply_holes_side_lb  in 
-  3: { specialize repeat split; try rewrite <- le_ge. }
-  try enough (y >= apply_holes_side (sint.elements holes) lb true) by (destruct_or; try contradiction; repeat split; try easy; lia);
-  try enough (y <= apply_holes_side (rev (sint.elements holes)) ub false) by (destruct_or; try contradiction; repeat split; try easy; lia);
-  try apply apply_holes_side_lb;
-  try apply apply_holes_side_ub;
-  try rewrite <- in_rev.
-  1
-  try lia.
-  6: { apply apply_holes_side with (up := true). }
-    - destruct_or; try contradiction; repeat split; try easy; lia. }
-
-  
- *)
-
-
-Open Scope Z_scope.
-
-(* Definition holes_consistent (lb : option Z) (ub : option Z) (holes : sint.t) :=
-  forall h, sint.In h holes ->
-    match lb with
-    | Some lb => h > lb
-    | None => True
-    end
-      /\
-    match ub with
-    | Some ub => h < ub
-    | None => True
-    end.
- *)
 Definition is_not_in (y : Z) (lb : option Z) (ub : option Z) (holes : sint.t) : bool :=
     (match ub with
     | Some ub => ub <? y
@@ -901,43 +827,41 @@ Proof.
 Qed.
 
 (* This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
-(* Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
+Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
   let range := build_range lb ub in
   let values := filter (fun y => negb (sint.mem y holes)) range in
     fold_left (fun acc y => sint.add y acc) values sint.empty
   .
 
+Definition mkDom_bounded (lb : Z) (ub : Z) (holes : sint.t) :=
+  Some (mkDom (Some lb) (Some ub) holes).
+
 Lemma to_full_domain_correct :
   forall lb ub holes,
-    (forall n, sint.In n (to_full_domain lb ub holes) <-> current_bound_holds n (Some lb) (Some ub) /\ is_not_holes n holes).
+    forall n, sint.In n (to_full_domain lb ub holes)
+      <->
+    is_in_dom n (mkDom_bounded lb ub holes).
 Proof.
   intros lb ub holes n.
   unfold to_full_domain.
   remember (filter
     (fun y => negb (sint.mem y holes))
     (build_range lb ub)) as values.
-  assert (In n values <-> current_bound_holds n (Some lb) (Some ub) /\ is_not_holes n holes).
+  assert (In n values <-> is_in_dom n (mkDom_bounded lb ub holes)).
   {
-    subst values.
+    subst values. unfold is_in_dom, mkDom_bounded.
     rewrite filter_In. rewrite negb_true_iff.
     split; intros.
     all: rewrite is_range_In with (s := lb) (e := ub) in *; try apply build_range_correct.
     2: { destruct H as [Hin _]. apply build_range_In_bounds in Hin. assumption. }
-    all: unfold current_bound_holds in *; unfold option_bound in *; unfold is_not_holes in *.
     - destruct H as [Hbound Hmem]. 
-      split; try lia. 
-      intros n' Hholes.
-      destruct (Z.eq_dec n n') as [Hnn' | Hnn'].
-      + subst n'. 
-        rewrite <- sint.mem_spec in Hholes. rewrite Hholes in Hmem. discriminate Hmem.
-      + exact Hnn'.
-    - split; try lia. 
-      destruct (sint.mem n holes) eqn:Hmem; try reflexivity.
-      exfalso.
-      destruct H as [_ Hholes].
-      specialize (Hholes n). apply Hholes; try reflexivity.
+      repeat split; try lia. 
       rewrite <- sint.mem_spec.
-      assumption. 
+      now rewrite Hmem.
+    - repeat split; try lia.
+      rewrite <- not_true_iff_false.
+      rewrite sint.mem_spec.
+      apply H. 
     - lia.
   }
   rewrite <- H; clear Heqvalues H.
@@ -945,7 +869,7 @@ Proof.
   rewrite in_rev.
   set (P := fun (s : list Z) (acc : sint.t) =>
     sint.In n acc <-> In n s).
-  (* Below proof could be reused. *)
+  (* Below proof could be reused to build a sint. *)
   enough (P (rev values) (fold_right sint.add sint.empty (rev values))).
   { apply H. }
   apply fold_ind.
@@ -967,4 +891,4 @@ Proof.
       * intros [Hnisn' | Hin].
         -- subst n'. contradiction.
         -- right. apply IH. exact Hin.
-Qed. *)
+Qed.

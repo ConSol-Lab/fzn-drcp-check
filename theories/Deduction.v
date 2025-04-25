@@ -27,24 +27,6 @@ Definition check_premise (domains : DomainMap) (premise : BoundAtomic) :=
     | None => false
     end
   end.
-
-(* Definition apply_variable_atomic (domains : smap.t Domain) (consequent : string * Atomic) : option (smap.t Domain) :=
-  match consequent with
-  | (x, a) =>
-    let (bounds, holes) := 
-      match smap.find x domains with
-      | Some dom => (dom.(d_lb), dom.(d_ub), dom.(holes))
-      | None => (None, None, sint.empty)
-      end in
-    let (lb, ub) := bounds in
-    match apply_atomics (a :: nil) lb ub holes with
-    | None => None
-    | Some (lb, ub, holes) => 
-      let new_dom := mkDom x lb ub holes in
-      Some (smap.add x new_dom domains)
-    end
-  end.
- *)
 Inductive DeductStep :=
 | deduct_domains (domains : smap.t Domain)
 | deduct_valid
@@ -103,15 +85,6 @@ Definition inference_valid (assignment : string -> Z) (inference : Inference) :=
   | Some consequent => bound_atomic_holds assignment consequent
   end.
 
-Ltac clean_if_easy H :=
-  match type of H with
-  | ?P => 
-    try (
-      assert P by easy;
-      clear H
-    )
-  end.
-
 Lemma forall_premises :
   forall doms assignment atoms cpremises,
   forallb (check_premise doms) cpremises = true
@@ -155,7 +128,6 @@ Proof.
     reflexivity.
   - apply H.
 Qed.
-
 
 Lemma deduct_check_inferences_correct :
   forall assignment steps domains atoms,
@@ -271,129 +243,3 @@ Proof.
     destruct Hdomains as [x H].
     apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x); assumption.
 Qed.
-
-
-  induction steps as [|step steps IH].
-  - intros Hpremises Hinf.
-    unfold check_deduct.
-    specialize (Hdomains premises).
-    destruct domains_from_var_atomics_all as [doms|].
-    + simpl. easy.
-    + intros _.
-      destruct Hdomains as [x H].
-      apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x); assumption.
-  - intros Hpremises. specialize (IH Hpremises).
-    intros Hinfs.
-    assert (forall inf, In inf steps -> inference_valid assignment inf) as Hprev.
-    { intros inf Hin. apply Hinfs. now right. }
-    assert (inference_valid assignment step) as Hstep.
-    { apply Hinfs. now left. }
-    clear Hinfs; specialize (IH Hprev).
-    unfold check_deduct in *.
-    specialize (Hdomains premises).
-    destruct domains_from_var_atomics_all as [doms|].
-    + simpl. destruct step_inference as [doms'| |] eqn:Hinf.
-      { 
-        intros Hsteps_true.
-        unfold step_inference in Hinf.
-        destruct forallb eqn:Hforall in Hinf;
-        try discriminate Hinf.
-        destruct i_consequent as [conseq|] in Hinf;
-        try discriminate Hinf.
-        destruct add_apply eqn:Happly in Hinf;
-        try discriminate Hinf.
-        inversion Hinf; subst d; clear Hinf.
-        simpl in Hdomains.
-        admit.
-        (* apply forall_premises with (assignment := assignment) (atoms := ) in Hforall.
- *)
-      }
-      {
-        unfold step_inference in Hinf.
-        unfold inference_valid in Hstep.
-        destruct forallb eqn:Hforall in Hinf;
-        try discriminate Hinf.
-        destruct i_consequent as [conseq|] eqn:Hconseq.
-        { 
-          destruct add_apply eqn:Happly in Hinf;
-          try discriminate Hinf.
-          intros _; clear Hinf.
-          admit.
-        }
-        { 
-          intros _.
-          clear IH Hinf.
-          apply Hstep.
-          apply forall_premises with (dom_map := doms) (atoms := premises).
-          - apply Hforall.
-          - apply Hpremises.
-          - apply Hdomains. 
-        }
-      }
-      { easy. }
-    + intros _.
-      destruct Hdomains as [x H].
-      apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x); assumption.
-Qed.
-
-
-  intros Hatoms.
-  intros Hinfs.
-  unfold check_deduct.
-  specialize domains_from_var_atomics_all_correct with (atoms := premises) (vs := None) as Hdomains.
-  unfold domains_from_vars_P in Hdomains.
-  destruct domains_from_var_atomics_all as [doms|].
-  - generalize dependent doms.
-    induction steps as [| step steps IH]; try easy.
-    simpl. intros doms.
-    assert (forall inf, In inf steps -> inference_valid assignment inf) as Hprev.
-    { intros inf Hin. apply Hinfs. now right. }
-    assert (inference_valid assignment step) as Hstep.
-    { apply Hinfs. now left. }
-    clear Hinfs.
-    specialize (IH Hprev); clear Hprev.
-    intros H.
-    destruct step_inference as [doms'| |] eqn:Hinf.
-    + apply IH; clear IH. intros x Hcheck.
-      unfold step_inference in Hinf.
-      destruct forallb eqn:Hforall in Hinf;
-      try discriminate Hinf.
-      destruct i_consequent as [conseq|] in Hinf;
-      try discriminate Hinf.
-      destruct add_apply eqn:Happly in Hinf;
-      try discriminate Hinf.
-      inversion Hinf; subst d; clear Hinf.
-      admit.
-    + unfold step_inference in Hinf.
-      destruct forallb eqn:Hforall in Hinf;
-      try discriminate Hinf.
-      unfold inference_valid in Hstep.
-      destruct i_consequent as [conseq|] eqn:Hconseq.
-      { 
-        clear IH.
-        destruct add_apply eqn:Happly in Hinf;
-        try discriminate Hinf.
-        apply forall_premises with (assignment := assignment) (atoms := premises) in Hforall;
-        try assumption.
-        apply Hstep in Hforall; clear Hstep.
-
-        admit.  
-      }
-      { 
-        intros _.
-        clear IH Hinf.
-        apply Hstep.
-        apply forall_premises with (dom_map := doms) (atoms := premises).
-        - apply Hforall.
-        - apply Hatoms.
-        - apply H. 
-      }
-    + easy.
-  - intros _.
-    destruct Hdomains as [x H].
-    apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x).
-    + exact Hatoms.
-    + apply H.
-Qed.
-
-

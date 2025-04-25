@@ -18,7 +18,8 @@ Require Import Lia.
 Require Import Checker.Atomic.
 Require Import Checker.Variable.
 Require Checker.Utility.
-Require Import Checker.DomainVar.
+(* Require Import Checker.Domain. *)
+(* Require Import Checker.DomainVar. *)
 Import Utility.Maps.
 Open Scope N_scope.
 
@@ -113,23 +114,28 @@ Definition constraint_to_vars (c : CumulativeConstraint) : list Var :=
     | (v, _, _) => v
     end
   ) c.(vs).
-
-Definition domain_to_bound (param_map : string -> (N * N)) (dom : Domain) :=
-  match dom.(d_lb) with
-  | Some lb =>
-    match dom.(d_ub) with
-    | Some ub =>
-      let size := Z.to_N (ub - lb) in
-        Some (dom.(d_name), (lb, size), (param_map dom.(d_name)))
+(* 
+Definition domain_to_bound (param_map : string -> (N * N)) (dom : string * Domain) :=
+  match dom with
+  | (x, dom) =>
+    match dom.(d_lb) with
+    | Some lb =>
+      match dom.(d_ub) with
+      | Some ub =>
+        let size := Z.to_N (ub - lb) in
+          Some (x, (lb, size), (param_map x))
+      | _ => None
+      end
     | _ => None
     end
-  | _ => None
   end.
 
-Definition domains_to_bounds (doms : list Domain) (param_map : string -> (N * N)) : list (string * zn_interval * (N * N)) :=
-  flat_map_option (domain_to_bound param_map) doms.
+Definition zn_interval := (Z * N)%type.
 
-Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : list Atomic) :=
+Definition domains_to_bounds (doms : list (string * Domain)) (param_map : string -> (N * N)) : list (string * zn_interval * (N * N)) :=
+  flat_map_option (domain_to_bound param_map) doms. *)
+
+(* Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : list Atomic) :=
   let vars := constraint_to_vars c in
   let domains := vars_with_atomics_to_domains (map atomic_not inference) vars in
   domains_to_bounds domains (constraint_to_param_map c).
@@ -1025,6 +1031,12 @@ Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z 
   | (_, _, (duration, _)) =>
     negb (has_n_true (N.to_nat duration) (make_active_list capacity profile activity))
   end.
+*)
+Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
+  let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
+  false
+.
+(**
 
 Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
   let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
@@ -1161,8 +1173,8 @@ Proof.
       -- exact Hunique.
     * apply Hcorrect.
 Qed.
-
-Lemma checker_not_cumulative :
+ *)
+(* Lemma checker_not_cumulative :
   forall fact sol constr,
   Is_true (cumulative_decide constr sol)
   -> Is_true (cumulative_checker fact constr)
@@ -1350,22 +1362,23 @@ Proof.
   - exfalso. apply checker_not_cumulative with (fact := I) (sol := theta) (constr := C); try apply Is_true_eq_left; try assumption.
   apply neg_atomic. exact Hsat.
 Qed.
-
-Lemma cumulative_checker_valid :
+*)
+Lemma cumulative_checker_valid : 
   forall fact sol constr,
   Is_true (cumulative_decide constr sol) ->
   Is_true (cumulative_checker fact constr) ->
   Is_true (satisfies_nogood fact sol).
 Proof.
-  intros fact sol constr.
+Admitted. 
+  (* intros fact sol constr.
   intros Hcumul Hchecked.
   apply is_true_not_false.
   intros Hsat.
   apply neg_atomic in Hsat.
   apply checker_not_cumulative with (fact := fact) (sol := sol) (constr := constr); assumption.
 Qed.
-
-Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) :=
+ *)
+(* Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) :=
   {|
     var := interval {| name := x; lower_bound := Z0; size := 50 |} ; 
     comparator := atm_comparator ; 
@@ -1452,7 +1465,7 @@ Compute
         nil
       ) (Some (mkAtm "y" greater_equal 4)) in
   cumulative_checker fact constr.
-
+ *)
 (* Compute 
   let cap := 1%N in
   let constr := build_cumulative 

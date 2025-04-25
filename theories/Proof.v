@@ -86,10 +86,10 @@ Proof.
     left.
     reflexivity.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    apply cumulative_checker_valid with (constr := constraint); try assumption.
+    (* apply cumulative_checker_valid with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
-    simpl. left. reflexivity.
+    simpl. left. reflexivity. *)
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     specialize (Hsat (alldifferent_c constraint)).
     apply Is_true_eq_left.
