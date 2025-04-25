@@ -157,7 +157,7 @@ Proof.
 Qed.
 
 
-Lemma deduct_check_inferences_cons :
+Lemma deduct_check_inferences_correct :
   forall assignment steps domains atoms,
     valid_atoms assignment atoms
       ->
@@ -252,8 +252,27 @@ Lemma check_deduct_correct :
     False.
 Proof.
   intros assignment.
-  specialize domains_from_var_atomics_all_correct with (vs := None) as Hdomains.
+  intros premises steps Hvalid Hinfs.
+  specialize domains_from_var_atomics_all_correct with (vs := None) (atoms := premises) as Hdomains.
   unfold domains_from_vars_P in Hdomains.
+  unfold check_deduct.
+  destruct domains_from_var_atomics_all as [doms|].
+  - apply deduct_check_inferences_correct with (assignment := assignment) (atoms := premises).
+    + exact Hvalid.
+    + unfold domains_equiv_atoms.
+      intros x. specialize (Hdomains x).
+      destruct smap.find.
+      * symmetry. now apply Hdomains.
+      * apply applied_exists_none.
+        symmetry.
+        now apply Hdomains. 
+    + exact Hinfs.
+  - intros _.
+    destruct Hdomains as [x H].
+    apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x); assumption.
+Qed.
+
+
   induction steps as [|step steps IH].
   - intros Hpremises Hinf.
     unfold check_deduct.
