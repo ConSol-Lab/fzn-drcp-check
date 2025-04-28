@@ -1157,11 +1157,21 @@ Lemma le_ge_symm :
     n <= m <-> m >= n.
 Proof. lia. Qed.
 
+Definition bool_to_add (incr : bool) :=
+  if incr
+    then 1
+    else -1.
+
+(* Definition apply_holes_f (holes : list Z) (incr : bool) (acc : bool * Z) :=
+  let (reached_lb, bound) := acc in
+  match holes with
+  | nil => acc
+  | h :: holes' =>
+    if (h =? bound)
+      then 
+ *)
 Lemma apply_holes_side_tight :
   forall holes c lb,
-  (* (exists y, *)
-    (* lb <= y /\ ~ In y holes) *)
-    (* -> *)
   (forall y, 
     lb <= y /\ ~ In y holes
       ->
@@ -1174,13 +1184,12 @@ Lemma apply_holes_side_tight :
   c <= apply_holes_side holes lb true.
 Proof.
   induction holes as [| h holes IH].
-  - intros c lb Hnonempty Happlied Hsorted. 
+  - intros c lb Happlied Hlb Hsorted. 
     simpl. specialize (Happlied lb).
     rewrite le_ge_symm.
     apply Happlied.
     now repeat split.
-  (* intros [y Hnonempty] Happlied Hsorted. *)
-  -  intros c lb Hnonempty Happlied Hsorted. 
+  - intros c lb Happlied Hlb Hsorted. 
     inversion Hsorted; subst a l.
     rewrite Forall_forall in H2.
     simpl.
@@ -1188,15 +1197,6 @@ Proof.
     destruct (h =? lb) eqn:Hh.
     + rewrite Z.eqb_eq in Hh; subst lb.
       apply IH; try assumption; clear IH H1 Hsorted.
-      * destruct Hnonempty as [y [Hyh Hyholes]].
-        exists y.
-        destruct (Z.eq_dec h y)%Z as [|Hhny]; try subst.
-        -- exfalso.
-          apply Hyholes.
-          left. reflexivity.
-        -- split; try lia.
-          intros H; apply Hyholes.
-          right. assumption.
       * intros y.
         destruct (Z.eq_dec h y)%Z as [|Hhny]; try subst.
         -- intros H.
@@ -1205,6 +1205,9 @@ Proof.
           split; try lia.
           intros Hin.
           now destruct Hin as [Hhy | Hin].
+      * intros h' Hin.
+        apply H2 in Hin.
+        lia.
     + rewrite Z.eqb_neq in Hh.
       rewrite le_ge_symm.
       apply Happlied.
@@ -1212,15 +1215,11 @@ Proof.
       intros Hin.
       destruct Hin as [Hfalse | Hin]; try contradiction.
       apply H2 in Hin.
+      enough (lb <= h) by lia.
+      apply Hlb.
+      left. reflexivity.
+Qed.
       
-
-
-
-
-
-
-Admitted.
-  
 
 Lemma atomic_holds_after_holes :
   forall a dom,
