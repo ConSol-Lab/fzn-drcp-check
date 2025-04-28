@@ -924,6 +924,380 @@ Proof.
         -- right. apply IH. exact Hin.
 Qed.
 
+Definition canonical_dom (atoms : list Atomic) :=
+  apply_atomics atoms (Some initial_dom).
+
+Definition applied_atom' (dom : option Domain) (a : Atomic) :=
+  stronger_domain dom (canonical_dom (a :: nil)).
+
+Definition applied_atom (dom : option Domain) (a : Atomic)
+  :=
+  forall y,
+    is_in_dom y dom
+      ->
+    atomic_holds y a.
+
+Definition domain_nonempty (dom : option Domain) :=
+  exists y,
+    is_in_dom y dom.
+(* Lemma applied_atom_if_applied :
+  forall dom,
+    dom_equiv dom (apply_atomics atoms (Some initial_dom))
+      ->
+    In a atoms
+      ->
+    applied_atom 
+ *)
+
+(* One possible 'simple' bound would be after tighten holes we know ub must be smalelr than val? *)
+
+Lemma exists_sint_lb :
+  forall s lb,
+    exists slb,
+      slb <= lb /\
+        forall n,
+          n < slb
+            ->
+          ~ sint.In n s.
+Proof.
+  intros s lb.
+  exists (Z.min (option_default Z0 (sint.min_elt s)) lb).
+  destruct (sint.min_elt s) as [min|] eqn:Hmin.
+  - simpl. split; try lia.
+    intros n.
+    intros Hlble.
+    destruct (sint.mem n s) eqn:Hmem.
+    + exfalso.
+      rewrite sint.mem_spec in Hmem.
+      apply sint.min_elt_spec2 with (x := min) in Hmem;
+      try assumption.
+      destruct (Z.compare_spec min n) as [Hlt|Heq|Hgt]; try contradiction; try lia.
+    + rewrite <- sint.mem_spec.
+      now rewrite Hmem.
+  - simpl. split; try lia.
+    intros n _.
+    apply sint.min_elt_spec3 in Hmin.
+    apply Hmin.
+Qed.
+
+Lemma exists_sint_ub :
+  forall s ub,
+    exists sub,
+      sub >= ub /\
+        forall n,
+          n > sub
+            ->
+          ~ sint.In n s.
+Proof.
+  intros s ub.
+  exists (Z.max (option_default Z0 (sint.max_elt s)) ub).
+  destruct (sint.max_elt s) as [max|] eqn:Hmax.
+  - simpl. split; try lia.
+    intros n.
+    intros Hlble.
+    destruct (sint.mem n s) eqn:Hmem.
+    + exfalso.
+      rewrite sint.mem_spec in Hmem.
+      apply sint.max_elt_spec2 with (x := max) in Hmem;
+      try assumption.
+      destruct (Z.compare_spec max n) as [Hlt|Heq|Hgt]; try contradiction; try lia.
+    + rewrite <- sint.mem_spec.
+      now rewrite Hmem.
+  - simpl. split; try lia.
+    intros n _.
+    apply sint.max_elt_spec3 in Hmax.
+    apply Hmax.
+Qed.
+
+(* One way to possibly simplify a lot of all this, is to consider the extended integers (with +infinity and -infinity) and show this is an ordered type, etc. although then we might lose lia powers. *)
+
+
+
+
+Lemma applied_atom_implies :
+  forall dom a,
+    domain_nonempty (Some dom)
+      ->
+    applied_atom (Some dom) a
+      ->
+      match atm_cmp a with
+      | less_equal => exists ub, dom.(d_ub) = Some ub
+      | greater_equal => exists lb, dom.(d_lb) = Some lb
+      | equal => exists ub lb, dom.(d_ub) = Some ub /\ dom.(d_lb) = Some lb /\ lb <= (atm_val a) /\ ub >= (atm_val a) /\ ~ sint.In (atm_val a) dom.(d_holes)
+      | not_equal => sint.In (atm_val a) dom.(d_holes) \/ (exists lb, dom.(d_lb) = Some lb /\ lb > (atm_val a)) \/ (exists ub, dom.(d_ub) = Some ub /\ ub < (atm_val a))
+      end.
+Proof.
+  intros dom a Hnonempty Happlied.
+  destruct a as [cmp c].
+  unfold applied_atom, atomic_holds in Happlied.
+  unfold domain_nonempty, is_in_dom in Hnonempty.
+  destruct dom as [lb ub holes].
+  simpl in *.
+  destruct cmp eqn:Hcmp.
+  - destruct ub as [ub|].
+    + exists ub.
+      reflexivity.
+    + exfalso.
+      destruct Hnonempty as [y Hy].
+      remember (Z.max (option_default Z0 (sint.max_elt holes)) c + 1) as n.
+      assert (n > c) by lia.
+      assert (~ sint.In n holes).
+      {
+        destruct (sint.mem n holes) eqn:Hmem.
+        2: { rewrite <- not_true_iff_false in Hmem. now rewrite sint.mem_spec in Hmem. }
+        exfalso. rewrite sint.mem_spec in Hmem.
+        destruct (sint.max_elt holes) as [max|] eqn:Hmax.
+        - apply sint.max_elt_spec2 with (x := max) in Hmem; try assumption.
+          unfold option_default in Heqn.
+          assert (n > max) by lia.
+          destruct (Z.compare_spec max n) as [Hlt|Heq|Hgt]; try contradiction; try lia.
+        - apply sint.max_elt_spec3 in Hmax.
+          apply (Hmax n Hmem).
+      }
+      enough (n <= c) by lia.
+      apply Happlied.
+      repeat split; try easy.
+      destruct lb.
+      * specialize (Happlied y Hy).
+        lia.
+      * reflexivity.
+  - destruct lb as [lb|].
+    + exists lb.
+      reflexivity.
+    + exfalso. 
+      destruct Hnonempty as [y Hy].
+      specialize (exists_sint_lb holes c) as Hholeslb.
+      destruct Hholeslb as [holeslb [Hslb Hslbin]].
+      enough (holeslb - 1 >= c) by lia.
+      apply Happlied.
+      repeat split; try reflexivity.
+      * destruct ub as [ub|]; try reflexivity.
+        specialize (Happlied y Hy).
+        lia.
+      * apply Hslbin. lia.
+  - destruct Hnonempty as [y Hy].
+    specialize (Happlied y Hy) as Hyc;
+    subst y.
+    destruct lb as [lb|]; destruct ub as [ub|].
+    + exists ub. exists lb.
+      repeat split; try easy; lia.
+    + exfalso.
+      specialize (exists_sint_ub holes c) as Hholesub.
+      destruct Hholesub as [holesub [Hsub Hsubin]].
+      assert (holesub + 1 > holesub) as Hp1 by lia.
+      assert (holesub + 2 > holesub) as Hp2 by lia.
+      apply Hsubin in Hp1, Hp2.
+      enough (c <> c) by contradiction.
+      rewrite <- Happlied with (y := holesub + 1) at 1 by (repeat split; try easy; lia).
+      rewrite <- Happlied with (y := holesub + 2) by (repeat split; try easy; lia).
+      lia.
+    + exfalso.
+      specialize (exists_sint_lb holes c) as Hholeslb.
+      destruct Hholeslb as [holeslb [Hslb Hslbin]].
+      assert (holeslb - 1 < holeslb) as Hm1 by lia.
+      assert (holeslb - 2 < holeslb) as Hm2 by lia.
+      apply Hslbin in Hm1.
+      apply Hslbin in Hm2.
+      assert (holeslb - 1 <> holeslb - 2) by lia.
+      assert (holeslb - 1 = c) as Hc1.
+      { apply Happlied. repeat split; try easy; lia. }
+      assert (holeslb - 2 = c) as Hc2.
+      { apply Happlied. repeat split; try easy; lia. }
+      rewrite Hc1 in H; rewrite Hc2 in H.
+      contradiction.
+    + exfalso.
+      specialize (exists_sint_ub holes c) as Hholesub.
+      destruct Hholesub as [holesub [Hsub Hsubin]].
+      assert (holesub + 1 > holesub) as Hp1 by lia.
+      assert (holesub + 2 > holesub) as Hp2 by lia.
+      apply Hsubin in Hp1, Hp2.
+      enough (c <> c) by contradiction.
+      rewrite <- Happlied with (y := holesub + 1) at 1 by (repeat split; try easy; lia).
+      rewrite <- Happlied with (y := holesub + 2) by (repeat split; try easy; lia).
+      lia.
+  - destruct (sint.mem c holes) eqn:Hmem.
+    { left. rewrite <- sint.mem_spec; assumption. }
+    rewrite <- not_true_iff_false in Hmem.
+    rewrite sint.mem_spec in Hmem.
+    specialize (Happlied c) as Hc.
+    destruct ub as [ub|]; destruct lb as [lb|];
+    try destruct (c <=? ub) eqn:Hcub; try destruct (lb <=? c) eqn:Hclb; try rewrite <- not_true_iff_false in *; try rewrite Z.leb_le in *.
+    + exfalso. apply Hc; try reflexivity.
+      now repeat split.
+    + right. left.
+      exists lb.
+      split; try easy; lia.
+    + right. right.
+      exists ub.
+      split; try easy; lia.
+    + exfalso.
+      destruct Hnonempty as [y Hy].
+      specialize (Happlied y).
+      lia.
+    + exfalso.
+      apply Hc; try reflexivity.
+      now repeat split.
+    + right. right.
+      exists ub.
+      split; try reflexivity; lia.
+    + exfalso.
+      apply Hc; try reflexivity.
+      now repeat split.
+    + right. left.
+      exists lb.
+      split; try reflexivity; lia.
+    + exfalso.
+      apply Hc; now repeat split.
+Qed.
+
+Require Import Sorting.Sorted.
+
+Lemma le_ge_symm :
+  forall n m,
+    n <= m <-> m >= n.
+Proof. lia. Qed.
+
+Lemma apply_holes_side_tight :
+  forall holes c lb,
+  (* (exists y, *)
+    (* lb <= y /\ ~ In y holes) *)
+    (* -> *)
+  (forall y, 
+    lb <= y /\ ~ In y holes
+      ->
+    y >= c)
+    ->
+  (forall h, In h holes -> lb <= h)
+    ->
+  StronglySorted Z.lt holes
+    ->
+  c <= apply_holes_side holes lb true.
+Proof.
+  induction holes as [| h holes IH].
+  - intros c lb Hnonempty Happlied Hsorted. 
+    simpl. specialize (Happlied lb).
+    rewrite le_ge_symm.
+    apply Happlied.
+    now repeat split.
+  (* intros [y Hnonempty] Happlied Hsorted. *)
+  -  intros c lb Hnonempty Happlied Hsorted. 
+    inversion Hsorted; subst a l.
+    rewrite Forall_forall in H2.
+    simpl.
+    unfold apply_hole.
+    destruct (h =? lb) eqn:Hh.
+    + rewrite Z.eqb_eq in Hh; subst lb.
+      apply IH; try assumption; clear IH H1 Hsorted.
+      * destruct Hnonempty as [y [Hyh Hyholes]].
+        exists y.
+        destruct (Z.eq_dec h y)%Z as [|Hhny]; try subst.
+        -- exfalso.
+          apply Hyholes.
+          left. reflexivity.
+        -- split; try lia.
+          intros H; apply Hyholes.
+          right. assumption.
+      * intros y.
+        destruct (Z.eq_dec h y)%Z as [|Hhny]; try subst.
+        -- intros H.
+          exfalso. lia.
+        -- intros [Hhp1y  Hyholes]; apply Happlied.
+          split; try lia.
+          intros Hin.
+          now destruct Hin as [Hhy | Hin].
+    + rewrite Z.eqb_neq in Hh.
+      rewrite le_ge_symm.
+      apply Happlied.
+      split; try reflexivity.
+      intros Hin.
+      destruct Hin as [Hfalse | Hin]; try contradiction.
+      apply H2 in Hin.
+      
+
+
+
+
+
+
+Admitted.
+  
+
+Lemma atomic_holds_after_holes :
+  forall a dom,
+    domain_nonempty dom
+      ->
+    applied_atom dom a
+      ->
+    exists dom',
+      apply_holes_opt dom = Some dom'
+        /\
+      check_holds a dom'.(d_lb) dom'.(d_ub) dom'.(d_holes) = true.
+Proof.
+  intros a dom Hholds Happlied.
+  destruct dom as [dom|]; try contradiction.
+  2: { unfold domain_nonempty in Hholds. destruct Hholds as [y Hy]. contradiction. }
+  unfold apply_holes_opt, option_map_flat.
+  destruct (apply_holes dom) as [dom'|] eqn:Happly.
+  - exists dom'.
+    split; try reflexivity.
+    specialize applied_atom_implies with (dom := dom) (a := a) as Himplies.
+    specialize (Himplies Hholds Happlied).
+    unfold domain_nonempty, is_in_dom in Hholds.
+    unfold applied_atom, is_in_dom, atomic_holds in Happlied.
+    unfold check_holds.
+    unfold apply_holes, bounds_both_none in Happly.
+    unfold tighten_holes, option_map, check_current_bound in Happly.
+    destruct dom as [lb ub holes].
+    simpl in *.
+    destruct (atm_cmp a).
+    {
+      destruct Himplies as [ub_val Hub].
+      destruct ub as [ub|]; inversion Hub;
+      subst ub_val; clear Hub.
+      destruct dom' as [lb' ub' holes'].
+      destruct lb as [lb|]; simpl in Happly.
+      - revert Happly; destruct_leb.
+        + simpl; intros H; inversion H; subst; clear H.
+          remember (atm_val a) as c; clear Heqc a.
+
+          admit.
+        + intros H; discriminate H.
+      - inversion Happly; subst; simpl; clear Happly.
+        remember (atm_val a) as c; clear Heqc a.
+        admit.
+    }
+    { 
+      destruct Himplies as [lb_val Hlb].
+      destruct lb as [lb|]; inversion Hlb;
+      subst lb_val; clear Hlb.
+      destruct dom' as [lb' ub' holes'].
+      destruct ub as [ub|]; simpl in Happly.
+      - revert Happly; destruct_leb.
+        + simpl; intros H; inversion H; subst; clear H.
+          remember (atm_val a) as c; clear Heqc a.
+        
+          admit.
+        + intros H; discriminate H.
+      - inversion Happly; subst; simpl; clear Happly.
+        remember (atm_val a) as c; clear Heqc a.
+        admit.
+ }
+    { admit. }
+    { 
+      (* This one is probably easier with everything still folded since soundness will kinda be enough to prove it? Since from the Himplies we already have that it's not in there in dom, and then by dom_equiv it shouldn't be in there afterwards. *)
+      admit.
+    }
+  - exfalso.
+    assert (apply_holes_opt (Some dom) = None) by easy.
+    specialize apply_holes_equiv with (dom := Some dom) as Hequiv.
+    rewrite H in Hequiv.
+    unfold dom_equiv in Hequiv.
+    unfold domain_nonempty in Hholds.
+    destruct Hholds as [y Hy].
+    rewrite Hequiv in Hy.
+    contradiction.
+Admitted.
+  
 (** ################ TESTS ################ *)
 
 Definition show_dom (dom : option Domain) :=
