@@ -1167,9 +1167,39 @@ Definition bool_to_add (incr : bool) :=
   match holes with
   | nil => acc
   | h :: holes' =>
-    if (h =? bound)
-      then 
+ 
+TODO: make a function that simply applies fold only on the part greater equal than some value, show it is equivalen to operating on the part greater than equal to some value of inner fn 
+  *)
+
+(* Definition cmp_eqb (cmp : comparison) (cmp' : comparison) :=
+  match cmp with
+  | Lt =>
+    match cmp' with | Lt => true | _ => false end
+  | Gt =>
+    match cmp' with | Gt => true | _ => false end
+  | Eq => 
+    match cmp' with | Eq => true | _ => false end
+  end. *)
+
+(* Definition apply_holes_f (cmp : comparison) (incr : Z) (h : Z) (bound : Z) : option Z :=
+  match Z.compare h bound with
+  | Eq => Some (bound + incr)
+  | cmp' => 
+    if cmp_eqb cmp cmp' 
+      then Some bound
+      else None
+  end.
+  *)
+
+(* Definition apply_holes_up (h : Z) (bound : Z) : option Z :=
+  match Z.compare h bound with
+  | Eq => Some (bound + 1)
+  | Gt => None
+  | Lt => Some bound
+  end.
  *)
+
+
 Lemma apply_holes_side_tight :
   forall holes c lb,
   (forall y, 

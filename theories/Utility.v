@@ -1337,6 +1337,58 @@ Module MakeUsual (X: UsualOrderedType) <: S with Module E := X.
   Qed.
 End MakeUsual.
 
+Import MSetGenTree.
+
+Module Type TreeEx (X:OrderedType)(Info:InfoTyp)(Import MO:Ops X Info)(Import MP:Props X Info MO).
+  Fixpoint fold_from {Acc : Type} (f : elt -> Acc -> Acc) (from : elt) (t : tree) (base : Acc) : Acc :=
+    match t with
+    | Leaf => base
+    | Node _ l x r =>
+      match X.compare x from with
+      | Lt => fold_from f from r base
+      | _ => fold f r base
+      end
+    end.
+
+  Fixpoint fold_rev {Acc : Type} (f : elt -> Acc -> Acc) (t : tree) (acc : Acc) : Acc :=
+    match t with
+    | Leaf => acc
+    | Node _ l x r => fold_rev f l (f x (fold_rev f r acc))
+    end.
+
+  Fixpoint fold_from_rev {Acc : Type} (f : elt -> Acc -> Acc) (from : elt) (t : tree) (base : Acc) : Acc :=
+    match t with
+    | Leaf => base
+    | Node _ l x r =>
+      match X.compare x from with
+      | Gt => fold_from_rev f from l base
+      | _ => fold_rev f l base
+      end
+    end.
+
+  Lemma fold_rev_spec' {A} (f : elt -> A -> A) (s : tree) (i : A) (acc : list elt) :
+    fold_left (flip f) (rev_elements_aux acc s) i = fold_left (flip f) acc (fold_rev f s i).
+  Proof.
+    revert i acc.
+    induction s as [|c l IHl x r IHr]; simpl; intros; auto.
+    rewrite IHr.
+    simpl. unfold flip at 2.
+    apply IHl.
+  Qed.
+
+  Lemma fold_rev_spec (s : tree) {Acc} (i : Acc) (f : elt -> Acc -> Acc) :
+    fold_rev f s i = fold_left (flip f) (rev (elements s)) i.
+  Proof.
+    revert i. rewrite <- rev_elements_rev; unfold rev_elements.
+    induction s as [|c l IHl x r IHr]; simpl; intros; auto.
+    rewrite fold_rev_spec'.
+    rewrite IHl.
+    simpl; auto.
+  Qed. 
+
+
+End TreeEx.
+
 Import MSetProperties.
 
 Module sstr := MakeUsual OrdersEx.String_as_OT.
