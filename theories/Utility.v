@@ -543,6 +543,15 @@ Proof.
       lia.
 Qed.
 
+(* From Roqc 9.0 stdlib *)
+Lemma Injective_map_NoDup_in A B (f:A->B) (l:list A) :
+  (forall x y, In x l -> In y l -> f x = f y -> x = y) -> NoDup l -> NoDup (map f l).
+Proof.
+ pose proof @in_cons. pose proof @in_eq.
+ intros Ij N; revert Ij; induction N; cbn [map]; constructor; auto.
+ rewrite in_map_iff. intros (y & E & Y). apply Ij in E; auto; congruence.
+Qed.
+
 Lemma nodup_key :
   forall K B A (l : list A) (a_k : A -> K) (f : A -> B) (b_k : B -> K),
   NoDup (map a_k l)
@@ -1309,6 +1318,27 @@ Import ListInd.
 Import Int.
 Import MSetAVL.
 
+Lemma NoDupA_is_NoDup_usual {A} (l : list A) :
+  SetoidList.NoDupA (Logic.eq) l <-> NoDup l.
+Proof.
+  induction l.
+  - split; intros H.
+    + apply NoDup_nil.
+    + apply NoDupA_nil.
+  - split; intros H; inversion H; subst.
+    + apply NoDup_cons.
+      * rewrite InA_alt in H2.
+        intros Hin.
+        apply H2.
+        now exists a.
+      * rewrite <- IHl; assumption.
+    + apply NoDupA_cons.
+      * rewrite InA_alt. 
+        intros [a' [Hay Hain]]; subst a'.
+        contradiction.
+      * now apply IHl.
+Qed.
+
 Module MakeUsual (X: UsualOrderedType) <: S with Module E := X.
  Include IntMake(Z_as_Int)(X).
   Definition build (values : list elt) :=
@@ -1334,6 +1364,22 @@ Module MakeUsual (X: UsualOrderedType) <: S with Module E := X.
       rewrite add_spec. rewrite IH. simpl.
       assert (e' = e <-> e = e') by (now split).
       rewrite H. reflexivity.
+  Qed.
+
+  Lemma elements_spec_nodup (s : t) :
+    NoDup (elements s).
+  Proof.
+    rewrite <- NoDupA_is_NoDup_usual.
+    apply elements_spec2w.
+  Qed.
+
+  Lemma elements_spec_in (s : t) (x : elt) :
+    List.In x (elements s) <-> In x s.
+  Proof.
+    rewrite <- elements_spec1.
+    rewrite InA_alt. split; intros H.
+    * now exists x.
+    * destruct H as [x' [Hx' Hin]]; now subst.
   Qed.
 End MakeUsual.
 
