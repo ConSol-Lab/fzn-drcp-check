@@ -1457,6 +1457,9 @@ Import Tactics.
 Module smap := RBT.Make OrdersEx.String_as_OT.
 Module smap_prps := Facts.Properties OrdersEx.String_as_OT smap.
 
+Module nmap := RBT.Make OrdersEx.N_as_OT.
+Module nmap_prps := Facts.Properties OrdersEx.N_as_OT nmap.
+
 Definition build_map_step {A B} (f_key : A -> string) (f : A -> option B) (a : A) (m : smap.t B) :=
   match f a with
   | Some b => smap.add (f_key a) b m

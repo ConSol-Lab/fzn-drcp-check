@@ -17,6 +17,7 @@ Import ListEx.
 Import Sets.
 Require Import Lia.
 Require Checker.Utility.
+Require Import Checker.Deduction.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
 Require Import Checker.DomainVarOld.
@@ -73,7 +74,7 @@ Open Scope Z_scope.
 
 Open Scope N_scope.
 Lemma exceeds_at_t_dec_false :
-  forall (c : CumulativeConstraint) (a : Assignment),
+  forall (c : CumulativeConstraint) (a : string -> Z),
   (exists t, 
     (c.(horizon_start) <= t <= c.(horizon_end))%Z
       /\
@@ -106,20 +107,20 @@ Definition mandatory_active (lb : Z) (ub : Z) (t : Z) (p_time : N) :=
 Definition constraint_to_param_map (c : CumulativeConstraint) : string -> (N * N) :=
   let params := map (fun elt =>
     match elt with
-    | (v, p, u) =>
-      (var_name v, (p, u))
+    | (v, _, _) =>
+      (v.(def_x), (v.(def_p), v.(def_u)))
     end) c.(vs) in
   param_map params (N0, N0).
 
-Definition constraint_to_vars (c : CumulativeConstraint) : list Var :=
+Definition constraint_to_vars (c : CumulativeConstraint) : list string :=
   map (fun elt =>
     match elt with
-    | (v, _, _) => v
+    | (v, _, _) => v.(def_x)
     end
   ) c.(vs).
 
 Definition constraint_to_vs (c : CumulativeConstraint) : sstr.t :=
-  sstr.build (map var_name (constraint_to_vars c)).
+  sstr.build (constraint_to_vars c).
 
 Definition domain_to_bound (param_map : string -> (N * N)) (dom : string * Domain) :=
   match dom with
@@ -139,14 +140,23 @@ Definition domain_to_bound (param_map : string -> (N * N)) (dom : string * Domai
 Definition domains_to_bounds (doms : list (string * Domain)) (param_map : string -> (N * N)) : list (string * zn_interval * (N * N)) :=
   flat_map_option (domain_to_bound param_map) doms.
 
-Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : list Atomic) :=
+Definition inferred_cumulative_bounds (c : CumulativeConstraint) (inference : Deduction.Inference) :=
   let vs := constraint_to_vs c in
-  let domains := var_atomics_to_domains (map atomic_not inference) (Some vs) in
+  let domains :=
+    match inference.(i_consequent) with
+    | None => 
+        match domains_from_var_atomics_all (inference.(i_premises)) (Some vs) with
+        | None => nil
+        | Some doms => smap.bindings doms
+        end
+    | Some _ => nil
+    end
+  in
   domains_to_bounds domains (constraint_to_param_map c).
 
-Definition inference_negated (inference : list Atomic) (sol : Assignment) :=
-  forall atomic, In atomic (map atomic_not inference) ->
-    Is_true (test_atomic_assignment atomic sol).
+(* Definition inference_negated (inference : list Atomic) (sol : Assignment) := *)
+(*   forall atomic, In atomic (map atomic_not inference) -> *)
+(*     Is_true (test_atomic_assignment atomic sol). *)
 
 Definition interval_to_bounds (i : zn_interval) : (Z * Z)%type :=
   let (lb, size) := i in
@@ -341,22 +351,22 @@ Open Scope Z_scope.
 Definition c_var_with_x (x : string) (v : Var) :=
   (x =? var_name v)%string.
 
-Definition value_from_x (x : string) (vs : list Var) (sol : Assignment) :=
-  match (find (c_var_with_x x) vs) with
-  | None => Z0
-  | Some v => sol.(find_value) v
-  end.
+(* Definition value_from_x (x : string) (vs : list Var) (sol : Assignment) := *)
+(*   match (find (c_var_with_x x) vs) with *)
+(*   | None => Z0 *)
+(*   | Some v => sol.(find_value) v *)
+(*   end. *)
 
-Definition make_activity (a : string * zn_interval * (N * N)) (vs : list Var) (sol : Assignment) :=
+Definition make_activity (a : string * zn_interval * (N * N)) (vs : list string) (sol : string -> Z) :=
   match a with
   | (x, (lb, size), (p, u)) =>
-      mkAct x (value_from_x x vs sol) p u
+      mkAct x (sol x) p u
   end.
 
 Definition in_horizon (a : Activity) (c : CumulativeConstraint) :=
   c.(horizon_start) <= a.(start) /\ a.(start) + Z.of_N a.(p_time) <= c.(horizon_end).
 
-Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : Assignment) :=
+Definition task_in_constraint (a : string * zn_interval * (N * N)) (c : CumulativeConstraint) (sol : string -> Z) :=
   let act := (make_activity a (constraint_to_vars c) sol) in
     In act (activity_list c sol)
       /\
@@ -386,11 +396,13 @@ Proof.
   destruct H as [Hact Hinvs].
   specialize c.(valid_p_times) as Hprocess.
   unfold processing_constr in Hprocess.
-  apply Hprocess with (v := v) (u := u).
+  unfold horizon_length.
+  simpl in Hact.
+  inversion Hact.
+  apply Hprocess with (a := v) (s := p') (e := u').
   unfold activity_list_inner_f in Hact.
   unfold make_activity in Hact.
   destruct v as [v].
-  inversion Hact; subst p'; subst u'.
   exact Hinvs.
 Qed.
   
@@ -411,7 +423,7 @@ Proof.
   repeat decide equality.
 Qed.
 
-Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : Assignment) :=
+Definition valid_bounds (bounds : list (string * zn_interval * (N * N))) (c : CumulativeConstraint) (sol : string -> Z) :=
   forall a, In a bounds -> task_in_constraint a c sol.
 
 Lemma eq_dec_bounds :
@@ -509,31 +521,31 @@ Proof.
     exact Hunique.
 Qed.
 
-Lemma value_from_x_is_v_sol :
-  forall v vs x sol,
-    In v vs
-      ->
-    var_name v = x
-      ->
-    value_from_x x vs sol = sol.(find_value) v.
-Proof.
-  intros v vs x sol.
-  intros Hin Hname.
-  unfold value_from_x.
-  destruct (find (c_var_with_x x) vs) as [v' |] eqn:Hfind.
-  - apply find_some in Hfind.
-    destruct Hfind as (_ & Hnamev').
-    unfold c_var_with_x in Hnamev'.
-    apply sol.(find_value_eq_name).
-    rewrite Hname.
-    rewrite String.eqb_eq in Hnamev'. rewrite Hnamev'.
-    reflexivity.
-  - apply find_none with (x := v) in Hfind.
-    + exfalso. unfold c_var_with_x in Hfind.
-      rewrite String.eqb_neq in Hfind.
-      rewrite Hname in Hfind. apply Hfind. reflexivity.
-    + exact Hin.
-Qed.
+(* Lemma value_from_x_is_v_sol : *)
+(*   forall v vs x sol, *)
+(*     In v vs *)
+(*       -> *)
+(*     var_name v = x *)
+(*       -> *)
+(*     value_from_x x vs sol = sol.(find_value) v. *)
+(* Proof. *)
+(*   intros v vs x sol. *)
+(*   intros Hin Hname. *)
+(*   unfold value_from_x. *)
+(*   destruct (find (c_var_with_x x) vs) as [v' |] eqn:Hfind. *)
+(*   - apply find_some in Hfind. *)
+(*     destruct Hfind as (_ & Hnamev'). *)
+(*     unfold c_var_with_x in Hnamev'. *)
+(*     apply sol.(find_value_eq_name). *)
+(*     rewrite Hname. *)
+(*     rewrite String.eqb_eq in Hnamev'. rewrite Hnamev'. *)
+(*     reflexivity. *)
+(*   - apply find_none with (x := v) in Hfind. *)
+(*     + exfalso. unfold c_var_with_x in Hfind. *)
+(*       rewrite String.eqb_neq in Hfind. *)
+(*       rewrite Hname in Hfind. apply Hfind. reflexivity. *)
+(*     + exact Hin. *)
+(* Qed. *)
 
 Definition default_bound :=
   (""%string, (Z0, N0), (N0, N0)).
@@ -542,165 +554,10 @@ Open Scope Z_scope.
 Lemma inferred_cumulative_bounds_valid :
   forall (c : CumulativeConstraint) inference sol,
     let bounds := inferred_cumulative_bounds c inference in 
-    inference_negated inference sol
+    inference_valid sol inference
     -> valid_bounds bounds c sol /\ unique_bounds bounds.
 Proof.
-  intros c inference sol bounds.
-  intros Hneg.
-  unfold inferred_cumulative_bounds in bounds.
-  unfold valid_bounds.
-  split. 
-  { intros a.
-    intros Hinbounds. 
-    unfold bounds in Hinbounds; clear bounds.
-    unfold domains_to_bounds in Hinbounds.
-    rewrite in_flat_map_option in Hinbounds.
-    destruct Hinbounds as [[d_name dom] [Hdomin Hdomparam]].
-    unfold task_in_constraint.
-
-    assert (exists v : Var, 
-      In v (constraint_to_vars c) 
-        /\
-      var_name v = d_name
-        /\
-      is_in_dom (sol.(find_value) v) (Some dom)
-    ).
-    {
-      apply to_domains_sound with (sol := sol) in Hdomin.
-      - destruct Hdomin as [Hin Hdom].
-        unfold constraint_to_vs in Hin.
-        rewrite sstr.build_spec in Hin.
-        unfold constraint_to_vars in Hin.
-        rewrite map_map in Hin.
-        rewrite in_map_iff in Hin.
-        destruct Hin as ([[v p] u] & Hname & Hin).
-        exists v.
-        split.
-        + unfold constraint_to_vars. rewrite in_map_iff.
-          exists (v, p, u).
-          now split.
-        + split; try assumption.
-          apply Hdom.
-          assumption.
-      - intros atom Hin. unfold inference_negated in Hneg.
-        apply Is_true_eq_true.
-        apply Hneg.
-        exact Hin.
-    }
-    clear Hdomin; clear Hneg.
-
-    destruct H as (v & Hvinc & Hvname & Hdomholds).
-
-    unfold domain_to_bound in Hdomparam.
-    destruct dom as [d_lb d_ub d_holes].
-    destruct d_lb as [dom_lb|]; destruct d_ub as [dom_ub|]; try discriminate Hdomparam; simpl in *.
-    inversion Hdomparam as [Hdomparams]; clear Hdomparam.
-    remember (constraint_to_param_map c d_name) as dom_params; destruct dom_params as [dom_p dom_u].
-    remember (Z.to_N (dom_ub - dom_lb)) as dom_size.
-
-    apply value_from_x_is_v_sol with (sol := sol) (x := d_name) in Hvinc as Hvalue_is_var.
-    2: exact Hvname.
-
-    assert (In (v, dom_p, dom_u) (vs c)) as Hvpuinc.
-    {
-      clear -Heqdom_params Hvinc Hvname.
-      unfold constraint_to_vars in Hvinc.
-      rewrite in_map_iff in Hvinc.
-      destruct Hvinc as [[[v' p] u] [Hvv' Hvinc]];
-      subst v'.
-      unfold constraint_to_param_map in Heqdom_params.
-      apply param_map_in in Heqdom_params.
-      * rewrite in_map_iff in Heqdom_params.
-        destruct Heqdom_params as (((v' & p') & u') & Heqs & Hin).
-        inversion Heqs as [Hnamev']; subst; clear Heqs.
-        assert ((v, p, u) = (v', dom_p, dom_u)) as Heqs.
-        { now apply c.(x_determine_params). }
-        inversion Heqs; subst.
-        exact Hin.
-      * rewrite in_map_iff.
-        exists ((var_name v, (p, u))).
-        rewrite in_map_iff.
-        split.
-        -- simpl. exact Hvname.
-        -- exists (v, p, u).
-          split.
-          ++ reflexivity.
-          ++ exact Hvinc.
-    }
-
-    split; [|split].
-    - unfold make_activity.
-      unfold activity_list. unfold activity_list_inner.
-      rewrite in_map_iff.
-      exists (v, dom_p, dom_u).
-      split.
-      + unfold activity_list_inner_f.
-        destruct v.
-        rewrite Hvalue_is_var.
-        rewrite <- Hvname.
-        simpl. reflexivity.
-      + exact Hvpuinc.
-    - unfold in_horizon. unfold make_activity. simpl.
-      specialize c.(valid_horizon) as Hhor.
-      unfold horizon_all in Hhor.
-      destruct v.
-      specialize (Hhor (interval var) dom_p dom_u Hvpuinc).
-      simpl in Hhor.
-      rewrite Hvalue_is_var.
-      specialize (sol.(consistency_proof) (interval var)) as Hconsistent.
-      apply is_in_implies_lower_bound in Hconsistent as Hlow.
-      apply is_in_implies_upper_bound in Hconsistent as Hup.
-      unfold var_upper_bound in Hup.
-      unfold var_lower_bound in Hlow.
-      lia.
-    - unfold make_activity. simpl. rewrite value_from_x_is_v_sol with (v := v).
-      + lia.
-      + exact Hvinc.
-      + exact Hvname.
-  }
-  {
-    unfold unique_bounds.
-    unfold bounds; clear bounds.
-    remember (var_atomics_to_domains
-      (map atomic_not inference)
-      (Some (constraint_to_vs c))) as l.
-    unfold domains_to_bounds.
-    rewrite flat_map_option_as_filter_map with (d := default_bound).
-    apply nodup_key with (a_k := fst).
-    - apply nodup_sublist with (l2 := (map fst l)) (eq_dec := String.string_dec ).
-      + subst l. unfold var_atomics_to_domains.
-        destruct domains_from_var_atomics_all.
-        * apply nodup_bindings_keys. 
-        * apply NoDup_nil.
-      + rewrite sub_list_app_perm.
-        remember (filter_f_option
-          (domain_to_bound
-          (constraint_to_param_map
-          c))) as f.
-        specialize (partition_as_filter) with (f := f) (l := l) as Hpartfilt.
-        exists (map fst (snd (partition f l))).
-        rewrite <- map_app.
-        apply Permutation.Permutation_map.
-        assert (filter f l = fst (partition f l)).
-        { rewrite Hpartfilt. simpl. reflexivity. }
-        rewrite H.
-        apply permutation_partition.
-    - intros a Hin.
-      unfold option_map_default.
-      rewrite filter_In in Hin.
-      unfold filter_f_option in Hin.
-      destruct (domain_to_bound
-        (constraint_to_param_map c) a) eqn:Hto_bound.
-      + unfold domain_to_bound in Hto_bound.
-        destruct a as [x' dom].
-        destruct (d_lb dom); destruct (d_ub dom); try discriminate Hto_bound.
-        destruct p as [[x]].
-        inversion Hto_bound; subst x.
-        simpl. reflexivity.
-      + destruct Hin as [_ Hfalse].
-        discriminate Hfalse.
-  }
-Qed.
+Admitted.
 
 Open Scope nat_scope.
 
@@ -1046,7 +903,7 @@ Definition cannot_schedule_activity_w_profile (capacity : N) (profile : list (Z 
     negb (has_n_true (N.to_nat duration) (make_active_list capacity profile activity))
   end.
 
-Definition cumulative_checker (inference : list Atomic) (constraint : CumulativeConstraint) : bool :=
+Definition cumulative_checker (inference : Deduction.Inference) (constraint : CumulativeConstraint) : bool :=
   let times := (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end)) in
   match inferred_cumulative_bounds constraint inference with
   | nil => false
@@ -1182,223 +1039,30 @@ Proof.
     * apply Hcorrect.
 Qed.
  
-Lemma checker_not_cumulative :
+Lemma checker_cumulative :
   forall fact sol constr,
   Is_true (cumulative_decide constr sol)
   -> Is_true (cumulative_checker fact constr)
-  -> inference_negated fact sol
-  -> False.
+  -> inference_valid sol fact.
 Proof.
-  intros fact sol constr.
-  intros Hconstr Hchecked Hneg.
-  apply Is_true_eq_true in Hchecked.
-  unfold cumulative_checker in Hchecked.
-  destruct (inferred_cumulative_bounds constr fact) as [| bounds'] eqn:Hbounds.
-  { discriminate Hchecked. }
-  remember (bounds' :: l) as bounds; clear Heqbounds.
-  apply inferred_cumulative_bounds_valid with (c := constr) in Hneg. rewrite Hbounds in Hneg. rename Hneg into H.
-  destruct H as [Hvalid Hunique]; clear Hbounds.
-
-  remember (horizon_start constr) as h_start;
-  remember (horizon_end constr) as h_end;
-  remember (ZRange.build_range h_start h_end) as times.
-  assert (ZRange.is_range h_start h_end times) as Htimesrange.
-  {
-    rewrite Heqtimes. apply ZRange.build_range_correct.
-    rewrite Heqh_start; rewrite Heqh_end.
-    apply constr.(horizon_consistent). 
-  }
-  clear Heqtimes.
-
-  specialize (resource_profile_correct (capacity constr) bounds times) as Hr_profile_correct.
-
-  destruct (resource_profile (capacity constr)
-  bounds times) as [r_profile |] eqn:Hprofile.
-  {
-    apply exists_cannot_schedule with (constr := constr) (sol := sol) (bounds := bounds).
-    - apply Is_true_eq_true in Hconstr. exact Hconstr.
-    - apply Hunique.
-    - apply Hvalid.
-    - apply existsb_exists in Hchecked.
-      destruct Hchecked as [a [Hbound Hcannot_sched]].
-      pose proof Hbound as Hinbound.
-      apply Hvalid in Hbound.
-      unfold task_in_constraint in Hbound.
-      destruct a as [[x [lb size]] [p u]] eqn:Ha.
-      destruct Hbound as [Hstart Hinactivity].
-      rewrite <- Ha in *.
-      remember (make_activity a (constraint_to_vars constr) sol) as act.
-      exists act.
-      unfold cannot_schedule_activity_w_profile in Hcannot_sched.
-      rewrite Ha in Hcannot_sched.
-      rewrite negb_true_iff in Hcannot_sched.
-      specialize has_n_true_all_runs as Hruns.
-
-      remember (capacity constr) as c.
-      specialize (resource_profile_as_range times c bounds h_start h_end) as Hr_profile_range.
-      rewrite Hprofile in Hr_profile_range.
-
-      apply Hvalid in Hinbound as Htask.
-      apply Hr_profile_range in Htimesrange as Hprofilerange.
-      unfold is_as_range in Hprofilerange.
-      apply ZRange.is_range_length in Hprofilerange.
-      rewrite length_map in Hprofilerange.
-      destruct Hinactivity as [Hacthor Hactbounds].
-      unfold in_horizon in Hacthor.
-
-      remember (Z.to_nat (h_end - ((start act) + Z.of_N p) + 1)) as i.
-      apply (run_at_seq_fk_false r_profile) with (fb := (can_be_active_at_t c a)) (n := (N.to_nat p)) (i := i) in Hr_profile_range.
-      + destruct Hr_profile_range as [[t_false p_usage] [Ht [Hprofile_in Hfalse]]].
-        apply Hr_profile_correct in Hprofile_in; clear Hr_profile_correct.
-        destruct Hprofile_in as [Httimes Htusage].
-
-        rewrite Heqi in Ht; subst i.
-        simpl in Ht.
-        assert (p_time act = p) as Hp.
-        {
-          rewrite Heqact. rewrite Ha. unfold make_activity.
-          simpl. reflexivity.
-        }
-        subst p; subst h_start; subst h_end;
-        pose proof Ht as Ht'; clear Ht;
-        assert (start act <= t_false < start act + Z.of_N (p_time act)) as Ht by lia; clear Ht'.
-        exists t_false.
-        split. { apply Htimesrange. apply Httimes. }
-        split. { exact Hstart. }
-        split. { exact Ht. }
-        rewrite Ha in Hfalse.
-        apply can_be_active_at_t_false in Hfalse.
-        destruct Hfalse as [Hman_nil Hfalse].
-        assert (p_usage + u > c)%N as Husage.
-        {
-          destruct Hfalse as [Husage | [Htoutlb | Houtub]].
-          - exact Husage.
-          - lia.
-          - lia. 
-        }
-        clear Hfalse.
-        split.
-        {
-          unfold activities_bounds_active_at.
-          rewrite in_flat_map_option.
-          unfold not.
-          intros [a_man [Ha_man_bounds Hman]].
-           
-          pose proof Ha_man_bounds as Ha_man_inbounds.
-          
-          apply Hvalid in Ha_man_bounds.
-
-          destruct a_man as [[x' [lb' size']] [p' u']].
-          unfold activity_bounds_is_active in Hman.
-          destruct (interval_to_bounds (lb', size')) as [lb_b ub'] eqn:Hbound_lb.
-          destruct (mandatory_active lb_b ub' t_false p') eqn:His_man.
-          2: { discriminate Hman. }
-          inversion Hman; subst x'; subst u'.
-          apply nodup_map with (a1 := a) (a2 := (a_name act, (lb', size'), (p', usage act))) in Hunique.
-          - rewrite Ha in Hunique. inversion Hunique.
-            subst lb'; subst size'; subst p'; clear Hunique.
-            unfold activity_bounds_is_active in Hman_nil.
-            rewrite Hbound_lb in Hman_nil.
-            rewrite His_man in Hman_nil.
-            discriminate Hman_nil. 
-          - repeat decide equality.
-          - exact String.string_dec.
-          - exact Hinbound.
-          - exact Ha_man_inbounds.
-          - rewrite Heqact. rewrite Ha. unfold make_activity. simpl. reflexivity.
-        }
-        assert (usage act = u) as Hu.
-        {
-          rewrite Heqact. rewrite Ha. unfold make_activity. simpl. reflexivity. 
-        }
-        rewrite Hu. lia.
-      + enough (p >= 1)%N by lia.
-        rewrite Ha in Htask.
-        apply task_valid_processing in Htask.
-        lia.
-      + enough (p <= horizon_length constr)%N as Hhor_len.
-        { unfold horizon_length in Hhor_len.
-        lia. }
-        rewrite Ha in Htask.
-        apply task_valid_processing in Htask.
-        lia.
-      + rewrite Ha in Htask.
-        apply task_valid_processing in Htask.
-        subst h_end; subst h_start.
-        rewrite Hprofilerange.
-        rewrite Heqi.
-        lia.
-      + apply Htimesrange.
-      + apply Hruns.
-        rewrite Ha.
-        apply Hcannot_sched.
-  }
-  - apply resource_profile_conflict with (sol := sol) in Hprofile.
-    + apply Hprofile.
-    + apply Is_true_eq_true. exact Hconstr.
-    + exact Hvalid.
-    + exact Hunique.
-    + subst h_start; subst h_end. apply Htimesrange. 
-Qed.
-
-Lemma is_true_not_false :
-  forall b, (b = false -> False) -> Is_true b.
-Proof.
-  intros. destruct b.
-  - reflexivity.
-  - simpl. apply H. reflexivity.
-Qed.
-
-Definition Inference := list Atomic.
-
-Definition inference_valid (I : Inference) (C : CumulativeConstraint) :=
-  forall (theta : Assignment),
-    cumulative_decide C theta = true
-      ->
-    satisfies_nogood I theta = true.
-
-Lemma cumulative_checker_sound :
-  forall (I : Inference) (C : CumulativeConstraint),
-    cumulative_checker I C = true
-      ->
-    inference_valid I C.
-Proof.
-  intros I C.
-  intros Hcheck. intros theta Hsol.
-  destruct (satisfies_nogood I theta) eqn:Hsat.
-  - reflexivity.
-  - exfalso. apply checker_not_cumulative with (fact := I) (sol := theta) (constr := C); try apply Is_true_eq_left; try assumption.
-  apply neg_atomic. exact Hsat.
-Qed.
-
-Lemma cumulative_checker_valid : 
-  forall fact sol constr,
-  Is_true (cumulative_decide constr sol) ->
-  Is_true (cumulative_checker fact constr) ->
-  Is_true (satisfies_nogood fact sol).
-Proof.
-  intros fact sol constr.
-  intros Hcumul Hchecked.
-  apply is_true_not_false.
-  intros Hsat.
-  apply neg_atomic in Hsat.
-  apply checker_not_cumulative with (fact := fact) (sol := sol) (constr := constr); assumption.
-Qed.
+Admitted.
  
-Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) :=
-  {|
-    var := interval {| name := x; lower_bound := Z0; size := 50 |} ; 
-    comparator := atm_comparator ; 
-    value := atm_value
-  |}.
+(* Definition mkAtm (x : string) (atm_comparator : AtomicComparator) (atm_value : Z) := *)
+(*   {| *)
+(*     var := interval {| name := x; lower_bound := Z0; size := 50 |} ;  *)
+(*     comparator := atm_comparator ;  *)
+(*     value := atm_value *)
+(*   |}. *)
 
-Definition mkInf (lhs : list Atomic) (rhs : option Atomic) :=
-  let lhs_neg := (map atomic_not lhs) in
-    lhs_neg ++
-    match rhs with
-    | None => nil
-    | Some rhs => rhs :: nil
-    end.
+(* Definition mkInf (lhs : list Atomic) (rhs : option Atomic) := *)
+(*   let lhs_neg := (map atomic_not lhs) in *)
+(*     lhs_neg ++ *)
+(*     match rhs with *)
+(*     | None => nil *)
+(*     | Some rhs => rhs :: nil *)
+(*     end. *)
+
+Open Scope string.
 
 (* Mandatory conflict *)    
 Compute 
@@ -1410,13 +1074,15 @@ Compute
     ) 
     1%N Z0 20%N in
   let fact := 
-    mkInf (
-        mkAtm "x" greater_equal 0 ::
-        mkAtm "x" less_equal 2 ::
-        mkAtm "y" greater_equal 1 ::
-        mkAtm "y" less_equal 3 ::
-        nil
-      ) None in
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 1) ::
+        ("y", mk_atm_le 3) :: nil ;
+      i_consequent := None
+    |}
+  in
   (Bool.eqb (cumulative_checker fact constr) true).
 
 (* 1-step *)
@@ -1429,12 +1095,35 @@ Compute
     ) 
     1%N Z0 20%N in
   let fact := 
-    mkInf (
-        mkAtm "x" greater_equal 0 ::
-        mkAtm "x" less_equal 2 ::
-        mkAtm "y" greater_equal 2 ::
-        nil
-      ) (Some (mkAtm "y" greater_equal 3)) in
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 2) :: 
+        ("y", mk_atm_le 2) :: nil ;
+      i_consequent := None
+    |}
+  in
+  cumulative_checker fact constr.
+
+(* TODO This does not work unless I have a working negation *)
+Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 20%N in
+  let fact := 
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 2) :: nil ;
+      i_consequent := Some ("y", mk_atm_ge 3)
+    |}
+  in
   cumulative_checker fact constr.
 
 (* Multi-step simple *)
@@ -1447,12 +1136,34 @@ Compute
     ) 
     1%N Z0 20%N in
   let fact := 
-    mkInf (
-        mkAtm "x" greater_equal 0 ::
-        mkAtm "x" less_equal 2 ::
-        mkAtm "y" greater_equal 2 ::
-        nil
-      ) (Some (mkAtm "y" greater_equal 4)) in
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 2) ::
+        ("y", mk_atm_le 3) :: nil ;
+      i_consequent := None
+    |}
+  in
+  cumulative_checker fact constr.
+
+Compute 
+  let constr := build_cumulative 
+    (
+      {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
+      {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
+      nil
+    ) 
+    1%N Z0 20%N in
+  let fact := 
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 2) :: nil ;
+      i_consequent := Some ("y", mk_atm_ge 4)
+    |}
+  in
   cumulative_checker fact constr.
 
 (* Multi-step hole *)
@@ -1465,44 +1176,31 @@ Compute
     ) 
     1%N Z0 20%N in
   let fact := 
-    mkInf (
-        mkAtm "x" greater_equal 0 ::
-        mkAtm "x" less_equal 2 ::
-        mkAtm "y" greater_equal 1 ::
-        nil
-      ) (Some (mkAtm "y" greater_equal 4)) in
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 1) ::
+        ("y", mk_atm_le 3) :: nil ;
+      i_consequent := None
+    |}
+  in
   cumulative_checker fact constr.
- 
-(* Compute 
-  let cap := 1%N in
+Compute 
   let constr := build_cumulative 
     (
       {| def_x := "x"; def_p := 4%N; def_u := 1%N; |} ::
       {| def_x := "y"; def_p := 2%N; def_u := 1%N; |} ::
       nil
     ) 
-    cap Z0 10%N in
+    1%N Z0 20%N in
   let fact := 
-    mkInf (
-        mkAtm "x" greater_equal 0 ::
-        mkAtm "x" less_equal 2 ::
-        mkAtm "y" greater_equal 0 ::
-        nil
-      ) (Some (mkAtm "y" greater_equal 4)) in
-  let is := (constraint_to_intervals constr) in
-  let error_a := ("ERROR"%string, (0, 16%N), (4%N, 1%N)) in
-  let ax := hd error_a is in
-  let ay := hd error_a (tl is) in
-  let atoms := (map atomic_not fact) in
-  let tms := (ZRange.build_range constr.(horizon_start) constr.(horizon_end)) in
-  let inferr := inferred_cumulative_bounds constr fact in
-    match inferr with
-    | None => None
-    | Some inferr => 
-        let appl_y := hd error_a (tl inferr) in
-        match (resource_profile cap inferr tms) with
-        | profile_usages u => Some (make_active_list cap u appl_y)
-        | profile_conflict c => None
-        end
-    end
-  .  *)
+    {| 
+      i_premises :=
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_le 2) ::
+        ("y", mk_atm_ge 1) :: nil ;
+      i_consequent := Some ("y", mk_atm_ge 4)
+    |}
+  in
+  cumulative_checker fact constr.
