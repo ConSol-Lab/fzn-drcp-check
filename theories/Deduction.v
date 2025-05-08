@@ -16,10 +16,19 @@ Require Import Checker.DomainVar.
 (** This file represents the process of verifying a deduction step, although it does not actually mention the deduction itself so there is still some freedom to implement it. Given a number of valid inferences and premises we assume to hold, if the checker returns true we know we have a contradiction (hence of the premises must have been incorrect). *)
 
 (** An inference is a set of premises and a consequent. If the consequent is None, it represents a nogood. *)
-Record Inference := {
+Record Inference := mkInf {
   i_premises : list BoundAtomic;
   i_consequent : option BoundAtomic
 }.
+
+
+Definition negate_bound_atomic (atomic : BoundAtomic) :=
+  match atomic with
+  | (x, atomic) =>
+    (x, negate_atomic atomic)
+  end.
+
+
 
 (** Check whether a premise holds. *)
 Definition check_premise (domains : DomainMap) (premise : BoundAtomic) := 
@@ -76,6 +85,7 @@ Definition bound_atomic_holds (assignment : string -> Z) (atom : BoundAtomic) :=
     atomic_holds (assignment x) atom
   end.
 
+(** If the premises hold for the assignment, then the consequent holds *)
 Definition inference_valid (assignment : string -> Z) (inference : Inference) :=
   valid_atoms assignment inference.(i_premises)
     ->
@@ -83,6 +93,34 @@ Definition inference_valid (assignment : string -> Z) (inference : Inference) :=
   | None => False
   | Some consequent => bound_atomic_holds assignment consequent
   end.
+
+Lemma inference_valid_neg_rhs :
+  forall sol premises consequent,
+    inference_valid sol (mkInf premises (Some consequent))
+      <->
+    inference_valid sol (mkInf ((negate_bound_atomic consequent) :: premises) None).
+Proof.
+  intros sol premises consq.
+  unfold inference_valid.
+  destruct consq as [x consqa]; simpl.
+  split; intros Hvalid; intros H.
+  - assert (valid_atoms sol premises) as Hpremises.
+    { unfold valid_atoms; intros x' a' Hin.
+      apply H. right; assumption. }
+    apply Hvalid in Hpremises.
+    apply negate_atomic_not in Hpremises.
+    apply Hpremises.
+    apply H.
+    left. reflexivity.
+  - rewrite negate_atomic_not.
+    intros Hneg.
+    apply Hvalid.
+    intros x' a' [Hisx | Hinpremises].
+    + inversion Hisx; subst; clear Hisx.
+      exact Hneg.
+    + apply H.
+      exact Hinpremises.
+Qed. 
 
 Lemma forall_premises :
   forall doms assignment atoms cpremises,

@@ -25,7 +25,7 @@ Inductive AtomicComparator :=
   | equal
   | not_equal.
 
-Record Atomic := {
+Record Atomic := mkAtm {
     atm_cmp : AtomicComparator;
     atm_val : Z
 }.
@@ -166,6 +166,29 @@ Definition atomic_holds (x : Z) (a : Atomic) :=
   | not_equal => x <> a.(atm_val)
   end.
 
+Definition negate_atomic (a : Atomic) :=
+  match a with
+  | mkAtm cmp c =>
+    match cmp with
+    | less_equal => mkAtm greater_equal (c + 1)
+    | greater_equal => mkAtm less_equal (c - 1)
+    | equal => mkAtm not_equal c
+    | not_equal => mkAtm equal c
+    end
+  end.
+
+Lemma negate_atomic_not :
+  forall n a,
+    atomic_holds n a
+      <->
+    ~ atomic_holds n (negate_atomic a).
+Proof.
+  intros n a.
+  destruct a as [cmp c].
+  unfold atomic_holds, negate_atomic.
+  simpl. destruct cmp; simpl; lia.
+Qed.
+  
 (** Tactic used to simplify goals resulting from  *)
 Ltac simplify_bounds :=
   repeat match goal with
