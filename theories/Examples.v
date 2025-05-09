@@ -1,4 +1,4 @@
-Require Import String.
+(* Require Import String.
 Require Import ZArith.
 Require Import List.
 Import ListNotations.
@@ -153,4 +153,4 @@ Compute
       ] ;
       conclusion := unsat
     |}
-  ].
+  ]. *)
