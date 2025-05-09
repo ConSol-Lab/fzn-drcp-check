@@ -591,3 +591,65 @@ Proof.
       reflexivity.
     + discriminate Hdom_map.
 Qed.
+
+(** Primary soundness definition for a domain map. A bit of an easier definition to work with than domains_from_vars_P as it has the assignment. *)
+Definition doms_hold_for_sol (sol : string -> Z) (doms : DomainMap) :=
+  forall x dom,
+    smap.MapsTo x dom doms
+      ->
+    is_in_dom (sol x) (Some dom).
+
+Lemma doms_hold_for_sol_from_domains_var_P :
+  forall vs atoms doms sol,
+    valid_atoms sol atoms 
+      -> 
+    domains_from_vars_P vs atoms (Some doms)
+      ->
+    doms_hold_for_sol sol doms.
+Proof.
+  intros vs atoms doms sol.
+  unfold domains_from_vars_P, domains_equiv_atoms_vs, domains_equiv_atoms_cond.
+  intros Hvalid Hdomains_from.
+  intros x dom Hmapsto.
+  rewrite <- smap.find_spec in Hmapsto.
+  specialize (Hdomains_from x).
+  rewrite Hmapsto in Hdomains_from.
+  specialize Hdomains_from as [_ Hdom].
+  clear -Hvalid Hdom.
+  apply dom_equiv_holds with (atoms := (from_var_atoms x atoms)).
+  - intros a Hin.
+    apply Hvalid.
+    rewrite <- filter_pair_on_key_spec.
+    apply Hin.
+  - apply Hdom.
+Qed.
+
+Lemma doms_from_var_all_hold :
+  forall vs atoms doms sol,
+    valid_atoms sol atoms
+      ->
+    domains_from_var_atomics_all atoms vs = Some doms
+      ->
+    doms_hold_for_sol sol doms.
+Proof.
+  intros vs atoms doms sol.
+  intros Hvalid Hdoms_from.
+  apply doms_hold_for_sol_from_domains_var_P with (vs := vs) (atoms := atoms).
+  - exact Hvalid.
+  - setoid_rewrite <- Hdoms_from.
+    apply domains_from_var_atomics_all_correct.
+Qed.
+
+(* Lemma doms_from_add_apply_hold :
+  forall vs doms doms' sol x a,
+    doms_hold_for_sol sol doms
+      ->
+    atomic_holds (sol x) a
+      ->
+    add_apply vs doms (x, a) = Some doms'
+      ->
+    doms_hold_for_sol sol doms'.
+Proof.
+  #### Proving this requires building atoms from sol and doms ####
+Qed.
+ *)

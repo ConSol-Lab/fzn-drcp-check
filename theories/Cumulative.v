@@ -9,32 +9,12 @@ Require Import Checker.Utility.
 Import Utility.ListEx.
 Import Utility.Sets.
 
-Record ActivityDefine :=
+Record ActivityDefine := mkActDef
   {
     def_x : string;
     def_p : N;
     def_u : N;
   }.
-
-Definition x_determines_params (l : list (ActivityDefine * Z * Z)) :=
-  forall a1 s1 e1 a2 s2 e2,
-    In (a1, s1, e1) l ->
-    In (a2, s2, e2) l ->
-    a1.(def_x) = a2.(def_x) ->
-    (a1, s1, e1) = (a2, s2, e2).
-
-Definition processing_constr (l : list (ActivityDefine * Z * Z)) (h_start : Z) (h_end : Z) :=
-  forall a s e,
-    In (a, s, e) l ->
-      (* TODO: the smaller than diff actually results from horizon_all *)
-      (1 <= a.(def_p) <= Z.to_N (h_end - h_start))%N.
-
-Definition horizon_all (l : list (ActivityDefine * Z * Z)) (h_start : Z) (h_end : Z) :=
-  forall a s e,
-    In (a, s, e) l
-      ->
-    h_start <= s /\ e + Z.of_N a.(def_p) <= h_end.
-
 
 Fixpoint def_xs (l : list ActivityDefine) : sstr.t :=
   match l with
@@ -42,123 +22,119 @@ Fixpoint def_xs (l : list ActivityDefine) : sstr.t :=
   | a :: l' => sstr.add (a.(def_x)) (def_xs l')
   end.
 
-Definition def_a_to_v (xs : sstr.t) (est : Z) (lct : Z) (a : ActivityDefine) : option (ActivityDefine * Z * Z) :=
-  if (sstr.mem a.(def_x) xs) || (a.(def_p) <? 1)%N || (lct - est <? Z.of_N a.(def_p))
+Definition def_a_to_v (xs : sstr.t) (a : ActivityDefine) : option ActivityDefine :=
+  if (sstr.mem a.(def_x) xs) || (a.(def_p) <? 1)%N 
     then None
-    else Some (a, est, lct - Z.of_N a.(def_p)).
+    else Some a.
 
-Fixpoint def_to_vs (l : list ActivityDefine) (xs : sstr.t) (est : Z) (lct : Z)  :=
+Fixpoint def_to_vs (l : list ActivityDefine) (xs : sstr.t)  :=
   match l with
   | nil => nil
   | a :: l' => 
-    match def_a_to_v xs est lct a with
+    match def_a_to_v xs a with
     | Some a_out => a_out :: nil 
     | None => nil
-    end ++ (def_to_vs l' (sstr.add a.(def_x) xs) est lct)
+    end ++ (def_to_vs l' (sstr.add a.(def_x) xs))
   end.
 
 Lemma def_to_vs_in :
-  forall l v p u xs h_start h_size,
-    In (v, p, u) (def_to_vs l xs h_start h_size)
+  forall l a xs,
+    In a (def_to_vs l xs)
       ->
-    ~ sstr.In v.(def_x) xs.
+    ~ sstr.In a.(def_x) xs.
 Proof.
-  induction l.
-  - intros v p u xs h_start h_size.
+  induction l as [| a l IH].
+  - intros a xs.
     intros Hin.
     simpl in Hin. contradiction.
-  - intros v p u xs h_start h_size.
+  - intros a' xs.
     intros Hin.
     simpl in Hin.
-    destruct (def_a_to_v xs h_start h_size a) as [a_out |] eqn:Htov.
+    destruct (def_a_to_v) as [a_out |] eqn:Htov.
     + simpl in Hin. destruct Hin.
       * unfold def_a_to_v in Htov.
         destruct (sstr.mem (def_x a) xs
-        || (def_p a <? 1)%N
-        || (h_size - h_start <? Z.of_N (def_p a))) eqn:Hmem.
+        || (def_p a <? 1)%N) eqn:Hmem.
         -- discriminate Htov.
-        -- repeat rewrite orb_false_iff in Hmem.
-            destruct Hmem as [[Hmem _] _].
-            rewrite <- not_true_iff_false in Hmem.
-            rewrite sstr.mem_spec in Hmem.
-            assert (def_x a = v.(def_x)) as Hname.
-            {
-              inversion Htov as [Haout]; clear Htov.
-              rewrite H in Haout.
-              inversion Haout as [Hv].
-              simpl. reflexivity.
-            }
-            rewrite <- Hname.
-            exact Hmem.
-      * apply IHl in H.
+        -- subst a_out.
+          inversion Htov; subst a'; clear Htov.
+          repeat rewrite orb_false_iff in Hmem.
+          destruct Hmem as [Hmem _].
+          rewrite <- sstr.mem_spec.
+          intros H; rewrite H in Hmem.
+          discriminate Hmem.
+     * apply IH in H.
         rewrite sstr.add_spec in H.
         intros Hin.
         apply H. 
         right. exact Hin.
     + simpl in Hin.
-      apply IHl in Hin.
+      apply IH in Hin.
       rewrite sstr.add_spec in Hin.
       intros Hinxs.
       apply Hin. 
       right. exact Hinxs.
 Qed.
 
-Definition x_from_v (v : ActivityDefine * Z * Z) : string :=
-  match v with
-  | (v, _, _) => v.(def_x)
-  end.
-
-Lemma nodup_xs_def_to_vs :
-  forall l xs h_start h_size,
-    NoDup (map x_from_v (def_to_vs l xs h_start h_size)).
+Lemma def_to_vs_checks_correct :
+  forall activities xs,
+    let activities' := def_to_vs activities xs in
+    NoDup (map def_x activities') /\ forall a, In a activities' -> (def_p a >= 1)%N.
 Proof.
-  induction l.
-  - intros xs h_start h_size. simpl. apply NoDup_nil.
-  - intros xs h_start h_size.
+  induction activities as [| a activities IH].
+  - intros xs. simpl. split.
+    + apply NoDup_nil.
+    + easy.
+  - intros xs. 
     simpl.
-    destruct (def_a_to_v xs h_start h_size a) as [a_out |] eqn:Htov.
-    + rewrite map_app.
-      apply NoDup_app.
-      * simpl.
-        apply NoDup_cons.
-        -- intros H. destruct H.
-        -- apply NoDup_nil.
-      * apply IHl.
-      * {
+    destruct (def_a_to_v xs a) as [a_out |] eqn:Htov.
+    + intros; subst.
+      specialize (IH (sstr.add (def_x a) xs)).
+      remember (def_to_vs activities (sstr.add (def_x a) xs)) as activities'.
+      destruct IH as [IHnodup IHp].
+      unfold def_a_to_v in Htov.
+      destruct orb eqn:Hchecked in Htov; try discriminate Htov.
+      inversion Htov; subst a_out; clear Htov.
+      split.
+      { 
+        rewrite map_app.
+        apply NoDup_app.
+        - simpl.
+          apply NoDup_cons.
+          + intros H. destruct H.
+          + apply NoDup_nil.
+        - apply IHnodup.
+        - clear -Hchecked Heqactivities'.
+          subst activities'.
           intros x'.
           intros Hin. simpl in Hin.
           destruct Hin as [Hout | Hfalse]; try contradiction.
-          destruct a_out as [[v p'] u'].
-          simpl in Hout.
-          subst x'.
-          unfold def_a_to_v in Htov.
-          destruct (sstr.mem (def_x a) xs
-          || (def_p a <? 1)%N
-          || (h_size - h_start <? Z.of_N (def_p a))) eqn:Hmem.
-          - discriminate Htov.
-          - repeat rewrite orb_false_iff in Hmem.
-            destruct Hmem as [[Hmem _] _].
-            rewrite <- not_true_iff_false in Hmem.
-            rewrite sstr.mem_spec in Hmem.
-            inversion Htov as [Hv]; clear Htov;
-            subst p'; subst u'.
-            rewrite <- Hv.
-            intros H.
-            rewrite in_map_iff in H.
-            destruct H as [[[v' p'] u'] [Hname H]].
-            simpl in Hname.
-            apply def_to_vs_in in H.
-            rewrite Hname in H.
-            apply H.
-            apply sstr.add_spec.
-            left.
-            rewrite Hv.
-            simpl.
-            reflexivity.
+          rewrite in_map_iff.
+          intros (a' & Hnamea' & Hina').
+          apply def_to_vs_in in Hina'.
+          apply Hina'; clear Hina'.
+          rewrite sstr.add_spec.
+          left. rewrite Hout. rewrite Hnamea'.
+          reflexivity.
       }
-    + simpl. apply IHl.
+      {
+        intros a'. 
+        rewrite in_app_iff.
+        intros [Haa' | Hin].
+        - clear -Hchecked Haa'.
+          destruct Haa'; try contradiction.
+          subst a'.
+          rewrite orb_false_iff in Hchecked.
+          destruct Hchecked as [_ Hp].
+          rewrite <- not_true_iff_false in Hp.
+          rewrite N.ltb_lt in Hp.
+          lia.
+        - apply IHp.
+          exact Hin.
+      }
+    + simpl. apply IH.
 Qed.
-
+(* 
 Lemma nodup_def_to_vs :
   forall l xs h_start h_size,
     NoDup (def_to_vs l xs h_start h_size).
@@ -167,9 +143,9 @@ Proof.
   apply NoDup_map_inv with (f := x_from_v).
   apply nodup_xs_def_to_vs.
 Qed.
+ *)
 
-
-Lemma horizon_all_def_to_vs :
+(* Lemma horizon_all_def_to_vs :
   forall l xs h_start h_size,
     horizon_all (def_to_vs l xs h_start h_size) h_start h_size
     .
@@ -206,14 +182,14 @@ Proof.
       apply IHl in Hin.
       exact Hin.
 Qed.
-
-Lemma processing_constr_def_to_vs :
+ *)
+(* Lemma processing_constr_def_to_vs :
   forall l xs h_start h_size,
     processing_constr (def_to_vs l xs h_start h_size) h_start h_size
     .
 Proof.
-Admitted.
-(*   induction l. *)
+Admitted. *)
+  (* induction l. *)
 (*   - intros xs h_start h_size. *)
 (*     unfold processing_constr. *)
 (*     intros v p u Hin. *)
@@ -249,15 +225,15 @@ Admitted.
 (*       exact Hin. *)
 (* Qed. *)
 
-Lemma def_horizon_consistent :
+(* Lemma def_horizon_consistent :
   forall (h_start : Z) (h_size : N),
     h_start <= h_start + Z.of_N h_size.
 Proof.
   lia.
 Qed.
-
+ *)
      
-Lemma x_determines_var_def_to_vs:
+(* Lemma x_determines_var_def_to_vs:
   forall vs,
     NoDup (map x_from_v vs)
       ->
@@ -279,39 +255,35 @@ Proof.
   - exact Hin2.
   - exact H.
 Qed.
-
+ *)
 
 Record CumulativeConstraint :=
   {
     capacity: N;
-    vs: list (ActivityDefine * Z * Z);
+    activities: list ActivityDefine;
     horizon_start : Z;
     horizon_end : Z;
-    valid_horizon : horizon_all vs horizon_start horizon_end;
-    valid_p_times : processing_constr vs horizon_start horizon_end;
+    valid_p_times : forall a, In a activities -> (a.(def_p) >= 1)%N;
     horizon_consistent : horizon_start <= horizon_end;
-    x_determine_params : x_determines_params vs;
-    vs_nodup : NoDup vs
+    acts_nodup : NoDup (map def_x activities)
   }.
 
-Definition build_cumulative (l : list ActivityDefine) (c : N) (h_start : Z) (h_size : N) : CumulativeConstraint :=
+Lemma is_horizon_consistent :
+  forall h_start h_size,
+    h_start <= h_start + Z.of_N h_size.
+Proof. lia. Qed.
+
+Definition build_cumulative (activities_in : list ActivityDefine) (c : N) (h_start : Z) (h_size : N) : CumulativeConstraint :=
   let h_end := h_start + Z.of_N h_size in
     {|
       capacity := c ;
-      vs := def_to_vs l sstr.empty h_start h_end ;
+      activities := def_to_vs activities_in sstr.empty;
       horizon_start := h_start ;
       horizon_end := h_end ;
-      valid_horizon := (horizon_all_def_to_vs l sstr.empty h_start h_end) ;
-      valid_p_times := (processing_constr_def_to_vs l sstr.empty h_start h_end) ;
-      horizon_consistent := def_horizon_consistent h_start h_size;
-      x_determine_params := (x_determines_var_def_to_vs (def_to_vs l sstr.empty h_start h_end) (nodup_xs_def_to_vs l sstr.empty h_start h_end));
-      vs_nodup := (nodup_def_to_vs l sstr.empty h_start h_end)
+      horizon_consistent := is_horizon_consistent h_start h_size ;
+      valid_p_times := (proj2 (def_to_vs_checks_correct activities_in sstr.empty));
+      acts_nodup := (proj1 (def_to_vs_checks_correct activities_in sstr.empty))
     |}.
-
-
-(* Compute build_cumulative ({|def_x := "x";
-def_p := 5%N;
-def_u := 1%N;|} :: nil) 1%N Z0 20%N. *)
 
 Record Activity := mkAct {
   a_name : string;
@@ -367,19 +339,18 @@ Definition activities_at_t (l : list Activity) (t : Z) : list Activity :=
   filter (fun a => is_active_at a.(start) a.(p_time) t) l
 .
 
-Definition activity_list_inner_f (a : string -> Z) (x : (ActivityDefine * Z * Z)) : Activity :=
-  match x with
-  | (v, _, _) => 
-    let var_id := v.(def_x) in
-    mkAct var_id (a var_id) v.(def_p) v.(def_u)
+Definition activity_list_inner_f (a : string -> Z) (act : ActivityDefine) : Activity :=
+  match act with
+  | mkActDef x p u => 
+    mkAct x (a x) p u
   end.
 
-Definition activity_list_inner (l : list (ActivityDefine * Z * Z)) (a : string -> Z) : list Activity :=
+Definition activity_list_inner (l : list ActivityDefine) (a : string -> Z) : list Activity :=
   map (activity_list_inner_f a) l
 .
 
-Definition activity_list (c : CumulativeConstraint) (a : string -> Z) : list (Activity) :=
-  activity_list_inner c.(vs) a
+Definition activity_list (c : CumulativeConstraint) (a : string -> Z) : list Activity :=
+  activity_list_inner c.(activities) a
 .
 
 Open Scope N_scope.

@@ -2026,4 +2026,13 @@ Qed.
         -- discriminate Hx.
 Qed.
   *)
+
+Lemma smap_in_spec {A} (x : string) (a : A) m :
+  In (x, a) (smap.bindings m) <-> smap.MapsTo x a m.
+Proof.
+  rewrite In_to_InA_Duo_eq.
+  rewrite smap.bindings_spec1.
+  reflexivity.
+Qed.
+
 End Maps.

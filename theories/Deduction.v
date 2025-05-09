@@ -263,3 +263,112 @@ Proof.
     destruct Hdomains as [x H].
     apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x); assumption.
 Qed.
+
+Definition infer_domains (vs : option sstr.t) (fact : Inference) :=
+  match domains_from_var_atomics_all (fact.(i_premises)) vs with
+  | None => None
+  | Some doms =>
+    match fact.(i_consequent) with
+    | None => Some (doms, None)
+    | Some (x, consq) =>
+      match add_apply vs doms (x, (negate_atomic consq)) with
+      | None => None
+      | Some doms => Some (doms, Some x)
+      end
+    end
+  end.
+
+(** This is the main lemma to make use of vs, which ensures that all output variables will be in a particular set. Useful for ensuring that you get a result when matching against some map of parameters (see e.g. cumulative).  *)
+Lemma infer_domains_vs :
+  forall vs fact x dom doms c,
+    infer_domains (Some vs) fact = Some (doms, c)
+      ->
+    In (x, dom) (smap.bindings doms)
+      ->
+    sstr.In x vs.
+Proof.
+  intros vs fact x dom doms c.
+  unfold infer_domains.
+  destruct domains_from_var_atomics_all as [doms'|] eqn:Hdoms_from; try discriminate.
+  intros Hdoms.
+  enough (exists atoms, domains_equiv_atoms_vs (Some vs) atoms doms) as Hvs.
+  { clear -Hvs.
+    destruct Hvs as [atoms Hvs].
+    unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond in Hvs.
+    rewrite In_to_InA_Duo_eq.
+    rewrite smap.bindings_spec1.
+    rewrite <- smap.find_spec.
+    intros Hfind.
+    specialize (Hvs x).
+    rewrite Hfind in Hvs.
+    destruct Hvs as [Hvs _].
+    unfold check_in_vs in Hvs.
+    rewrite <- sstr.mem_spec.
+    exact Hvs.
+  }
+  assert (domains_equiv_atoms_vs (Some vs) (i_premises fact) doms') as Hdoms'.
+    { enough (domains_from_vars_P (Some vs) (i_premises fact) (Some doms')).
+      - assumption.
+      - setoid_rewrite <- Hdoms_from. apply domains_from_var_atomics_all_correct. }
+  destruct i_consequent as [[cx ca]|].
+  - destruct add_apply as [doms''|] eqn:Hadd_apply;
+    try discriminate.
+    inversion Hdoms; subst; clear Hdoms.
+    specialize (add_apply_step (Some vs) doms' (i_premises fact)) as Hstep.
+    rename Hdoms' into Hstep'.
+    apply Hstep with (x := cx) (a := (negate_atomic ca)) in Hstep'; clear Hstep.
+    rewrite Hadd_apply in Hstep'.
+    exists ((cx, negate_atomic ca) :: i_premises fact).
+    exact Hstep'.
+  - inversion Hdoms; subst; clear Hdoms.
+    exists (i_premises fact).
+    exact Hdoms'.
+Qed.
+
+(** This lemma is primarily useful for inference checkers. *)
+Lemma infer_domains_correct fact vs doms xconsq :
+  forall sol, 
+    infer_domains vs fact = Some (doms, xconsq)
+      ->
+    (doms_hold_for_sol sol doms
+      ->
+    False)
+      ->
+    inference_valid sol fact.
+Proof.
+  intros sol.
+  unfold infer_domains.
+  destruct domains_from_var_atomics_all as [doms'|] eqn:Hdoms_from; try discriminate.
+  destruct i_consequent as [[x consq]|] eqn:Hconsq.
+  - destruct add_apply as [doms_x|] eqn:Happly; try discriminate.
+    intros H; inversion H; subst; clear H.
+    intros Hdoms_hold.
+    assert (fact = mkInf (i_premises fact) (Some (x, consq))).
+    { destruct fact. simpl in Hconsq. subst. reflexivity. }
+    rewrite H. apply inference_valid_neg_rhs.
+    unfold inference_valid. simpl.
+    intros Hatoms.
+    apply Hdoms_hold; clear Hdoms_hold.
+    remember ((x, negate_atomic consq) :: i_premises fact) as atoms.
+    enough (domains_from_vars_P vs atoms (Some doms)) as Henough.
+    { apply doms_hold_for_sol_from_domains_var_P with (vs := vs) (atoms := atoms).
+      - apply Hatoms.
+      - apply Henough. }
+    unfold domains_from_vars_P.
+    rewrite Heqatoms.
+    specialize (add_apply_step vs doms' (i_premises fact)) with (x := x) (a := (negate_atomic consq)) as Hstep.
+    rewrite Happly in Hstep.
+    apply Hstep.
+    clear -Hdoms_from.
+    enough (domains_from_vars_P vs (i_premises fact) (Some doms')).
+    + apply H.
+    + setoid_rewrite <- Hdoms_from. 
+      apply domains_from_var_atomics_all_correct.
+  - intros H; inversion H; subst; clear H.
+    intros Hdoms_hold.
+    unfold inference_valid.
+    intros Hatoms.
+    rewrite Hconsq.
+    apply Hdoms_hold.
+    now apply doms_from_var_all_hold with (vs := vs) (atoms := (i_premises fact)).
+Qed.

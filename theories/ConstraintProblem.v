@@ -25,10 +25,7 @@ Definition affected_variables (c : Constraint) :=
   (*       end *)
   (*     ) (terms lin) *)
   | cumulative_c c => 
-      map (fun x => 
-        match x with
-        | (v, _, _) => v
-        end) (Cumulative.vs c)
+      map (Cumulative.def_x) (Cumulative.activities c)
   (* | alldifferent_c c => *)
   (*   AllDifferent.get_vars c *)
   end.
