@@ -134,129 +134,8 @@ Proof.
       }
     + simpl. apply IH.
 Qed.
-(* 
-Lemma nodup_def_to_vs :
-  forall l xs h_start h_size,
-    NoDup (def_to_vs l xs h_start h_size).
-Proof.
-  intros l xs h_start h_size.
-  apply NoDup_map_inv with (f := x_from_v).
-  apply nodup_xs_def_to_vs.
-Qed.
- *)
 
-(* Lemma horizon_all_def_to_vs :
-  forall l xs h_start h_size,
-    horizon_all (def_to_vs l xs h_start h_size) h_start h_size
-    .
-Proof.
-  induction l.
-  - intros xs h_start h_size.
-    unfold horizon_all.
-    intros v p u Hin.
-    simpl in Hin. contradiction.
-  - intros xs h_start h_size.
-    unfold horizon_all.
-    intros v p u Hin.
-    destruct v as [v].
-    simpl in Hin.
-    destruct (def_a_to_v xs h_start h_size a) as [a_out |] eqn:Htov.
-    + apply in_app_or in Hin.
-      destruct Hin as [Ha | Hin].
-      * destruct Ha as [Ha | Hfalse]; try destruct Hfalse.
-        subst a_out.
-        unfold def_a_to_v in Htov.
-        destruct (sstr.mem (def_x a) xs
-        || (def_p a <? 1)%N
-        || (h_size - h_start <? Z.of_N (def_p a))) eqn:Hmem.
-        { discriminate Htov. }
-        (* repeat rewrite orb_false_iff in Hsize. *)
-        (* repeat rewrite <- not_true_iff_false in Hsize. *)
-        (* repeat rewrite N.ltb_lt in Hsize. *)
-        (* destruct Hsize as [[_ Hp] Hsize]. *)
-        inversion Htov.
-        lia.
-      * apply IHl in Hin.
-        exact Hin.
-    + simpl in Hin.
-      apply IHl in Hin.
-      exact Hin.
-Qed.
- *)
-(* Lemma processing_constr_def_to_vs :
-  forall l xs h_start h_size,
-    processing_constr (def_to_vs l xs h_start h_size) h_start h_size
-    .
-Proof.
-Admitted. *)
-  (* induction l. *)
-(*   - intros xs h_start h_size. *)
-(*     unfold processing_constr. *)
-(*     intros v p u Hin. *)
-(*     simpl in Hin. contradiction. *)
-(*   - intros xs h_start h_size. *)
-(*     unfold processing_constr. *)
-(*     intros v p u Hin. *)
-(*     destruct v as [v]. *)
-(*     simpl in Hin. *)
-(*     destruct (def_a_to_v xs h_start h_size a) as [a_out |] eqn:Htov. *)
-(*     + apply in_app_or in Hin. *)
-(*       destruct Hin as [Ha | Hin]. *)
-(*       * destruct Ha as [Ha | Hfalse]; try destruct Hfalse. *)
-(*         subst a_out. *)
-(*         unfold def_a_to_v in Htov. *)
-(*         destruct (sstr.mem (def_x a) xs *)
-(*         || (def_p a <? 1)%N *)
-(*         || (h_size - h_start <? Z.of_N (def_p a))) eqn:Hmem. *)
-(*         { discriminate Htov. } *)
-(*         repeat rewrite orb_false_iff in Hsize. *)
-(*         repeat rewrite <- not_true_iff_false in Hsize. *)
-(*         repeat rewrite N.ltb_lt in Hsize. *)
-(*         (* destruct Hsize as [[_ Hp] Hsize]. *) *)
-(*         inversion Htov. *)
-(*         simpl in H2. *)
-(*         simpl. *)
-(*         (* unfold upper_bound. simpl. *) *)
-(*         lia. *)
-(*       * apply IHl in Hin. *)
-(*         exact Hin. *)
-(*     + simpl in Hin. *)
-(*       apply IHl in Hin. *)
-(*       exact Hin. *)
-(* Qed. *)
-
-(* Lemma def_horizon_consistent :
-  forall (h_start : Z) (h_size : N),
-    h_start <= h_start + Z.of_N h_size.
-Proof.
-  lia.
-Qed.
- *)
-     
-(* Lemma x_determines_var_def_to_vs:
-  forall vs,
-    NoDup (map x_from_v vs)
-      ->
-    x_determines_params vs.
-Proof.
-  intros vs Hnodup.
-  unfold x_determines_params.
-  intros a1 s1 e1 a2 s2 e2.
-  intros Hin1 Hin2 Hname.
-  assert (x_from_v (a1, s1, e1) = x_from_v (a2, s2, e2)).
-  {
-    simpl. exact Hname. 
-  }
-  apply nodup_map with (f := x_from_v) (l := vs).
-  - repeat decide equality.
-  - repeat decide equality.
-  - exact Hnodup.
-  - exact Hin1.
-  - exact Hin2.
-  - exact H.
-Qed.
- *)
-
+(* TODO: remove the horizon *)
 Record CumulativeConstraint :=
   {
     capacity: N;
@@ -339,27 +218,256 @@ Definition activities_at_t (l : list Activity) (t : Z) : list Activity :=
   filter (fun a => is_active_at a.(start) a.(p_time) t) l
 .
 
-Definition activity_list_inner_f (a : string -> Z) (act : ActivityDefine) : Activity :=
+Definition activity_from_a_def (a : string -> Z) (act : ActivityDefine) : Activity :=
   match act with
   | mkActDef x p u => 
     mkAct x (a x) p u
   end.
 
+Definition a_def_from_activity (act : Activity) : ActivityDefine :=
+  match act with
+  | mkAct x start p u =>
+    mkActDef x p u
+  end.
+
 Definition activity_list_inner (l : list ActivityDefine) (a : string -> Z) : list Activity :=
-  map (activity_list_inner_f a) l
+  map (activity_from_a_def a) l
 .
 
 Definition activity_list (c : CumulativeConstraint) (a : string -> Z) : list Activity :=
   activity_list_inner c.(activities) a
 .
 
+Lemma a_def_in_iff :
+  forall c a act,
+    start act = a (a_name act) /\ In (a_def_from_activity act) (activities c) <-> In act (activity_list c a).
+Proof.
+  intros c a act.
+  destruct act as [x start p u]; unfold a_def_from_activity; simpl.
+  unfold activity_list, activity_list_inner.
+  rewrite in_map_iff; unfold activity_from_a_def.
+  split; intros H.
+  - exists (mkActDef x p u).
+    now destruct H as [Hstart Hin]; subst.
+  - destruct H as [a_def [Hdef Hin]].
+    now destruct a_def; inversion Hdef; subst.
+Qed.
+
+Lemma a_def_in_if :
+  forall c a act,
+    In act (activity_list c a) ->
+    In (a_def_from_activity act) (activities c).
+Proof.
+  intros c a act Hin.
+  rewrite <- a_def_in_iff in Hin.
+  apply Hin.
+Qed.
+
+Lemma act_in_iff :
+  forall c a a_def,
+    In a_def (activities c) <-> In (activity_from_a_def a a_def) (activity_list c a).
+Proof.
+  intros c a a_def.
+  destruct a_def as [x p u].
+  unfold activity_list, activity_list_inner, activity_from_a_def.
+  rewrite in_map_iff.
+  split; intros H.
+  - now exists (mkActDef x p u).
+  - destruct H as [a_def [Hdef Hin]].
+    now destruct a_def; inversion Hdef; subst.
+Qed.
+
+Definition starts (l : list Activity) :=
+  map start l.
+
+Definition ends (l : list Activity) :=
+  map (fun a => start a + (Z.of_N (p_time a)) - 1) l.
+
+Definition max_l (l : list Z) :=
+  fold_right Z.max (hd 0 l) l.
+
+Definition min_l (l : list Z) :=
+  fold_right Z.min (hd 0 l) l.
+
+Import Utility.ListInd.
+
+Lemma min_l_spec l : forall n, In n l -> min_l l <= n.
+Proof.
+  set (P := fun (s : list Z) (acc : Z) =>
+    forall n, In n s -> acc <= n).
+  enough (P l (min_l l)).
+  { apply H. } 
+  unfold min_l.
+  apply fold_ind; unfold P in *; clear P.
+  - intros n Hin. destruct Hin.
+  - intros n acc s. intros IH.
+    intros n'. intros [Hnn' | Hin].
+    + subst. lia.
+    + specialize (IH n' Hin).
+      lia.
+Qed.
+
+Lemma max_l_spec l : forall n, In n l -> n <= max_l l.
+Proof.
+  set (P := fun (s : list Z) (acc : Z) =>
+    forall n, In n s -> n <= acc).
+  enough (P l (max_l l)).
+  { apply H. } 
+  unfold max_l.
+  apply fold_ind; unfold P in *; clear P.
+  - intros n Hin. destruct Hin.
+  - intros n acc s. intros IH.
+    intros n'. intros [Hnn' | Hin].
+    + subst. lia.
+    + specialize (IH n' Hin).
+      lia.
+Qed.
+
+Open Scope N_scope.
+Definition Cumulative (constraint : CumulativeConstraint) (a : string -> Z) : Prop :=
+  let activities := activity_list constraint a in
+  forall t,
+    usage_sum (activities_at_t activities t) <= constraint.(capacity).
+
+
 Open Scope N_scope.
 Definition cumulative_decide (constraint : CumulativeConstraint) (a : string -> Z) : bool :=
-  let c_activities := activity_list constraint a in
+  let activities := activity_list constraint a in
+  let t_min := min_l (starts activities) in
+  let t_max := max_l (ends activities) in
   forallb 
     (fun t => 
-      usage_sum (activities_at_t c_activities t) <=? constraint.(capacity)
+      usage_sum (activities_at_t activities t) <=? constraint.(capacity)
     )
-    (ZRange.build_range constraint.(horizon_start) constraint.(horizon_end))
+    (ZRange.build_range t_min t_max)
 .
 
+(* From Coq 9.0 *)
+Lemma filter_false {A} l : filter (fun _ : A => false) l = nil.
+Proof. induction l; cbn [filter]; congruence. Qed.
+
+Open Scope Z_scope.
+Lemma cumulative_decides :
+  forall c a,
+    reflect (Cumulative c a) (cumulative_decide c a).
+Proof.
+  intros c a.
+  destruct (cumulative_decide c a) eqn:Hdec.
+  - apply ReflectT. 
+    unfold Cumulative.
+    remember (activity_list c a) as acts.
+    assert (forall t, t < min_l (starts acts) -> activities_at_t (activity_list c a) t = nil) as Ht_min.
+    {
+      intros t Htmin.
+      unfold activities_at_t; rewrite <- Heqacts.
+      rewrite <- filter_false with (l := acts).
+      apply filter_ext_in.
+      intros act Hin.
+      unfold is_active_at.
+      enough (t < start act) by lia.
+      enough (min_l (starts acts) <= start act) by lia.
+      apply min_l_spec.
+      unfold starts. rewrite in_map_iff.
+      now exists act.
+    }
+    assert (forall t, t > max_l (ends acts) -> activities_at_t (activity_list c a) t = nil) as Ht_max.
+    {
+      intros t Htmin.
+      unfold activities_at_t; rewrite <- Heqacts.
+      rewrite <- filter_false with (l := acts).
+      apply filter_ext_in.
+      intros act Hin.
+      unfold is_active_at.
+      enough (t >= start act + Z.of_N (p_time act)) by lia.
+      enough (start act + Z.of_N (p_time act) - 1 <= max_l (ends acts)) by lia.
+      apply max_l_spec.
+      unfold ends. rewrite in_map_iff.
+      now exists act.
+    }
+    intros t.
+    destruct (t <? min_l (starts acts)) eqn:Ht_small.
+    { 
+      rewrite <- Heqacts in *; clear Heqacts Hdec.
+      rewrite Ht_min.
+      - unfold usage_sum, xn_sum, n_sum. simpl. lia.
+      - lia.
+    }
+    destruct (t >? max_l (ends acts)) eqn:Ht_large.
+    { 
+      rewrite <- Heqacts in *; clear Heqacts Hdec.
+      rewrite Ht_max.
+      - unfold usage_sum, xn_sum, n_sum. simpl. lia.
+      - lia.
+    }
+    clear Ht_min Ht_max.
+    unfold cumulative_decide in Hdec.
+    rewrite <- Heqacts in *.
+    rewrite forallb_forall in Hdec.
+    rewrite <- N.leb_le.
+    apply Hdec.
+    rewrite ZRange.is_range_In.
+    + assert (min_l (starts acts) <= t <= max_l (ends acts)) by lia.
+      apply H.
+    + apply ZRange.build_range_correct.
+      destruct acts as [| act acts].
+      * unfold min_l, max_l. simpl. reflexivity.
+      * unfold starts, ends, min_l, max_l. simpl. 
+        specialize c.(valid_p_times) as Hp.
+        assert (p_time act >= 1)%N.
+        { enough (def_p (a_def_from_activity act) >= 1)%N.
+          - destruct act. simpl in H. simpl. exact H.
+          - apply Hp.
+            apply a_def_in_if with (a := a).
+            rewrite <- Heqacts.
+            now left.
+        }
+       lia.
+  - apply ReflectF. 
+    intros Hcumul.
+    unfold cumulative_decide in Hdec.
+    rewrite <- not_true_iff_false in Hdec.
+    rewrite forallb_forall in Hdec.
+    apply Hdec; clear Hdec.
+    intros t. intros Htin; clear Htin.
+    rewrite N.leb_le.
+    apply Hcumul.
+Qed.
+
+(* This is not the right place for this, probably also there are some better ways to do this. *)
+
+Lemma reflect_neg_iff (P : Prop) (b : bool) :
+  reflect P b -> (~ P <-> b = false).
+Proof.
+  intros R; destruct R; split; cbv; congruence.
+Qed.
+
+Ltac reflect_rewrite_base R loc is_goal :=
+  match type of R with
+  | reflect ?P ?P_dec =>
+    let Rtrue := fresh in
+    let Rfalse := fresh in
+    specialize (reflect_iff P P_dec R) as Rtrue;
+    specialize (reflect_neg_iff P P_dec R) as Rfalse;
+    match is_goal with
+    | false =>
+      first [ rewrite Rtrue in loc
+        | rewrite <- Rtrue in loc
+        | rewrite Rfalse in loc
+        | rewrite <- Rfalse in loc ]
+    | true =>
+      first [ rewrite Rtrue
+        | rewrite <- Rtrue
+        | rewrite Rfalse
+        | rewrite <- Rfalse ]
+    end;
+    clear Rtrue Rfalse
+  | _ => fail "Argument should be reflect lemma!"
+  end.
+
+Ltac reflect_rewrite R := reflect_rewrite_base R True true.
+ 
+Tactic Notation "reflect_rewrite" constr(R) :=
+  reflect_rewrite R.
+
+Tactic Notation "reflect_rewrite" constr(R) "in" hyp(H) :=
+  reflect_rewrite_base R H false.

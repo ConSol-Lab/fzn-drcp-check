@@ -384,10 +384,10 @@ Definition apply_holes (dom : Domain) :=
     | None => None
     | Some ub => Some (apply_holes_side (rev holes_list) ub false)
     end in
-  (* We now again remove useless holes after checking that the new bounds haven't it clear the domain is infeasible. *)
+  (* We now again remove useless holes after checking that the new bounds haven't made it clear the domain is infeasible. *)
   option_map tighten_holes (check_current_bound (mkDom new_lb new_ub dom.(d_holes))).
 
-(** Tactic to destruct a <= somewhere in the goal. *)
+(** Tactic to destruct a '<=' somewhere in the goal. *)
 Ltac destruct_leb :=
   match goal with
   | [ |- context[?a <=? ?b] ] =>
@@ -794,7 +794,7 @@ Proof.
   reflexivity.
 Qed.
 
-(** This is a very useful, as it allows rewriting inside of a dom_equiv that contains an apply_atomics if we know the initial domain given to apply_atomics is equivalent to some other domain! Lots of proofs would be made very tedious without it. *)
+(** This is very useful, as it allows rewriting inside of a dom_equiv that contains an apply_atomics if we know the initial domain given to apply_atomics is equivalent to some other domain! Lots of proofs would be made very tedious without it. *)
 #[export] Instance apply_atomics_proper : 
   Morphisms.Proper (Morphisms.respectful eq (Morphisms.respectful dom_equiv dom_equiv)) apply_atomics.
 Proof.

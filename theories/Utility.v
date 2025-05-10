@@ -13,6 +13,7 @@ Require Coq.MSets.MSetAVL.
 Require Coq.MSets.MSetProperties.
 Require MMaps.Interface.
 Require MMaps.RBT.
+Require Program.Wf.
 
 Module Tactics.
   Import Bool.
@@ -594,6 +595,21 @@ Proof.
   - exact Hkeq.
 Qed.
 
+(* There is a way to get rid of decA requirement, that requires the partition filter lemma that I'm not yet able to prove easily. *)
+Lemma nodup_map_filter :
+  forall A B (l : list A) (f_b : A -> B) (pred : A -> bool) (decA : forall (x y : A), {x = y} + {x <> y}) (decB : forall (x y : B), {x = y} + {x <> y}),
+    NoDup (map f_b l)
+      ->
+    NoDup (map f_b (filter pred l)).
+Proof.
+  intros A B l f_b pred.
+  intros decA decB Hnodupb.
+  apply nodup_sublist with (eq_dec := decB) (l2 := map f_b l).
+  - exact Hnodupb.
+  - apply sub_list_map with (eq_dec_a := decA).
+    apply filter_sublist.
+Qed.
+
 Fixpoint map_valid {A B} (f : A -> option B) (l : list A) (acc : list B) : list B :=
   match l with
   | nil => acc
@@ -703,6 +719,64 @@ Proof.
     + intros Hfalse. exfalso. apply Hfalse. reflexivity.
 Qed.
 
+(* Slightly more convenient statement... *)
+Lemma map_valid_spec {A B} (f : A -> option B) r l (d : B) :
+    r = map_valid f l nil
+      ->
+    r <> nil
+      ->
+    r = rev (map (option_map_default f d) l)
+      /\
+    (forall a, In a l ->
+      match f a with
+      | None => False
+      | Some _ => True
+      end 
+    ).
+Proof.
+  intros Hr Hnnil.
+  split.
+  - rewrite Hr in Hnnil.
+    apply map_valid_as_map with (d := d) in Hnnil.
+    rewrite Hr.
+    rewrite Hnnil. rewrite app_nil_r. reflexivity.
+  - apply map_valid_all_some with (acc := nil).
+    rewrite <- Hr. exact Hnnil.
+Qed.
+
+Lemma map_valid_nil_ex_none :
+  forall A B (f : A -> option B) l acc,
+    l <> nil
+      ->
+    map_valid f l acc = nil
+      ->
+    exists a, In a l /\ f a = None.
+Proof.
+  intros A B f.
+  induction l.
+  - intros acc Hvalid. contradiction.
+  - intros acc. simpl.
+    destruct (f a) eqn:Hfa.
+    2: { intros. exists a. split; try assumption. left. reflexivity. }
+    destruct l as [| a' l].
+    { intros Ha. 
+      simpl. intros H; discriminate H. }
+    intros _.
+    assert (a' :: l <> nil) by easy.
+    simpl.
+    destruct (f a') as [b'|] eqn:Hfa'.
+    2: { intros _. exists a'. split; try assumption. right. left. reflexivity. }
+    intros Hnil.
+    specialize (IHl (b :: acc) H); clear H.
+    simpl in IHl. rewrite Hfa' in IHl.
+    specialize (IHl Hnil).
+    destruct IHl as (a_ & Ha_ & Hfa_).
+    exists a_.
+    split.
+    + right. exact Ha_.
+    + exact Hfa_.
+Qed.
+
 Fixpoint fold_left_error {Acc X} (f : Acc -> X -> option Acc) (xl : list X) (acc : Acc) : option Acc :=
   match xl with
   | nil => Some acc
@@ -760,7 +834,6 @@ Module NatEx.
   
 End NatEx.
 
-
 Module ZRange.
   Import ZArith.
   Import NArith.
@@ -798,7 +871,6 @@ Proof.
   apply Sorted_StronglySorted.
   - unfold Relations_1.Transitive.
     intros.
-    (* TODO: replace with the actual lemma *)
     lia.
   - exact H.
 Qed.
@@ -1239,6 +1311,29 @@ Proof.
         unfold is_succ. lia.
 Qed.
 
+Lemma build_range_size_s :
+  forall n z,
+  (n >= 1)%nat
+    ->
+  rev (build_range_size z (S n))
+  = z :: rev (build_range_size (z + 1) n).
+Proof.
+  induction n.
+  - intros z. lia.
+  - intros z _.
+    destruct n.
+    { simpl. reflexivity. }
+    specialize (IHn (z)).
+    repeat rewrite build_range_s in *.
+    assert (S n >= 1)%nat as Hsn1 by lia.
+    specialize (IHn Hsn1).
+    simpl in *.
+    rewrite IHn.
+    assert (z + Z.pos (Pos.succ (Pos.of_succ_nat n)) = z + 1 + Z.pos (Pos.of_succ_nat n)) by lia.
+    rewrite H.
+    reflexivity.
+Qed. 
+
 Lemma build_range_correct : 
   forall s e,
       s <= e
@@ -1284,22 +1379,201 @@ Proof.
   - apply list_helper_correct.
 Qed. *)
 
-Open Scope nat_scope.
-Fixpoint has_n_true (n : nat) (l : list bool) (current : nat) : bool :=
-  if (n <=? current)
-    then true
-    else
-      match l with
-      | nil => false
-      | b :: l' =>
-        if b
-          then has_n_true n l' (S current) 
-          else has_n_true n l' 0 
-      end
-.
-
 
 End ZRange.
+
+Module ZRange2.
+  Import ZArith.
+  Import NArith.
+  Import List.
+  Import Lia.
+  Import Sorted.
+
+  Open Scope Z_scope.
+  
+  Fixpoint range_rec (s : Z) (e : Z) (n : nat) (acc : list Z) : list Z :=
+    match n with
+    | O => acc
+    | S n' => range_rec s (e - 1) n' (e :: acc)
+    end.
+
+   Definition nth_z {A} (n : Z) (l : list A) (l_start : Z) (d : A) :=
+    if (n >=? l_start) 
+      then nth (Z.to_nat (n - l_start)) l d
+      else d.
+
+  Lemma nth_z_spec {A} (l : list A) (s : Z) (d : A) (n : Z) :
+    s <= n
+      ->
+    nth_z n l s d = nth (Z.to_nat (n - s)) l d.
+  Proof.
+    intros Hn.
+    unfold nth_z.
+    destruct (n >=? s) eqn:Hns; try lia. reflexivity.
+  Qed.
+
+  Definition shift_z (z : Z) (n : nat) :=
+    Z.of_nat n + z. 
+
+  Lemma range_rec_S :
+    forall s n acc,
+      range_rec s (s + Z.of_nat n) (S n) acc 
+        =
+      s :: range_rec (s + 1) (s + Z.of_nat n) n acc.
+  Proof.
+    intros s. induction n.
+    - simpl. intros acc. assert (s + 0 = s) by lia.
+      rewrite H. reflexivity.
+    - intros acc.
+      remember (Z.of_nat n) as nz.
+      replace (s + Z.of_nat (S n)) with (s + nz + 1) by lia.
+      simpl range_rec at 2.
+      replace (s + nz + 1 - 1) with (s + nz) by lia.
+      rewrite <- IHn.
+      simpl.
+      replace (s + nz + 1 - 1 - 1) with (s + nz - 1) by lia.
+      replace (s + nz + 1 - 1) with (s + nz) by lia.
+      reflexivity.
+  Qed.
+
+  Lemma range_rec_spec :
+    forall s n acc,
+      range_rec s (s + Z.of_nat n - 1) n acc = map (shift_z s) (seq 0 n) ++ acc.
+  Proof.
+    intros s. induction n.
+    - simpl. reflexivity.
+    - intros acc. 
+      remember (Z.of_nat n) as nz.
+      assert (s + Z.of_nat (S n) - 1 = s + nz) by lia.
+      rewrite H; clear H.
+      simpl range_rec.
+      rewrite IHn. clear IHn.
+      rewrite seq_S. rewrite map_app. simpl.
+      assert (shift_z s n = s + nz).
+      { unfold shift_z. lia. }
+      rewrite H.
+      clear.
+      remember (map (shift_z s) (seq 0 n)) as l;
+      clear n Heql.
+      remember (s + nz) as n; clear.
+      (* todo some list stuff *)
+  Admitted.
+ 
+  Definition range (s : Z) (e : Z) :=
+    range_rec s e (Z.to_nat (e - s + 1)) nil.
+
+  Lemma range_cons (s e : Z) :
+    s <= e
+      ->
+    range s e = s :: range (s + 1) e.
+  Proof.
+    intros Hse.
+    unfold range.
+    remember (Z.to_nat (e - s)) as i.
+    replace (Z.to_nat (e - (s + 1) + 1)) with i by lia.
+    replace (Z.to_nat (e - s + 1)) with (S i) by lia.
+    assert (e = s + Z.of_nat i) by lia.
+    rewrite H.
+    rewrite range_rec_S.
+    reflexivity.
+  Qed.
+  
+  Open Scope nat_scope.
+  Lemma map_nth_len_lt {A B} :
+    forall (f : A -> B) l n (d : A) (d' : B),
+      n < length l
+        ->
+      f (nth n l d) = nth n (map f l) d'.
+  Proof.
+    intros f l n d d'.
+    intros Hlen.
+    specialize ((nth_error_nth' l) n d Hlen) as Hnth_err.
+    pose proof Hlen as Hlen_map.
+    rewrite <- length_map with (f := f) in Hlen_map.
+    specialize ((nth_error_nth' (map f l)) n d' Hlen_map) as Hnth_err_map.
+    specialize (map_nth_error f n l Hnth_err) as Hmap_err.
+    rewrite Hmap_err in Hnth_err_map.
+    inversion Hnth_err_map as [H].
+    reflexivity.
+  Qed.
+
+  Open Scope Z_scope.
+
+  Lemma range_spec (s e : Z) (d : Z) :
+    forall n, 
+      s <= n <= e 
+        ->
+      nth_z n (range s e) s d = n.
+  Proof.
+    intros n Hn.
+    unfold nth_z.
+    destruct (n >=? s) eqn:Hns; try lia; clear Hns.
+    unfold range.
+    remember (Z.to_nat (e - s + 1)) as i.
+    assert (e = s + Z.of_nat i - 1) by lia.
+    rewrite H.
+    rewrite range_rec_spec.
+    rewrite app_nil_r.
+    rewrite <- map_nth_len_lt with (d := O).
+    - rewrite seq_nth.
+      + unfold shift_z. lia.
+      + lia.
+    - rewrite length_seq. lia.
+  Qed.
+
+  Lemma in_range (s e : Z) :
+    forall n,
+      s <= n <= e
+        <->
+      In n (range s e).
+  Proof.
+    intros n.
+    destruct (Z_le_gt_dec s e).
+    - unfold range. 
+      remember (Z.to_nat (e - s + 1)) as i.
+      assert (e = s + Z.of_nat i - 1) as He by lia.
+      rewrite He at 2.
+      rewrite range_rec_spec.
+      rewrite app_nil_r.
+      rewrite in_map_iff.
+      split; intros H.
+      + exists (Z.to_nat (n - s)).
+        split.
+        * unfold shift_z. lia.
+        * rewrite in_seq. lia.
+      + destruct H as (n' & Hshift & Hin).
+        unfold shift_z in Hshift.
+        rewrite in_seq in Hin.
+        lia.
+    - unfold range.
+      replace (Z.to_nat (e - s + 1)) with O by lia.
+      simpl. lia.
+  Qed. 
+
+  Lemma length_range :
+    forall s e,
+      length (range s e) = Z.to_nat (e - s + 1).
+  Proof.
+    intros s e.
+    destruct (Z_lt_ge_dec e s) as [Hes | Hes].
+    - unfold range.
+      assert (Z.to_nat (e - s + 1) = O) by lia.
+      rewrite H. simpl. reflexivity.
+    - unfold range.
+      remember (Z.to_nat (e - s + 1)) as i.
+      assert (e = s + Z.of_nat i - 1) by lia.
+      rewrite H.
+      rewrite range_rec_spec.
+      rewrite app_nil_r.
+      rewrite length_map.
+      rewrite length_seq.
+      reflexivity.
+  Qed.
+
+
+End ZRange2.
+
+
 
 Module Sets.
 
