@@ -925,7 +925,7 @@ Compute
       {| def_x := "y"; def_p := 3%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
@@ -946,7 +946,7 @@ Compute
       {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
@@ -966,7 +966,7 @@ Compute
       {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
@@ -986,7 +986,7 @@ Compute
       {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
@@ -1006,7 +1006,7 @@ Compute
       {| def_x := "y"; def_p := 1%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
@@ -1026,7 +1026,7 @@ Compute
       {| def_x := "y"; def_p := 2%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
@@ -1046,7 +1046,7 @@ Compute
       {| def_x := "y"; def_p := 2%N; def_u := 1%N; |} ::
       nil
     ) 
-    1%N Z0 20%N in
+    1%N in
   let fact := 
     {| 
       i_premises :=
