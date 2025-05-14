@@ -158,6 +158,14 @@ Definition apply_atomic (dom : Domain) (atomic : Atomic) :=
         else Some dom
   end.
 
+Definition decide_atomic (x : Z) (a : Atomic) :=
+  match a.(atm_cmp) with
+  | less_equal => x <=? a.(atm_val)
+  | greater_equal => x >=? a.(atm_val)
+  | equal => x =? a.(atm_val)
+  | not_equal => negb (x =? a.(atm_val))
+  end.
+
 Definition atomic_holds (x : Z) (a : Atomic) :=
   match a.(atm_cmp) with
   | less_equal => x <= a.(atm_val)
@@ -165,6 +173,22 @@ Definition atomic_holds (x : Z) (a : Atomic) :=
   | equal => x = a.(atm_val)
   | not_equal => x <> a.(atm_val)
   end.
+
+Lemma decide_atomic_prop : forall (x : Z) (a : Atomic),
+  decide_atomic x a = true <-> atomic_holds x a.
+Proof.
+  intros x a.
+  unfold decide_atomic, atomic_holds.
+  remember (atm_val a) as v.
+  destruct (atm_cmp a) ; intros.
+  - apply Z.leb_le.
+  - apply Z.geb_ge.
+  - apply Z.eqb_eq.
+  - split ; intros.
+    + apply negb_true_iff in H.
+      apply Z.eqb_neq, H.
+    + apply negb_true_iff, Z.eqb_neq, H.
+Qed.
 
 Definition negate_atomic (a : Atomic) :=
   match a with
