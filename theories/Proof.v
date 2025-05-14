@@ -1,12 +1,6 @@
-Require Import Checker.Atomic.
-(* Require Import Checker.Linear. *)
-Require Import Checker.DomainVar.
 Require Import Checker.Deduction.
 Require Import Checker.Cumulative.
 Require Import Checker.CumulativeCheck.
-(* Require Import Checker.AllDifferentCheck. *)
-Require Import Checker.Nogood.
-Require Import Checker.Variable.
 Require Import Checker.ConstraintProblem.
 Import Utility.Maps.
 Require Import Bool.
@@ -29,31 +23,20 @@ Inductive Step :=
   | nogood (fact : Deduction.Inference) (chain : list N).
 
 Definition step_fact (step : Step) :=
-match step with
+  match step with
   | inference fact _ _ => fact
-| nogood fact _ => fact
+  | nogood fact _ => fact
   end.
 
-Definition Proof := (list (N * Step))%type.
+Definition CPProof := (list (N * Step))%type.
 
 Definition validate_inference (fact : Deduction.Inference) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
-  (* | linear => *)
-  (*     match hint with *)
-  (*     | [linear_leq c] => linear_checker fact c *)
-  (*   | _ => false *)
-  (*     end *)
-  | cumulative =>
+   | cumulative =>
       match hint with
-| [cumulative_c c] => cumulative_checker fact c
+      | [cumulative_c c] => cumulative_checker fact c
       | _ => false
       end
-  (* | _ => false *)
-  (* | alldifferent => *)
-  (*   match hint with *)
-  (*   | [alldifferent_c c] => alldifferent_checker fact c *)
-  (*   | _ => false *)
-  (*   end *)
   end.
 
 Lemma validate_inference_soundness :
@@ -62,9 +45,9 @@ Lemma validate_inference_soundness :
   Is_true (validate_inference fact hint rule) -> 
   inference_valid sol fact.
 Proof.
-intros fact hint rule sol Hsat Hvalid.
+  intros fact hint rule sol Hsat Hvalid.
   unfold validate_inference in Hvalid.
-destruct rule; simpl in Hvalid.
+  destruct rule; simpl in Hvalid.
   (* - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy. *)
   (*   simpl in Hsat. *)
   (*   apply Is_true_eq_true, linear_inference_checker_correct in Hvalid. *)
@@ -77,7 +60,7 @@ destruct rule; simpl in Hvalid.
   (*   apply Hsat. *)
   (*   left. *)
   (*   reflexivity. *)
-- destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply checker_cumulative with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
@@ -180,7 +163,7 @@ Proof.
 Qed.
 
 
-Fixpoint validate_stateful (csp : ConstraintProblem) (p : Proof)
+Fixpoint validate_stateful (csp : ConstraintProblem) (p : CPProof)
   (stage_facts : list (N * Inference * list Constraint * InferenceRule)) :=
   match p with 
   | nil => true
@@ -243,10 +226,10 @@ Fixpoint validate_stateful (csp : ConstraintProblem) (p : Proof)
       validate_stateful csp p' ((step_index, fact, hint, rule) :: stage_facts)
   end.
 
-Definition validate (csp : ConstraintProblem) (p : Proof) := validate_stateful csp p nil.
+Definition validate (csp : ConstraintProblem) (p : CPProof) := validate_stateful csp p nil.
 
 
-Fixpoint conclusion (p : Proof) := 
+Fixpoint conclusion (p : CPProof) := 
   match p with
   | [] => None
   | [(_, nogood fact _)] => Some fact
@@ -273,7 +256,7 @@ Definition used_constraints_memory
   mem.
 
 Lemma nogood_stateful_soundness : forall
-  (csp : ConstraintProblem) (p : Proof) (fact : Deduction.Inference) chain index
+  (csp : ConstraintProblem) (p : CPProof) (fact : Deduction.Inference) chain index
   (mem : list (N * Inference * list Constraint * InferenceRule)),
   (forall (c : Constraint),
     In c (used_constraints_memory mem) ->
@@ -400,7 +383,7 @@ Proof.
 Qed.
 
 Theorem stateful_soundness : forall
-  (csp : ConstraintProblem) (p : Proof) (fact : Deduction.Inference)
+  (csp : ConstraintProblem) (p : CPProof) (fact : Deduction.Inference)
     (mem : list (N * Inference * list Constraint * InferenceRule)),
     conclusion p = Some fact ->
     (forall (c : Constraint),
@@ -517,7 +500,7 @@ Qed.
 
 
 Theorem soundness : forall
-  (csp : ConstraintProblem) (p : Proof) (fact : Deduction.Inference),
+  (csp : ConstraintProblem) (p : CPProof) (fact : Deduction.Inference),
     conclusion p = Some fact ->
     Is_true (validate csp p) ->
     conclusion_holds csp fact.
