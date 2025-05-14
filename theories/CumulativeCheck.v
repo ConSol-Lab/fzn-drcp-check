@@ -350,8 +350,6 @@ Fixpoint z_map {A B} (f : A -> Z -> B) (l : list A) (z : Z) :=
   | a :: l' => (f a z) :: z_map f l' (z + 1)
   end.
 
-Import Datatypes.
-
 Lemma z_map_as_map {A B} (f : A -> Z -> B) :
   forall l z,
     z_map f l z = map (fun p => f (fst p) (snd p)) (combine l (range z ((Z.of_nat (length l)) + z - 1))).
@@ -475,18 +473,69 @@ Definition can_schedule_activity_with_profile (bound : ActivityBound) (profile :
 
 Definition cannot_schedule_activity (capacity : N) (bounds : list ActivityBound) (bound : ActivityBound) :=
   let times := range bound.(b_lb) (bound.(b_ub) + Z.of_N (bound.(b_p_time)) - 1) in
-  match resource_profile capacity bounds times
-  with
+  match resource_profile capacity bounds times with
   | nil => true
   | profile => negb (can_schedule_activity_with_profile bound profile)
   end.
 
+Definition bounds_times (bounds : list ActivityBound) :=
+  let t_min := min_l (map b_lb bounds) in
+  let t_max := max_l (map b_ub bounds) in
+  (* We don't include the processing time because they will have been already conflicting at the latest start time *)
+  (t_min, t_max).
+
+Lemma bounds_times_le constr sol bounds :
+  valid_bounds bounds constr sol
+    ->
+  forall t_min t_max,
+  bounds_times bounds = (t_min, t_max)
+    ->
+  t_min <= t_max.
+Proof.
+  intros Hvalid. intros t_min t_max.
+  unfold bounds_times.
+  destruct bounds as [|bound bounds'].
+  - unfold min_l, max_l. simpl.
+    intros H. inversion H.
+    reflexivity.
+  - remember (bound :: bounds') as bounds.
+    assert (In bound bounds) as Hinbounds.
+    { subst bounds. left. reflexivity. }
+    specialize (Hvalid bound Hinbounds).
+    assert (In (b_lb bound) (map b_lb bounds)) as Hlb.
+    { subst bounds. left. reflexivity. }
+    assert (In (b_ub bound) (map b_ub bounds)) as Hub.
+    { subst bounds. left. reflexivity. }
+    apply min_l_spec in Hlb.
+    apply max_l_spec in Hub.
+    destruct Hvalid as [_ Hbounds].
+    clear -Hbounds Hlb Hub.
+    intros H; inversion H; subst; clear H.
+    lia.
+Qed.
+
+Definition resource_profile_full (capacity : N) (bounds : list ActivityBound) :=
+  let (t_min, t_max) := bounds_times bounds in
+  let times := range t_min t_max in
+  match resource_profile capacity bounds times with
+  | nil => true
+  | _ => false
+  end.
+
+(* Main possible improvements:
+  - Reuse the full resource profile for the cannot schedule
+  - Allow the use of 'hints' to be able to determine at what time there is a profile conflict, or what activity cannot be scheduled (requires changing the proof format) *)
 Definition cumulative_checker (fact : Deduction.Inference) (constraint : CumulativeConstraint) : bool :=
   match inferred_cumulative_bounds constraint fact with
   | (nil, _) => false
   | (bounds, Some prop_bound) =>
     cannot_schedule_activity (capacity constraint) bounds prop_bound
-  | (_, None) => false
+  | (bounds, None) =>
+    (* Try to find a mandatory conflict on the full time range *)
+    if resource_profile_full (capacity constraint) bounds
+      then true
+      (* Otherwise fallback and try all activities *)
+      else existsb (cannot_schedule_activity (capacity constraint) bounds) bounds
   end.
 
 Lemma nil_rev {A} :
@@ -820,20 +869,35 @@ Proof.
   apply inferred_cumulative_bounds_unique in Hbounds as Hunique.
   clear Hboundsnnil.
   intros Hvalid Hprop_bound.
+  reflect_rewrite (cumulative_decides constr sol) in Hcumul.
   destruct prop_bound_opt as [prop_bound|].
   {
     unfold valid_prop_bound in Hprop_bound.
     enough (cannot_schedule_activity (capacity constr) bounds prop_bound = false).
     { rewrite H in Hchecked. discriminate Hchecked. }
     apply cannot_schedule_activity_valid with (sol := sol).
-    - reflect_rewrite (cumulative_decides constr sol).
-      exact Hcumul.
+    - exact Hcumul.
     - exact Hunique.
     - exact Hvalid.
     - exact Hprop_bound.
   }
   {
-    discriminate Hchecked.
+    unfold resource_profile_full in Hchecked.
+    destruct (bounds_times bounds) as [t_min t_max] eqn:Htimes.
+    destruct resource_profile eqn:Hprofile.
+    + enough (resource_profile (capacity constr) bounds (range t_min t_max) <> nil).
+      { rewrite Hprofile in H. contradiction. }
+      apply resource_profile_contradiction with (sol := sol);
+      try assumption.
+      eapply bounds_times_le.
+      * exact Hvalid.
+      * exact Htimes.
+    + rewrite existsb_exists in Hchecked.
+      destruct Hchecked as (bound & Hinbounds & Hcannot).
+      enough (cannot_schedule_activity (capacity constr) bounds bound = false).
+      { rewrite H in Hcannot. discriminate Hcannot. }
+      apply cannot_schedule_activity_valid with (sol := sol);
+      assumption.
   }
 Qed.
 

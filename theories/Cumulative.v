@@ -8,6 +8,7 @@ Require Import Checker.Domain.
 Require Import Checker.Utility.
 Import Utility.ListEx.
 Import Utility.Sets.
+Import Utility.ListInd.
 
 Record ActivityDefine := mkActDef
   {
@@ -135,15 +136,11 @@ Proof.
     + simpl. apply IH.
 Qed.
 
-(* TODO: remove the horizon *)
 Record CumulativeConstraint :=
   {
     capacity: N;
     activities: list ActivityDefine;
-    horizon_start : Z;
-    horizon_end : Z;
     valid_p_times : forall a, In a activities -> (a.(def_p) >= 1)%N;
-    horizon_consistent : horizon_start <= horizon_end;
     acts_nodup : NoDup (map def_x activities)
   }.
 
@@ -152,17 +149,13 @@ Lemma is_horizon_consistent :
     h_start <= h_start + Z.of_N h_size.
 Proof. lia. Qed.
 
-Definition build_cumulative (activities_in : list ActivityDefine) (c : N) (h_start : Z) (h_size : N) : CumulativeConstraint :=
-  let h_end := h_start + Z.of_N h_size in
-    {|
-      capacity := c ;
-      activities := def_to_vs activities_in sstr.empty;
-      horizon_start := h_start ;
-      horizon_end := h_end ;
-      horizon_consistent := is_horizon_consistent h_start h_size ;
-      valid_p_times := (proj2 (def_to_vs_checks_correct activities_in sstr.empty));
-      acts_nodup := (proj1 (def_to_vs_checks_correct activities_in sstr.empty))
-    |}.
+Definition build_cumulative (activities_in : list ActivityDefine) (cap : N) : CumulativeConstraint :=
+  {|
+    capacity := cap ;
+    activities := def_to_vs activities_in sstr.empty;
+    valid_p_times := (proj2 (def_to_vs_checks_correct activities_in sstr.empty));
+    acts_nodup := (proj1 (def_to_vs_checks_correct activities_in sstr.empty))
+  |}.
 
 Record Activity := mkAct {
   a_name : string;
@@ -283,13 +276,12 @@ Definition starts (l : list Activity) :=
 Definition ends (l : list Activity) :=
   map (fun a => start a + (Z.of_N (p_time a)) - 1) l.
 
+
 Definition max_l (l : list Z) :=
   fold_right Z.max (hd 0 l) l.
 
 Definition min_l (l : list Z) :=
   fold_right Z.min (hd 0 l) l.
-
-Import Utility.ListInd.
 
 Lemma min_l_spec l : forall n, In n l -> min_l l <= n.
 Proof.
