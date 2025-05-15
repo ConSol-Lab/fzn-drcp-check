@@ -18,7 +18,8 @@ Require Checker.Utility.
 Import Utility.Maps.
 Import Utility.ListEx.
 Import Utility.Sets.
-Import Utility.ZRange2.
+Import Utility.ZRange.
+Import Utility.SubList.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
 Require Import Checker.Deduction.
@@ -182,9 +183,7 @@ Proof.
       assert (NoDup (map fst l)).
       { subst l. apply nodup_bindings_keys. }
       apply nodup_map_filter.
-      * repeat decide equality.
-      * exact String.string_dec.
-      * exact H.
+      exact H.
     + intros [x a_opt].
       intros H.
       rewrite filter_In in H.
@@ -553,13 +552,13 @@ Lemma bounds_mandatory_t_sublist constr sol bounds :
   valid_bounds bounds constr sol
     ->
   forall t, 
-  sub_list xn_eq_dec (bounds_mandatory_t bounds t)
+  sublist (bounds_mandatory_t bounds t)
     (map act_to_xn
       (activities_at_t (activity_list constr sol)
         t)).
 Proof.
   intros Hunique Hvalid. intros t.
-  apply sub_list_if_in_nodup.
+  apply sublist_if_in_nodup.
   - intros [x u] Hin.
     rewrite in_map_iff.
     unfold bounds_mandatory_t in Hin.
@@ -588,9 +587,7 @@ Proof.
     apply NoDup_map_inv with (f := fst).
     apply nodup_key with (a_k := b_x).
     + apply nodup_map_filter.
-      * repeat decide equality.
-      * exact String.string_dec.
-      * exact Hunique. 
+      exact Hunique. 
     + intros act. unfold option_map_default, filter_f_option.
       rewrite filter_In.
       destruct activity_mandatory as [[x n]|] eqn:Hmand; try easy.

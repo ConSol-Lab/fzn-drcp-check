@@ -9,6 +9,7 @@ Require Import Checker.Utility.
 Import Utility.ListEx.
 Import Utility.Sets.
 Import Utility.ListInd.
+Import Utility.ZRange.
 
 Record ActivityDefine := mkActDef
   {
@@ -143,11 +144,6 @@ Record CumulativeConstraint :=
     valid_p_times : forall a, In a activities -> (a.(def_p) >= 1)%N;
     acts_nodup : NoDup (map def_x activities)
   }.
-
-Lemma is_horizon_consistent :
-  forall h_start h_size,
-    h_start <= h_start + Z.of_N h_size.
-Proof. lia. Qed.
 
 Definition build_cumulative (activities_in : list ActivityDefine) (cap : N) : CumulativeConstraint :=
   {|
@@ -331,7 +327,7 @@ Definition cumulative_decide (constraint : CumulativeConstraint) (a : string -> 
     (fun t => 
       usage_sum (activities_at_t activities t) <=? constraint.(capacity)
     )
-    (ZRange.build_range t_min t_max)
+    (range t_min t_max)
 .
 
 (* From Coq 9.0 *)
@@ -397,23 +393,8 @@ Proof.
     rewrite forallb_forall in Hdec.
     rewrite <- N.leb_le.
     apply Hdec.
-    rewrite ZRange.is_range_In.
-    + assert (min_l (starts acts) <= t <= max_l (ends acts)) by lia.
-      apply H.
-    + apply ZRange.build_range_correct.
-      destruct acts as [| act acts].
-      * unfold min_l, max_l. simpl. reflexivity.
-      * unfold starts, ends, min_l, max_l. simpl. 
-        specialize c.(valid_p_times) as Hp.
-        assert (p_time act >= 1)%N.
-        { enough (def_p (a_def_from_activity act) >= 1)%N.
-          - destruct act. simpl in H. simpl. exact H.
-          - apply Hp.
-            apply a_def_in_if with (a := a).
-            rewrite <- Heqacts.
-            now left.
-        }
-       lia.
+    rewrite <- in_range.
+    lia.
   - apply ReflectF. 
     intros Hcumul.
     unfold cumulative_decide in Hdec.

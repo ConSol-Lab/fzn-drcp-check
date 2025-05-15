@@ -2,6 +2,7 @@ Require Coq.NArith.NArith.
 Require Coq.Strings.String.
 Require Coq.Lists.List.
 Require Checker.Utility.
+Require Coq.Sorting.Permutation.
 Require Import Checker.Cumulative.
 Require Lia.
 
@@ -11,8 +12,9 @@ Module XNSum.
   Import List.
   Import Lia.
   Import Utility.ListEx.
-  Import Utility.NatEx.
+  Import Utility.SubList.
   Import String.
+  Import Permutation.
   
   Open Scope N_scope.
 
@@ -31,6 +33,18 @@ Module XNSum.
       lia.
   Qed.
 
+  Lemma n_sum_app :
+    forall l1 l2,
+      n_sum (l1 ++ l2) = n_sum l1 + n_sum l2.
+  Proof.
+    induction l1.
+    - intros l2. simpl. reflexivity.
+    - intros l2.
+      unfold n_sum. simpl.
+      setoid_rewrite n_sum_add.
+      rewrite IHl1. lia.
+  Qed. 
+
   Lemma n_sum_gt :
     forall l i n, In n l -> n_sum_rec l i >= n.
   Proof.
@@ -43,166 +57,46 @@ Module XNSum.
       + apply IHl in H.
         rewrite n_sum_add in *. lia.
   Qed.
-
-  Lemma xn_sum_remove_once :
-    forall l xn, In xn l -> xn_sum (remove_once xn_eq_dec xn l)  = xn_sum l - (snd xn).
+  
+  Lemma xn_sum_perm :
+    forall l l',
+      Permutation l l' -> xn_sum l = xn_sum l'.
   Proof.
-    induction l.
-    - intros a Hnil. destruct Hnil.
-    - intros a' Hin.
-      simpl.
-      destruct (xn_eq_dec a' a).
-      + subst a'.
-        
-        unfold xn_sum; unfold n_sum; simpl. repeat rewrite n_sum_add.  lia.
-      + simpl. 
-        assert (In a' l).
-        {
-        simpl in Hin. destruct Hin.
-        - symmetry in H. contradiction.
-        - exact H.
-        }
-        assert (In a' l) as Hainl by assumption.
-        apply IHl in H. unfold xn_sum in *; unfold n_sum in *; simpl in *. repeat rewrite n_sum_add in *. 
-        assert (n_sum (map snd (remove_once xn_eq_dec a' l)) = n_sum (map snd l) - snd a') as Husage_remove.
-        { lia. }
-        rewrite Husage_remove.
-        specialize (n_sum_gt (map snd l) N0 (snd a')) as Hgt.
-        assert (In (snd a') (map snd l)) as Hinlsnd.
-        {
-          rewrite in_map_iff. exists a'.
-          split; try assumption.
-          reflexivity.
-        }
-        apply Hgt in Hinlsnd.
-        clear Husage_remove; clear H; clear Hgt; clear n; clear IHl; clear Hin; clear Hainl.
-        rewrite n_sum_add in Hinlsnd.
-        lia.
+    induction l as [|xn l].
+    - intros l' H. apply Permutation_nil in H.
+      subst l'. reflexivity.
+    - intros l' Hperm.
+      assert (In xn l') as Hin'.
+      { apply Permutation_in with (l := (xn :: l)).
+        - exact Hperm.
+        - left. reflexivity. }
+      apply in_split in Hin'.
+      destruct Hin' as (l1 & l2 & Hl1l2); subst l'.
+      apply Permutation_cons_app_inv in Hperm.
+      apply IHl in Hperm; clear IHl.
+      revert Hperm.
+      unfold xn_sum.
+      repeat rewrite map_app.
+      repeat rewrite n_sum_app.
+      unfold n_sum. simpl. setoid_rewrite n_sum_add.
+      lia.
   Qed.
 
   Lemma xn_sum_sub_list :
-    forall l1 l2, sub_list xn_eq_dec l1 l2 -> xn_sum l1 <= xn_sum l2.
+    forall l1 l2, sublist l1 l2 -> xn_sum l1 <= xn_sum l2.
   Proof.
-    induction l1.
-    - intros l2 Hsub. unfold xn_sum; unfold n_sum. simpl. lia. 
-    - intros l2 Hsub.
-      assert (count_occ xn_eq_dec l2 a > 0)%nat as Hcounta.
-      {
-        unfold sub_list in Hsub.
-        specialize (Hsub a).
-        assert (In a (a :: l1)) as Hcounta.
-        { simpl; left; reflexivity. }
-        apply Hsub in Hcounta; clear Hsub.
-        simpl in *.
-        destruct (xn_eq_dec a a).
-        2: contradiction.
-        clear IHl1; clear e.
-        lia.
-      }
-      assert (sub_list xn_eq_dec l1 (remove_once xn_eq_dec a l2)).
-      {
-        clear IHl1.
-        unfold sub_list in *.
-        intros a' Hin.
-        assert (In a' (a :: l1)).
-        { simpl. right. exact Hin. }
-        apply Hsub in H; clear Hsub.
-        simpl in *.
-        destruct (xn_eq_dec a a').
-        - subst a'. 
-          rewrite <- remove_once_one_less_count.
-          apply S_lt.
-          rewrite S_pred_gt_0.
-          + exact H.
-          + exact Hcounta.
-        - rewrite <- remove_once_one_same_if_neq with (a := a).
-          + exact H.
-          + assumption.
-      }
-      apply IHl1 in H; clear IHl1.
-      assert (In a l2) as Hainl2.
-      { rewrite count_occ_In. exact Hcounta. }
-      rewrite xn_sum_remove_once in H; try assumption.
-      assert (In (snd a) (map snd l2)) as Hinl2snd.
-      {
-        rewrite in_map_iff. exists a.
-        split; try assumption.
-        reflexivity.
-      } 
-      specialize (n_sum_gt (map snd l2) N0 (snd a) Hinl2snd) as Husagegt.
-      unfold xn_sum in *; unfold n_sum in *.
-      simpl. repeat rewrite n_sum_add in *.
-      clear Hsub; clear Hcounta; clear Hainl2.
-      lia.
-  Qed.
-
-  Lemma xn_sum_sub_list_gtn :
-    forall l1 l2 n, sub_list xn_eq_dec l1 l2 -> xn_sum l1 > n -> xn_sum l2 > n.
-  Proof.
-    intros l1 l2 n.
-    intros Hsub Hl1n.
-    specialize (xn_sum_sub_list l1 l2 Hsub) as H.
+    intros l1 l2.
+    unfold sublist.
+    intros (diff & Hperm).
+    apply xn_sum_perm in Hperm.
+    rewrite <- Hperm.
+    unfold xn_sum. rewrite map_app. rewrite n_sum_app.
     lia.
-  Qed.
-
-  Lemma xn_sum_sub_list_gen :
-    forall l1 l2 n, sub_list xn_eq_dec l1 l2 -> xn_sum l1 >= n -> xn_sum l2 >= n.
-  Proof.
-    intros l1 l2 n.
-    intros Hsub Hl1n.
-    specialize (xn_sum_sub_list l1 l2 Hsub) as H.
-    lia.
-  Qed.
-
-  Lemma xn_sum_capacity_not_in :
-    forall l1 l2 n x xn, 
-      sub_list xn_eq_dec l1 l2
-        ->
-      xn_sum l2 <= n
-        ->
-      ~ (In (x, xn) l1)
-        ->
-      xn_sum l1 + xn > n
-        ->
-      (In (x, xn) l2)
-        ->
-      False.
-  Proof.
-    intros l1 l2 n x xn.
-    intros Hsub Hsum Hnotin Hgt Hinl2.
-    assert (sub_list xn_eq_dec ((x, xn) :: l1) l2).
-    {
-      unfold sub_list.
-      intros a.
-      intros Hain.
-      simpl.
-      destruct Hain.
-      - subst a.
-        unfold sub_list in Hsub.
-        destruct (xn_eq_dec (x, xn) (x, xn)) as [Heq | Hneq].
-        + clear Heq. rewrite (count_occ_In xn_eq_dec) in Hinl2.
-          rewrite (count_occ_not_In xn_eq_dec) in Hnotin.
-          rewrite Hnotin.
-          lia.
-        + contradiction.
-      - destruct (xn_eq_dec (x, xn) a) as [Heq | Hneq].
-        + subst a. contradiction.
-        + apply Hsub. exact H. 
-    }
-    apply xn_sum_sub_list_gtn with (n := n) in H.
-    + contradiction.
-    + clear Hsub; clear Hsum; clear Hnotin; clear Hinl2; clear H.
-      unfold xn_sum in *.
-      simpl in *.
-      unfold n_sum in *.
-      simpl in *.
-      rewrite n_sum_add in *.
-      lia.
   Qed.
 
   Lemma xn_sum_add_le :
     forall l1 l2 x xn, 
-      sub_list xn_eq_dec l1 l2
+      sublist l1 l2
         ->
       ~ (In (x, xn) l1)
         ->
@@ -211,18 +105,31 @@ Module XNSum.
       xn_sum l1 + xn <= xn_sum l2.
   Proof.
     intros l1 l2 x xn.
-    intros Hsub Hnin1 Hin2.
-    destruct (xn_sum l1 + xn <=? xn_sum l2) eqn:H.
-    { rewrite <- N.leb_le. assumption. }
-    exfalso.
-    eapply xn_sum_capacity_not_in.
-    - exact Hsub.
-    - instantiate (1 := xn_sum l2). reflexivity.
-    - exact Hnin1.
-    - rewrite <- not_true_iff_false in H.
-      rewrite N.leb_le in H.
+    unfold sublist.
+    intros (diff & Hperm).
+    apply xn_sum_perm in Hperm as Hl2sum.
+    rewrite <- Hl2sum.
+    unfold xn_sum.
+    rewrite map_app.
+    rewrite n_sum_app.
+    intros Hnin1 Hin2.
+    enough (xn <= n_sum (map snd diff)) by lia.
+    enough (In (x, xn) diff).
+    - apply in_split in H.
+      destruct H as (diff1 & diff2 & Hdiff).
+      clear -Hdiff.
+      subst diff.
+      rewrite map_app. simpl.
+      rewrite n_sum_app.
+      unfold n_sum. simpl.
+      setoid_rewrite n_sum_add.
       lia.
-    - exact Hin2.
+    - symmetry in Hperm.
+      apply Permutation_in with (x := (x, xn)) in Hperm.
+      + apply in_app_or in Hperm.
+        destruct Hperm as [Hinl1 | Hindiff]; try contradiction.
+        exact Hindiff.
+      + exact Hin2.
   Qed.
   
 End XNSum.

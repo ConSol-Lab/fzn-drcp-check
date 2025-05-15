@@ -906,8 +906,7 @@ Qed.
 
 (** This turns a domain representation into a set of integers. Of course this is only possible when the domain is bounded. This could be optimized by not using the range and just doing one pass and checking each time whether the next value is in holes *)
 Definition to_full_domain (lb : Z) (ub : Z) (holes : sint.t) : sint.t :=
-  let range := build_range lb ub in
-  let values := filter (fun y => negb (sint.mem y holes)) range in
+  let values := filter (fun y => negb (sint.mem y holes)) (range lb ub) in
     fold_left (fun acc y => sint.add y acc) values sint.empty
   .
 
@@ -924,14 +923,13 @@ Proof.
   unfold to_full_domain.
   remember (filter
     (fun y => negb (sint.mem y holes))
-    (build_range lb ub)) as values.
+    (range lb ub)) as values.
   assert (In n values <-> is_in_dom n (mkDom_bounded lb ub holes)).
   {
     subst values. unfold is_in_dom, mkDom_bounded.
     rewrite filter_In. rewrite negb_true_iff.
+    rewrite <- in_range.
     split; intros.
-    all: rewrite is_range_In with (s := lb) (e := ub) in *; try apply build_range_correct.
-    2: { destruct H as [Hin _]. apply build_range_In_bounds in Hin. assumption. }
     - destruct H as [Hbound Hmem]. 
       repeat split; try lia. 
       rewrite <- sint.mem_spec.
@@ -940,7 +938,6 @@ Proof.
       rewrite <- not_true_iff_false.
       rewrite sint.mem_spec.
       apply H. 
-    - lia.
   }
   rewrite <- H; clear Heqvalues H.
   rewrite <- fold_left_rev_right.
