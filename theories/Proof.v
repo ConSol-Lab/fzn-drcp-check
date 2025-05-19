@@ -191,7 +191,34 @@ Lemma hydrated_chain_lookup : forall
   In fact (hydrate_deduction_chain csp infs index_chain) ->
   (exists x, ConstraintProblem.lookup csp x = Some (fact_c fact)) \/
   (exists inf, In inf infs /\ inf.(iinf_fact) = fact).
-Admitted.
+Proof.
+  intros.
+  generalize dependent fact.
+  induction index_chain as [|index] ; try easy.
+  simpl.
+  intros fact Hin.
+  apply in_app_iff in Hin.
+  destruct Hin as [Hin_lookup | Hin_rec].
+  - destruct (lookup csp index) as [c|] eqn:Elookup ;
+    try destruct c ;
+    try (
+      right ;
+      apply in_map_iff in Hin_lookup ;
+      destruct Hin_lookup as [inf [Efact Hin_fact]] ;
+      exists inf ;
+      split ;
+      try easy ;
+      apply filter_In in Hin_fact ;
+      destruct Hin_fact as [Hin_fact _] ;
+      exact Hin_fact 
+    ).
+    left.
+    exists index.
+    inversion Hin_lookup ; try easy.
+    rewrite <- H, Elookup.
+    reflexivity.
+  - apply IHindex_chain, Hin_rec.
+Qed.
 
 
 Definition hydrate_inference (csp : ConstraintProblem) (inf : IndexedInference) : HydratedInference :=
