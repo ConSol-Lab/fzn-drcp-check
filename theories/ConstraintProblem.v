@@ -1,4 +1,3 @@
-(* Require Import Checker.Variable. *)
 Require Import Checker.Atomic.
 (* Require Import Checker.Linear. *)
 Require Checker.Cumulative.
@@ -18,33 +17,6 @@ Inductive Constraint :=
   | fact_c (constraint : Deduction.Inference)
   (* | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
-
-Definition affected_variables (c : Constraint) :=
-  match c with
-  (* | linear_leq lin => *)
-  (*     map (fun x => *)
-  (*       match x with *)
-(*       | (_, v) => v *)
-  (*       end *)
-  (*     ) (terms lin) *)
-  | cumulative_c c => 
-      map (Cumulative.def_x) (Cumulative.activities c)
-  | fact_c c =>
-      let unpack_var := fun (x : DomainVar.BoundAtomic) =>
-        match x with
-        | (v, _) => v
-        end
-      in
-      let lits :=
-        match (Deduction.i_consequent c) with
-        | Some x => x :: (Deduction.i_premises c)
-        | None => (Deduction.i_premises c)
-        end
-      in
-      map unpack_var lits
-  (* | alldifferent_c c => *)
-  (*   AllDifferent.get_vars c *)
-  end.
 
 Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
   match c with
