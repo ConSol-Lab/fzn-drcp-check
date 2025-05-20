@@ -1,5 +1,4 @@
 
-Require Import Coq.Logic.FinFun.
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
 Require Import String.
@@ -23,6 +22,7 @@ Import Utility.SubList.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
 Require Import Checker.Deduction.
+Import Datatypes.
 
 Record ActivityBound := mkBound {
   b_x : string;
@@ -83,10 +83,7 @@ Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : De
   end.
 
 Definition bound_to_act (sol : string -> Z) (bound : ActivityBound) :=
-  match bound with
-  | mkBound x _ _ p u =>
-    mkAct x (sol x) p u
-  end.
+  mkAct (b_x bound) (sol (b_x bound)) (b_p_time bound) (b_usage bound).
 
 Lemma act_bound_p_ge_1 constr sol :
   forall bound,
@@ -314,12 +311,10 @@ Proof.
 Qed.
 
 Definition activity_mandatory (t : Z) (bound : ActivityBound) : option (string * N) :=
-  match bound with
-  | mkBound x lb ub p u =>
-    if mandatory_active lb ub p t
-      then Some (x, u)
-      else None
-  end.
+  if mandatory_active (b_lb bound) (b_ub bound) (b_p_time bound) t
+    then Some (b_x bound, b_usage bound)
+    else None
+  .
 
 Definition bounds_mandatory_t (bounds : list ActivityBound) (t : Z) := flat_map_option (activity_mandatory t) bounds.
 
@@ -332,16 +327,13 @@ Definition resource_profile_t (capacity : N) (bounds : list ActivityBound) (t : 
     then None
     else Some (capacity - mand_usage)%N.
 
+(* resource_profile expects times in reverse order *)
 Definition resource_profile (capacity : N) (bounds : list ActivityBound) (times : list Z) : list N :=
-  (* TODO: see if we can get rid of this rev... *)
-  rev (map_valid (resource_profile_t capacity bounds) times nil).
+  map_valid (resource_profile_t capacity bounds) times nil.
 
-Definition check_can_be_active (act_bound : ActivityBound) (usage_left_t : N) (t : Z) : bool :=
-  match act_bound with
-  | mkBound _ lb ub p u =>
-    if mandatory_active lb ub p t then true else 
-      (u <=? usage_left_t)%N
-  end.
+Definition check_can_be_active (bound : ActivityBound) (usage_left_t : N) (t : Z) : bool :=
+  if mandatory_active (b_lb bound) (b_ub bound) (b_p_time bound) t then true else 
+    (b_usage bound <=? usage_left_t)%N.
 
 Fixpoint z_map {A B} (f : A -> Z -> B) (l : list A) (z : Z) :=
   match l with
@@ -471,7 +463,7 @@ Definition can_schedule_activity_with_profile (bound : ActivityBound) (profile :
   has_n_true (N.to_nat bound.(b_p_time)) (profile_to_active_list bound profile).
 
 Definition cannot_schedule_activity (capacity : N) (bounds : list ActivityBound) (bound : ActivityBound) :=
-  let times := range bound.(b_lb) (bound.(b_ub) + Z.of_N (bound.(b_p_time)) - 1) in
+  let times := range_rev bound.(b_lb) (bound.(b_ub) + Z.of_N (bound.(b_p_time)) - 1) in
   match resource_profile capacity bounds times with
   | nil => true
   | profile => negb (can_schedule_activity_with_profile bound profile)
@@ -527,14 +519,18 @@ Definition resource_profile_full (capacity : N) (bounds : list ActivityBound) :=
 Definition cumulative_checker (fact : Deduction.Inference) (constraint : CumulativeConstraint) : bool :=
   match inferred_cumulative_bounds constraint fact with
   | (nil, _) => false
-  | (bounds, Some prop_bound) =>
-    cannot_schedule_activity (capacity constraint) bounds prop_bound
-  | (bounds, None) =>
-    (* Try to find a mandatory conflict on the full time range *)
-    if resource_profile_full (capacity constraint) bounds
-      then true
-      (* Otherwise fallback and try all activities *)
-      else existsb (cannot_schedule_activity (capacity constraint) bounds) bounds
+  | (bounds, rhs_bound) =>
+    (* First try if we cannot schedule the activity from the rhs *)
+    let cannot_schedule_rhs :=
+      match rhs_bound with
+      | Some rhs_bound => cannot_schedule_activity (capacity constraint) bounds rhs_bound
+      | None => false
+      end in
+    if cannot_schedule_rhs then true
+    (* Then try to find a time conflict on the full profile *)
+    else if resource_profile_full (capacity constraint) bounds then true
+    (* Otherwise fallback and try all activities *)
+    else existsb (cannot_schedule_activity (capacity constraint) bounds) bounds
   end.
 
 Lemma nil_rev {A} :
@@ -573,13 +569,12 @@ Proof.
     setoid_rewrite and_comm at 2.
     rewrite and_assoc.
     split; try exact Hin.
-    destruct bound as [x' lb ub p u'].
+    destruct bound as [x' lb ub p u']; simpl in *.
     destruct mandatory_active eqn:Hactive; try easy.
     inversion Hmand; subst; clear Hmand.
     split.
     + unfold act_to_xn. reflexivity.
-    + simpl in *.
-      eapply mandatory_active_is_active.
+    + eapply mandatory_active_is_active.
       * exact Hlbub.
       * exact Hactive.
   - unfold bounds_mandatory_t.
@@ -593,7 +588,7 @@ Proof.
       destruct activity_mandatory as [[x n]|] eqn:Hmand; try easy.
       intros [Hin _].
       unfold activity_mandatory in Hmand.
-      destruct act; destruct mandatory_active; try easy.
+      destruct act; destruct mandatory_active; try easy; simpl in *.
       inversion Hmand; subst; reflexivity.
 Qed.
   
@@ -604,18 +599,17 @@ Lemma resource_profile_contradiction constr sol bounds :
     ->
   valid_bounds bounds constr sol
     -> 
-  forall p_start p_end,
-    p_start <= p_end
+  forall times,
+    times <> nil
       ->
-    resource_profile (capacity constr) bounds (range p_start p_end) <> nil.
+    resource_profile (capacity constr) bounds times <> nil.
 Proof.
   intros Hcumul Hunique Hvalid.
-  intros p_start p_end Hstartend.
+  intros times Htimesnnil.
   unfold resource_profile.
   intros Hmap_valid.
-  rewrite nil_rev in Hmap_valid.
   apply map_valid_nil_ex_none in Hmap_valid.
-  2: { now rewrite range_cons. }
+  2: { assumption. }
   destruct Hmap_valid as (t & Ht_in & Hprofile).
   unfold resource_profile_t in Hprofile.
   destruct (capacity constr <? bounds_mandatory_usage_t bounds t)%N eqn:Hcap.
@@ -629,48 +623,14 @@ Proof.
   apply bounds_mandatory_t_sublist; assumption.
 Qed.
 
-Open Scope nat_scope.
-Lemma unique_determines (bounds : list ActivityBound) :
-  unique_bounds bounds
-    ->
-  forall bound bound',
-    In bound bounds
+Definition valid_profile capacity bounds (profile : list N) (t_min t_max : Z) :=
+  length profile = Z.to_nat (t_max - t_min + 1)
+    /\
+  forall t,
+    t_min <= t <= t_max
       ->
-    In bound' bounds
-      ->
-    b_x bound = b_x bound'
-      ->
-    bound = bound'.
-Proof.
-  intros Hunique bound bound' Hin Hin' Hx_eq.
-  assert (forall (x y : ActivityBound), {x = y} + {x <> y}) by repeat decide equality.
-  destruct (H bound bound') as [Heq | Hneq].
-  { exact Heq. }
-  exfalso.
-  unfold unique_bounds in Hunique.
-  apply in_split in Hin.
-  destruct Hin as (l1 & l2 & Hbounds).
-  rewrite Hbounds in Hin'.
-  rewrite Hbounds in Hunique.
-  rewrite map_app in Hunique; simpl in Hunique.
-  apply NoDup_remove in Hunique.
-  assert (In bound' l1 \/ In bound' l2) as Hboundl1l2.
-  { rewrite in_app_iff in Hin'.
-    destruct Hin' as [Hin' | Hin'].
-    - left; assumption.
-    - right. now destruct Hin'. }
-  destruct Hunique as [_ Hnin].
-  apply Hnin.
-  rewrite in_app_iff.
-  destruct Hboundl1l2 as [Hin1 | Hin2].
-  - left. rewrite in_map_iff.
-    now exists bound'.
-  - right. rewrite in_map_iff.
-    now exists bound'.
-Qed.
+    Some (nth_z t profile t_min N0) = resource_profile_t capacity bounds t.
 
-
-Open Scope Z_scope.
 Lemma can_schedule_activity_with_profile_valid constr sol bounds :
   Cumulative constr sol
     ->
@@ -681,19 +641,13 @@ Lemma can_schedule_activity_with_profile_valid constr sol bounds :
   forall bound profile,
     In bound bounds
       ->
-    length profile = Z.to_nat (b_ub bound + Z.of_N (b_p_time bound) - b_lb bound)
-      ->
-    (forall t,
-      b_lb bound <= t < b_ub bound + Z.of_N (b_p_time bound)
-        ->
-      Some (nth_z t profile (b_lb bound) N0) = resource_profile_t (capacity constr) bounds t
-    )
+    valid_profile (capacity constr) bounds profile (b_lb bound) (b_ub bound + Z.of_N (b_p_time bound) - 1) 
       ->
     can_schedule_activity_with_profile bound profile = true.
 Proof.
   intros Hcumul Hunique Hvalid.
   intros bound profile Hinbounds.
-  intros Hprofile_len Hprofile_valid.
+  intros Hprofile_valid.
   unfold can_schedule_activity_with_profile.
   apply exists_run_then_n_true.
   remember (sol (b_x bound)) as start.
@@ -704,67 +658,118 @@ Proof.
     lia. } 
   exists (Z.to_nat (start - b_lb bound)).
   unfold profile_to_active_list.
+  destruct Hprofile_valid as [Hprofile_len Hprofile_valid].
   apply run_at_z_map with (d := N0).
-  - lia.
+  - rewrite Hprofile_len. lia.
   - clear Hprofile_len.
     intros t t_usage.
     intros Ht'.
     assert (start <= t < start + Z.of_N (b_p_time bound)) as Ht by lia; clear Ht'.
-    assert (b_lb bound <= t < b_ub bound + Z.of_N (b_p_time bound)) as Htbounds by lia.
+    assert (b_lb bound <= t <= b_ub bound + Z.of_N (b_p_time bound) - 1) as Htbounds by lia.
     specialize (Hprofile_valid t Htbounds); clear Htbounds.
     intros Htusage.
     rewrite Htusage in Hprofile_valid; clear Htusage.
     unfold resource_profile_t in Hprofile_valid.
     destruct (capacity constr <? bounds_mandatory_usage_t bounds t)%N eqn:Hcapbounds; try discriminate Hprofile_valid.
     inversion Hprofile_valid; subst t_usage; clear Hprofile_valid.
-    pose proof Hvalid as Hvalid'.
     unfold check_can_be_active.
-    destruct bound as [x lb ub p u]; simpl in *.
     subst start.
-    destruct (mandatory_active lb ub p t) eqn:Hmand.
+    destruct mandatory_active eqn:Hmand.
     { reflexivity. }
     rewrite <- not_true_iff_false in Hcapbounds.
     rewrite N.ltb_lt in Hcapbounds.
     assert (bounds_mandatory_usage_t bounds t <= capacity constr)%N by lia; clear Hcapbounds.
     rewrite N.leb_le.
-    enough (bounds_mandatory_usage_t bounds t + u <= capacity constr)%N by lia.
+    enough (bounds_mandatory_usage_t bounds t + (b_usage bound) <= capacity constr)%N by lia.
     specialize (Hcumul t).
-    enough (bounds_mandatory_usage_t bounds t + u <= usage_sum (activities_at_t (activity_list constr sol) t))%N by lia.
+    enough (bounds_mandatory_usage_t bounds t + (b_usage bound) <= usage_sum (activities_at_t (activity_list constr sol) t))%N by lia.
+    clear H0 Hcumul H.
     unfold bounds_mandatory_usage_t, usage_sum.
-    apply xn_sum_add_le with (x := x).
+    apply xn_sum_add_le with (x := (b_x bound)).
     + apply bounds_mandatory_t_sublist; assumption.
-    + unfold bounds_mandatory_t.
+    + clear -Hunique Hinbounds Hmand.
+      unfold bounds_mandatory_t.
       rewrite in_flat_map_option.
-      intros (bound' & Hin & Hmandatory).
-      remember (mkBound x lb ub p u) as bound.
-      assert (b_x bound = b_x bound') as Hbxbx'.
-      { unfold activity_mandatory in Hmandatory.
-        destruct bound'. destruct mandatory_active in Hmandatory; try discriminate Hmandatory.
-        inversion Hmandatory. subst. reflexivity. }
-      specialize (unique_determines bounds Hunique bound bound' Hinbounds Hin Hbxbx') as Hbb'.
-      subst bound'.
-      enough (mandatory_active lb ub p t = true) as Htrue.
-      { rewrite Htrue in Hmand. discriminate Hmand. }
-      clear Hmand.
-      unfold activity_mandatory in Hmandatory.
-      rewrite Heqbound in Hmandatory.
-      destruct mandatory_active eqn:Hmand in Hmandatory.
-      * exact Hmand.
-      * discriminate Hmandatory. 
+      unfold activity_mandatory.
+      intros (bound' & Hin' & Hdef').
+      destruct mandatory_active eqn:Hmand' in Hdef'; try discriminate.
+      inversion Hdef'; clear H1; rename H0 into Hx;
+      clear Hdef'.
+      apply nodup_map with (l := bounds) in Hx;
+      try assumption.
+      subst bound'. rewrite Hmand' in Hmand.
+      discriminate Hmand.
     + rewrite in_map_iff.
-      remember (mkBound x lb ub p u) as bound.
-      specialize (Hvalid' bound Hinbounds) as Hbound.
-      exists (mkAct x (sol x) p u).
+      specialize (Hvalid bound Hinbounds) as Hbound.
+      exists (bound_to_act sol bound).
       split.
       * reflexivity.
       * unfold activities_at_t.
         rewrite filter_In.
-        subst bound. unfold bound_to_act in Hbound; simpl in *.
-        split; try easy.
-        unfold is_active_at.
+        split; try apply Hbound.
+        unfold is_active_at, bound_to_act; simpl.
         lia.
 Qed.
 
+Lemma resource_profile_valid constr sol bounds :
+  Cumulative constr sol
+    ->
+  unique_bounds bounds
+    ->
+  valid_bounds bounds constr sol
+    ->
+  forall profile t_min t_max,
+    profile = resource_profile (capacity constr) bounds (range_rev t_min t_max)
+      ->
+    profile <> nil
+      ->
+    valid_profile (capacity constr) bounds profile t_min t_max.
+Proof.
+  intros Hcumul Hunique Hvalid.
+  intros profile t_min t_max Hprofile Hprofilennil.
+  destruct (Z_gt_le_dec t_min t_max) as [Hgt | Hle].
+  - subst profile; unfold range_rev.
+    assert (Z.to_nat (t_max - t_min + 1) = O) by lia.
+    rewrite H. simpl.
+    split.
+    + simpl. lia.
+    + intros t Ht. lia.
+  - unfold resource_profile in Hprofile.
+    apply map_valid_spec with (d := N0) in Hprofile as [Hprofile Hsome]; try assumption; clear Hprofilennil.
+    remember (option_map_default
+      (resource_profile_t
+      (capacity constr) bounds)
+      0%N) as fprof.
+    assert (length (map fprof (range_rev t_min t_max)) = Z.to_nat (t_max - t_min + 1)) as Hlength.
+    { rewrite length_map. rewrite range_rev_is_rev_range. rewrite length_rev.
+      rewrite length_range. reflexivity. }
+    split.
+    { subst profile. rewrite length_rev. exact Hlength. }
+    intros t Ht; clear Hle.
+    assert (In t (range_rev t_min t_max)) as Hintrange.
+    { clear -Ht. rewrite range_rev_is_rev_range.
+      rewrite <- in_rev. rewrite <- in_range. exact Ht. }
+    specialize (Hsome t Hintrange); clear Hintrange.
+    destruct resource_profile_t eqn:Hprofilet; try contradiction; clear Hsome.
+    f_equal.
+    subst profile.
+    rewrite nth_z_spec by lia.
+    rewrite rev_nth by lia.
+    rewrite Hlength.
+    replace (Z.to_nat (t_max - t_min + 1) - S (Z.to_nat (t - t_min)))%nat with (Z.to_nat (t_max - t)) by lia.
+    rewrite <- map_nth_len_lt with (d := 0).
+    2: { rewrite <- length_map with (f := fprof). 
+      rewrite Hlength. lia. }
+    clear Hlength.
+    subst fprof.
+    unfold option_map_default.
+    replace (t_max - t) with ((t_max + t_min - t) - t_min) by lia.
+    rewrite <- nth_z_spec by lia.
+    rewrite range_rev_spec by lia.
+    replace (t_max - (t_max + t_min - t - t_min)) with t by lia.
+    rewrite Hprofilet.
+    reflexivity.
+Qed. 
 
 Lemma cannot_schedule_activity_valid constr sol bounds :
   Cumulative constr sol
@@ -786,65 +791,23 @@ Proof.
   destruct resource_profile eqn:Hprofile.
   { exfalso. apply resource_profile_contradiction with (sol := sol) in Hprofile; try assumption.
     apply act_bound_p_ge_1 in Hinacts.
-    lia. }
-  (* I don't like the below manipulation, must be way to make things cleaner here... *)
-  unfold resource_profile in Hprofile.
-  remember (range (b_lb bound) (b_ub bound + Z.of_N (b_p_time bound) - 1)) as bound_range.
+    rewrite range_rev_is_rev_range.
+    rewrite nil_rev.
+    rewrite range_cons by lia.
+    easy. }
   remember (n :: l) as profile.
   assert (profile <> nil) as Hprofilennil.
   { subst profile. now intros Hnl. }
   clear Heqprofile n l.
   rewrite negb_false_iff.
   apply can_schedule_activity_with_profile_valid with (constr := constr) (sol := sol) (bounds := bounds).
-  - assumption.
-  - assumption.
-  - assumption.
-  - assumption.
-  - clear -Hactbounds Heqbound_range Hprofilennil Hprofile.
-    subst profile.
-    rewrite length_rev.
-    rewrite nil_rev in Hprofilennil.
-    rewrite map_valid_as_map with (d := N0).
-    + rewrite app_nil_r.
-      rewrite length_rev.
-      rewrite length_map.
-      subst bound_range.
-      rewrite length_range. lia.
-    + exact Hprofilennil.
-  - intros t Ht.
-    symmetry in Hprofile.
-    remember (rev profile) as profile_rev.
-    pose proof Heqprofile_rev as Hprofile_rev.
-    rewrite Hprofile in Heqprofile_rev; clear Hprofile.
-    rewrite rev_involutive in Heqprofile_rev.
-    assert (profile_rev <> nil) as Hprofile_rev_nnil.
-    { rewrite Hprofile_rev. rewrite nil_rev.
-      exact Hprofilennil. }
-    apply map_valid_spec with (d := N0) in Heqprofile_rev; try assumption. destruct Heqprofile_rev as [Hprofile Hsome].
-    rewrite Hprofile_rev in Hprofile.
-    assert (forall l', rev profile = rev l' -> profile = l').
-    { intros l'. intros Hrev.
-      rewrite <- rev_involutive.
-      rewrite <- rev_involutive at 1.
-      f_equal. exact Hrev. }
-    apply H in Hprofile; clear H Hprofile_rev Hprofile_rev_nnil profile_rev.
-    assert (In t bound_range) as Htrange.
-    { clear -Heqbound_range Ht.
-      subst bound_range.
-      rewrite <- in_range. lia. }
-    specialize (Hsome t Htrange).
-    destruct resource_profile_t as [t_usage'|] eqn:Hprofilet; try easy; clear Hsome.
-    subst profile; clear Hprofilennil.
-    f_equal.
-    rewrite nth_z_spec; try lia.
-    rewrite <- map_nth_len_lt with (d := 0).
-    2: { subst bound_range. rewrite length_range. lia. }
-    unfold option_map_default.
-    rewrite Heqbound_range.
-    rewrite <- nth_z_spec; try lia.
-    rewrite range_spec; try lia.
-    rewrite Hprofilet.
-    reflexivity.
+  - exact Hcumul.
+  - exact Hunique.
+  - exact Hvalid.
+  - exact Hinbounds.
+  - apply resource_profile_valid with (sol := sol);
+    try assumption.
+    subst profile. reflexivity.
 Qed.
 
 Lemma checker_cumulative_eq_true :
@@ -867,35 +830,43 @@ Proof.
   clear Hboundsnnil.
   intros Hvalid Hprop_bound.
   reflect_rewrite (cumulative_decides constr sol) in Hcumul.
-  destruct prop_bound_opt as [prop_bound|].
+  assert ((exists bound, In bound bounds /\ cannot_schedule_activity (capacity constr) bounds bound = true) \/ resource_profile_full (capacity constr) bounds = true).
   {
-    unfold valid_prop_bound in Hprop_bound.
-    enough (cannot_schedule_activity (capacity constr) bounds prop_bound = false).
-    { rewrite H in Hchecked. discriminate Hchecked. }
-    apply cannot_schedule_activity_valid with (sol := sol).
-    - exact Hcumul.
-    - exact Hunique.
-    - exact Hvalid.
-    - exact Hprop_bound.
+    destruct prop_bound_opt as [prop_bound|].
+    - destruct (cannot_schedule_activity (capacity constr) bounds prop_bound) eqn:Hprop_cannot.
+      + left. exists prop_bound.
+        unfold valid_prop_bound in Hprop_bound.
+        now split.
+      + destruct resource_profile_full eqn:Hprofile.
+        * right. reflexivity.
+        * rewrite existsb_exists in Hchecked.
+          left. exact Hchecked.
+    - destruct resource_profile_full eqn:Hprofile.
+      + right. reflexivity.
+      + rewrite existsb_exists in Hchecked.
+        left. exact Hchecked.
   }
-  {
-    unfold resource_profile_full in Hchecked.
+  clear Hchecked Hprop_bound Hbounds.
+  destruct H as [(bound & Hinbounds & Hcannot) | Hprofile_full].
+  - enough (cannot_schedule_activity (capacity constr) bounds bound = false) 
+      by (rewrite H in Hcannot; discriminate).
+    apply cannot_schedule_activity_valid with (sol := sol).
+    + exact Hcumul.
+    + exact Hunique.
+    + exact Hvalid.
+    + exact Hinbounds.
+  - unfold resource_profile_full in Hprofile_full.
     destruct (bounds_times bounds) as [t_min t_max] eqn:Htimes.
-    destruct resource_profile eqn:Hprofile.
-    + enough (resource_profile (capacity constr) bounds (range t_min t_max) <> nil).
-      { rewrite Hprofile in H. contradiction. }
-      apply resource_profile_contradiction with (sol := sol);
+    destruct resource_profile eqn:Hprofile; try discriminate.
+    enough (resource_profile (capacity constr) bounds (range t_min t_max) <> nil)
+      by (rewrite Hprofile in H; contradiction).
+    apply resource_profile_contradiction with (sol := sol);
       try assumption.
-      eapply bounds_times_le.
+    rewrite range_cons.
+    + easy.
+    + eapply bounds_times_le.
       * exact Hvalid.
       * exact Htimes.
-    + rewrite existsb_exists in Hchecked.
-      destruct Hchecked as (bound & Hinbounds & Hcannot).
-      enough (cannot_schedule_activity (capacity constr) bounds bound = false).
-      { rewrite H in Hcannot. discriminate Hcannot. }
-      apply cannot_schedule_activity_valid with (sol := sol);
-      assumption.
-  }
 Qed.
 
 Lemma checker_cumulative :
@@ -910,7 +881,6 @@ Proof.
   apply checker_cumulative_eq_true with (constr := constr);
   assumption.
 Qed.
-
 
 Open Scope string.
 

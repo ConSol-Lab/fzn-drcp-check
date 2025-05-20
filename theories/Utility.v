@@ -480,7 +480,7 @@ Proof.
     + simpl. rewrite IHl. reflexivity.
 Qed.
 
-Lemma nodup_map (A B : Type) (eq_dec : forall x y : A, {x = y}+{x <> y}) (eq_dec_b : forall x y : B, {x = y}+{x <> y}) :
+Lemma nodup_map (A B : Type) :
   forall (f : A -> B) (l : list A),
     NoDup (map f l)
       ->
@@ -493,42 +493,38 @@ Lemma nodup_map (A B : Type) (eq_dec : forall x y : A, {x = y}+{x <> y}) (eq_dec
         ->
       a1 = a2.
 Proof.
-  intros f l Hnodup.
-  intros a1 a2 Hin1 Hin2 Hf.
-  destruct (eq_dec a1 a2) as [Heq | Hneq].
-  - exact Heq.
-  - exfalso.
-    apply in_split in Hin1.
-    destruct Hin1 as [l1 [l2 Hl]].
-    subst l.
-    apply in_app_or in Hin2.
-    destruct Hin2 as [Hin2 | Hin2].
-    + apply in_split in Hin2.
-      destruct Hin2 as [l3 [l4 Hl]].
-      subst l1.
-      repeat rewrite map_app in Hnodup.
-      simpl in Hnodup.
-      rewrite (NoDup_count_occ eq_dec_b) in Hnodup.
-      specialize (Hnodup (f a1)).
-      repeat rewrite count_occ_app in Hnodup.
-      rewrite count_occ_cons_eq in Hnodup; try easy.
-      rewrite count_occ_cons_eq in Hnodup; try easy. 
-      lia.
-    + destruct Hin2 as [Hfalse | Hin2]; try contradiction.
-      apply in_split in Hin2.
-      destruct Hin2 as [l3 [l4 Hl]].
-      subst l2.
-      repeat rewrite map_app in Hnodup.
-      simpl in Hnodup.
-      repeat rewrite map_app in Hnodup.
-      simpl in Hnodup.
-      rewrite (NoDup_count_occ eq_dec_b) in Hnodup.
-      specialize (Hnodup (f a1)).
-      repeat rewrite count_occ_app in Hnodup.
-      rewrite count_occ_cons_eq in Hnodup; try easy.
-      repeat rewrite count_occ_app in Hnodup.
-      rewrite count_occ_cons_eq in Hnodup; try easy. 
-      lia.
+  intros f. induction l.
+  - intros _ a1 a2 Hnil. destruct Hnil.
+  - simpl. intros Hnodup.
+    inversion Hnodup; subst x l0.
+    specialize (IHl H2).
+    assert (forall a', In a' l -> f a = f a' -> False).
+    {
+      intros a' Hin Hf.
+      clear IHl H2 Hnodup.
+      apply in_split in Hin. 
+      destruct Hin as (l1 & l2 & Hl); subst l.
+      apply H1; clear H1.
+      rewrite in_map_iff.
+      setoid_rewrite in_app_iff.
+      exists a'.
+      split; try easy.
+      right. left. reflexivity.
+    }
+    intros a1 a2.
+    intros [Ha1 | Hin1].
+    + subst a1.
+      intros [Ha2 | Hin2].
+      * now subst a2.
+      * intros Hfa2.
+        exfalso. apply H with (a' := a2);
+        assumption.
+    + intros [Ha2 | Hin2].
+      * subst a2.
+        intros Hfa1.
+        exfalso. apply H with (a' := a1);
+        easy.
+      * apply IHl; assumption.
 Qed.
 
 Lemma nodup_key :
@@ -799,6 +795,12 @@ Module ZRange.
     | S n' => range_rec s (e - 1) n' (e :: acc)
     end.
 
+  Fixpoint range_rev_rec (s : Z) (e : Z) (n : nat) (acc : list Z) :=
+    match n with
+    | O => acc
+    | S n' => range_rev_rec (s + 1) e n' (s :: acc)
+    end.
+
    Definition nth_z {A} (n : Z) (l : list A) (l_start : Z) (d : A) :=
     if (n >=? l_start) 
       then nth (Z.to_nat (n - l_start)) l d
@@ -926,6 +928,32 @@ Module ZRange.
     - rewrite length_seq. lia.
   Qed.
 
+  Lemma range_spec_other_base (s e : Z) (d : Z) :
+    forall b,
+      s <= b <= e
+        ->
+      forall n, 
+        b <= n <= e 
+          ->
+        nth_z n (range s e) b d = n - (b - s).
+  Proof.
+    intros b Hb n Hn.
+    unfold nth_z.
+    destruct (n >=? b) eqn:Hns; try lia; clear Hns.
+    unfold range.
+    remember (Z.to_nat (e - s + 1)) as i.
+    assert (e = s + Z.of_nat i - 1) by lia.
+    rewrite H.
+    rewrite range_rec_spec.
+    rewrite app_nil_r.
+    rewrite <- map_nth_len_lt with (d := O).
+    - rewrite seq_nth.
+      + unfold shift_z. lia.
+      + lia.
+    - rewrite length_seq. lia.
+  Qed.
+
+
   Lemma in_range (s e : Z) :
     forall n,
       s <= n <= e
@@ -974,6 +1002,76 @@ Module ZRange.
       rewrite length_seq.
       reflexivity.
   Qed.
+
+  Definition range_rev (s e : Z) :=
+    range_rev_rec s e (Z.to_nat (e - s + 1)) nil.
+
+  Lemma range_rev_is_rev_range_rec :
+    forall s e acc,
+      range_rev_rec s e (Z.to_nat (e - s + 1)) acc = rev (range_rec s e (Z.to_nat (e - s + 1)) nil) ++ acc.
+  Proof.
+    intros s e.
+    destruct (Z_gt_le_dec s e).
+    - replace (Z.to_nat (e - s + 1)) with O by lia.
+      reflexivity.
+    - remember (Z.to_nat (e - s + 1)) as n.
+      generalize dependent e.
+      generalize dependent s.
+      induction n.
+      { intros s e Hes H0. reflexivity. }
+      intros s e Hes Hsn acc.
+      assert (e = s + Z.of_nat n) as He by lia.
+      rewrite He at 2.
+      rewrite range_rec_S.
+      simpl.
+      destruct (Z_gt_le_dec (s + 1) e) as [Hgt | Hle].
+      { assert (s = e) by lia; subst e.
+        assert (n = 0%nat) by lia; subst n.
+        simpl. reflexivity. }
+      specialize (IHn (s + 1) e Hle).
+      rewrite IHn.
+      2: { lia. }
+      subst e; clear.
+      rewrite <- app_assoc.
+      rewrite <- app_comm_cons.
+      rewrite app_nil_l.
+      reflexivity.
+  Qed.
+
+  Lemma range_rev_is_rev_range :
+    forall s e,
+      range_rev s e = rev (range s e).
+  Proof.
+    intros s e. 
+    unfold range_rev, range.
+    rewrite range_rev_is_rev_range_rec.
+    rewrite app_nil_r.
+    reflexivity.
+  Qed.
+
+  Lemma range_rev_spec (s e d : Z) :
+    forall n, 
+      s <= n <= e 
+        ->
+      nth_z n (range_rev s e) s d = e - (n - s).
+  Proof.
+    intros n Hsne.
+    rewrite range_rev_is_rev_range.
+    unfold nth_z.
+    destruct (n >=? s) eqn:Hns; try lia; clear Hns.
+    rewrite rev_nth.
+    2: { rewrite length_range. lia. }
+    rewrite length_range.
+    replace (Z.to_nat (e - s + 1) - (S (Z.to_nat (n - s))))%nat with (Z.to_nat (e - n)) by lia.
+    rewrite <- nth_z_spec by lia.
+    rewrite range_spec_other_base by lia. 
+    lia.
+  Qed.
+
+    
+
+
+
 
 
 End ZRange.

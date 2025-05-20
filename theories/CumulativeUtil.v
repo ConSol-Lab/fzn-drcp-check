@@ -498,4 +498,9 @@ Module RunOfN.
           apply H.
           lia.
   Qed. 
+(* 
+
+  Fixpoint has_interval_of_n (n : N) (current : N) (l : list (bool * N)) :=
+    match l with
+    | (true, _) =>  *)
 End RunOfN.
