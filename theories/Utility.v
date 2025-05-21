@@ -9,11 +9,11 @@ Require Lia.
 Require Coq.Structures.Orders.
 Require Coq.Structures.OrdersEx.
 Require Coq.MSets.MSetInterface.
-Require Coq.MSets.MSetAVL.
+Require Coq.MSets.MSetRBT.
 Require Coq.MSets.MSetProperties.
 Require MMaps.Interface.
 Require MMaps.RBT.
-Require Program.Wf.
+Require Program.Basics.
 
 Module Tactics.
   Import Bool.
@@ -41,6 +41,49 @@ Ltac normalize_bool_in H :=
     rewrite orb_true_iff in H ||
     rewrite orb_false_iff in H
   ).
+
+Ltac destruct_pairs :=
+  repeat match goal with
+  | [ x : _ * _ |- _ ] => destruct x
+  end.
+
+Ltac solve_equiv :=
+  constructor;
+  repeat (
+    repeat intro;
+    destruct_pairs;
+    simpl in *;
+    destruct_ands;
+    subst;
+    try reflexivity;
+    try symmetry; try assumption;
+    try easy
+  ).
+
+Ltac solve_disjunction :=
+  first
+    [ easy
+    | match goal with
+      | |- _ \/ _ =>
+          (left; solve_disjunction)
+          ||
+          (right; solve_disjunction)
+      end
+    ].
+
+Import List.
+Ltac break_in_hyps :=
+  repeat match goal with
+  | [ H: In ?x _  |- In ?x _ ] => simpl in H
+  end;
+  repeat match goal with
+  | [ H: _ \/ In ?x _ |- In ?x _ ] =>
+      let Hnew := fresh H in
+      destruct H as [Hnew | Hnew]; subst; try discriminate
+  end;
+  simpl.
+
+Ltac solve_in := break_in_hyps; try solve_disjunction.
 
 End Tactics.
 
@@ -394,9 +437,46 @@ Module SubList.
 End SubList.
 
 Module ListEx.
+  Import Bool.
   Import List.
   Import Lia.
   Import Permutation.
+  Import Tactics.
+
+Lemma forallb_false {A} (f : A -> bool) :
+  forall l,
+    forallb f l = false <-> exists a, In a l /\ f a = false.
+Proof.
+  induction l.
+  - simpl; split; try easy.
+    now intros (a & Hfalse & _).
+  - simpl. rewrite andb_false_iff.
+    rewrite IHl.
+    split; intros H.
+    + destruct H as [Hfalse | (a' & Hin & Hfalse')].
+      * exists a. split; solve_disjunction.
+      * exists a'. split; solve_disjunction.
+    + destruct H as (a' & Ha' & Hfalse').
+      destruct Ha' as [Haa' | Hin].
+      * subst a'. now left.
+      * right. now exists a'.
+Qed.
+ 
+Lemma InA_eq_iff_In {A} :
+  forall (l : list A) a,
+    SetoidList.InA eq a l <-> In a l.
+Proof.
+  induction l.
+  - intros a; easy.
+  - intros a'. split; intros H.
+    + inversion H; subst y l0.
+      * subst a'. left. reflexivity.
+      * right. rewrite <- IHl. assumption.
+    + apply SetoidList.InA_cons.
+      inversion H.
+      * subst a'. left. reflexivity.
+      * right. rewrite IHl. assumption.
+Qed.
 
 Definition flat_map_option {A B} (f : A -> option B) (l : list A) : list B :=
   flat_map (fun a =>
@@ -1083,11 +1163,13 @@ Module Sets.
 Import Orders.
 Import MSetInterface.
 Import ListInd.
-Import Int.
-Import MSetAVL.
+Import ListEx.
+Import Lia.
+Import MSetRBT.
+Import ZArith.
 
-Module MakeUsual (X: UsualOrderedType) <: S with Module E := X.
- Include IntMake(Z_as_Int)(X).
+Module MakeUsual (X: UsualOrderedType) <: Sets with Module E := X.
+ Include Make(X).
   Definition build (values : list elt) :=
     fold_left (fun acc y => add y acc) values empty.
   
@@ -1121,6 +1203,66 @@ Module sint := MakeUsual OrdersEx.Z_as_OT.
 Module sstr_prps := MSetProperties.Properties sstr.
 Module sint_prps := MSetProperties.Properties sint.
 
+Open Scope Z_scope.
+Lemma exists_sint_lb :
+  forall s lb,
+    exists slb,
+      slb <= lb /\
+        forall n,
+          n < slb
+            ->
+          ~ sint.In n s.
+Proof.
+  intros s lb.
+  exists (Z.min (option_default Z0 (sint.min_elt s)) lb).
+  destruct (sint.min_elt s) as [min|] eqn:Hmin.
+  - simpl. split; try lia.
+    intros n.
+    intros Hlble.
+    destruct (sint.mem n s) eqn:Hmem.
+    + exfalso.
+      rewrite sint.mem_spec in Hmem.
+      apply sint.min_elt_spec2 with (x := min) in Hmem;
+      try assumption.
+      destruct (Z.compare_spec min n) as [Hlt|Heq|Hgt]; try contradiction; try lia.
+    + rewrite <- sint.mem_spec.
+      now rewrite Hmem.
+  - simpl. split; try lia.
+    intros n _.
+    apply sint.min_elt_spec3 in Hmin.
+    apply Hmin.
+Qed.
+
+Lemma exists_sint_ub :
+  forall s ub,
+    exists sub,
+      sub >= ub /\
+        forall n,
+          n > sub
+            ->
+          ~ sint.In n s.
+Proof.
+  intros s ub.
+  exists (Z.max (option_default Z0 (sint.max_elt s)) ub).
+  destruct (sint.max_elt s) as [max|] eqn:Hmax.
+  - simpl. split; try lia.
+    intros n.
+    intros Hlble.
+    destruct (sint.mem n s) eqn:Hmem.
+    + exfalso.
+      rewrite sint.mem_spec in Hmem.
+      apply sint.max_elt_spec2 with (x := max) in Hmem;
+      try assumption.
+      destruct (Z.compare_spec max n) as [Hlt|Heq|Hgt]; try contradiction; try lia.
+    + rewrite <- sint.mem_spec.
+      now rewrite Hmem.
+  - simpl. split; try lia.
+    intros n _.
+    apply sint.max_elt_spec3 in Hmax.
+    apply Hmax.
+Qed.
+
+
 
 End Sets.
 
@@ -1138,6 +1280,37 @@ Module smap_prps := Facts.Properties OrdersEx.String_as_OT smap.
 
 Module nmap := RBT.Make OrdersEx.N_as_OT.
 Module nmap_prps := Facts.Properties OrdersEx.N_as_OT nmap.
+
+Lemma In_to_InA_Duo_eq :
+  forall {A B} (x : A) (y : B) (l : list (A * B)),
+    In (x, y) l <-> SetoidList.InA (Interface.Duo eq eq) (x, y) l.
+Proof.
+  intros A B x y l.
+  split.
+  - apply SetoidList.In_InA.
+    unfold Interface.Duo.
+    solve_equiv. 
+  - intros H.
+    induction l.
+    + inversion H.
+    + inversion H.
+      * subst y0 l0.
+        unfold Interface.Duo in H1.
+        destruct_pairs.
+        destruct_ands; simpl in *; subst.
+        left. reflexivity.
+      * subst y0 l0. apply IHl in H1.
+        right. exact H1.
+Qed.
+
+
+Lemma smap_in_spec {A} (x : string) (a : A) m :
+  In (x, a) (smap.bindings m) <-> smap.MapsTo x a m.
+Proof.
+  rewrite In_to_InA_Duo_eq.
+  rewrite smap.bindings_spec1.
+  reflexivity.
+Qed.
 
 Definition build_map_step {A B} (f_key : A -> string) (f : A -> option B) (a : A) (m : smap.t B) :=
   match f a with
@@ -1461,7 +1634,7 @@ Definition map_from_prod_list_P {A} (f : string -> bool) (l : list (string * A))
   forall x, 
   match smap.find x m with
   | None => f x = false \/ forall a, ~ In (x, a) l
-  | Some al => f x = true /\ forall a, In a al <-> In (x, a) l 
+  | Some al => al <> nil /\ f x = true /\ forall a, In a al <-> In (x, a) l 
   end.
 
 Lemma map_from_prod_list_spec :
@@ -1496,12 +1669,13 @@ Proof.
       destruct (String.string_dec x x') as [Hxx' | Hxx'].
       - subst x'.
         rewrite smap.add_spec1.
+        split; try easy.
         split; try assumption.
         intros a'.
         specialize (IH x).
         destruct (smap.find x m) as [l'|] eqn:Hfind.
         (* This stuff should really be automated... *)
-        + specialize IH as [_ IH].
+        + specialize IH as (_ & _ & IH).
           simpl. rewrite IH.
           split; intros H; destruct H;
           try inversion H;
@@ -1522,7 +1696,8 @@ Proof.
         specialize (IH x').
         destruct (smap.find) as [l'|].
         + split; try apply IH.
-          specialize IH as [_ IH].
+          split; try apply IH.
+          specialize IH as (_ & _ & IH).
           intros a'. rewrite IH.
           split; intros H.
           * right. assumption.
@@ -1541,11 +1716,12 @@ Proof.
       specialize (IH x').
       destruct (smap.find x' m) as [l'|].
       - split; try apply IH.
+        split; try apply IH.
         intros a'.
         split; intros H.
         + right. apply IH. exact H.
         + destruct H;
-          destruct IH as [IHf IHin].
+          destruct IH as (IHnnil & IHf & IHin).
           * inversion H; subst.
             rewrite Hfx in IHf.
             discriminate IHf.
@@ -1563,79 +1739,26 @@ Proof.
     }
 Qed.  
 
-Ltac destruct_pairs :=
-  repeat match goal with
-  | [ x : _ * _ |- _ ] => destruct x
-  end.
-
-Ltac solve_equiv :=
-  constructor;
-  repeat (
-    repeat intro;
-    destruct_pairs;
-    simpl in *;
-    destruct_ands;
-    subst;
-    try reflexivity;
-    try symmetry; try assumption;
-    try easy
-  ).
-
-Lemma In_to_InA_Duo_eq :
-  forall {A B} (x : A) (y : B) (l : list (A * B)),
-    In (x, y) l <-> SetoidList.InA (Interface.Duo eq eq) (x, y) l.
-Proof.
-  intros A B x y l.
-  split.
-  - apply SetoidList.In_InA.
-    unfold Interface.Duo.
-    solve_equiv. 
-  - intros H.
-    induction l.
-    + inversion H.
-    + inversion H.
-      * subst y0 l0.
-        unfold Interface.Duo in H1.
-        destruct_pairs.
-        destruct_ands; simpl in *; subst.
-        left. reflexivity.
-      * subst y0 l0. apply IHl in H1.
-        right. exact H1.
-Qed.
-
 Lemma in_map_prod_list :
   forall A f (l : list (string * A)) al x,
     In (x, al) (smap.bindings (map_from_prod_list f l))
       ->
+    al <> nil
+      /\
     forall a, In a al <-> In a (filter_pair_on_key x l).
 Proof.
   intros A f l al x.
   intros Hin.
-  rewrite In_to_InA_Duo_eq in Hin.
-  apply smap.bindings_spec1 in Hin.
+  rewrite smap_in_spec in Hin.
   specialize map_from_prod_list_spec with (f := f) (l := l) as Hspec.
-  unfold map_from_prod_list_P in Hspec.
   specialize (Hspec x).
   rewrite <- smap.find_spec in Hin.
   rewrite Hin in Hspec.
-  destruct Hspec as [Hfx Hinl].
+  split; try apply Hspec.
+  destruct Hspec as (_ & _ & Hinl).
+  setoid_rewrite Hinl.
   intros a.
-  rewrite Hinl.
-  unfold filter_pair_on_key.
-  rewrite in_flat_map_option.
-  split; intros H.
-  - exists (x, a).
-    split; try assumption.
-    simpl. destruct (x =? x)%string eqn:Hx.
-    + reflexivity.
-    + rewrite String.eqb_neq in Hx; contradiction.
-  - destruct H as [[x' a'] [H Heq]].
-    simpl in Heq.
-    destruct (x' =? x)%string eqn:Hxx'.
-    + inversion Heq.
-      rewrite String.eqb_eq in Hxx'; subst.
-      exact H.
-    + discriminate Heq.
+  rewrite filter_pair_on_key_spec. reflexivity.
 Qed.
 
 Lemma is_empty_map_exists :
@@ -1756,12 +1879,45 @@ Proof.
   apply Hbind.
 Qed.
 
-Lemma smap_in_spec {A} (x : string) (a : A) m :
-  In (x, a) (smap.bindings m) <-> smap.MapsTo x a m.
-Proof.
-  rewrite In_to_InA_Duo_eq.
-  rewrite smap.bindings_spec1.
-  reflexivity.
+End Maps.
+
+Module SortedEx.
+Import List.
+Import ListNotations.
+Import Sorted.
+Import Basics.
+
+(** This reverse sorting comes from https://gitlab.mpi-sws.org/atrieu/stdpp/-/blob/coq-stdpp-1.2.1/theories/sorting.v?ref_type=tags Coq Std++ v1.2.1 commit 5f2a6b77c07004cb46379de3ccc07310094cbeec. Licensed under the 3-clause BSD license (https://opensource.org/licenses/BSD-3-Clause) *)
+Inductive TlRel {A} (R : A -> A -> Prop) (a : A) : list A -> Prop :=
+  | TlRel_nil : TlRel R a nil
+  | TlRel_cons b l : R b a -> TlRel R a (l ++ b :: nil).
+
+Lemma HdRel_reverse {A} R (l : list A) x : HdRel R x l -> TlRel (flip R) x (rev l).
+Proof. 
+  destruct 1.
+  - apply TlRel_nil.
+  - simpl. apply TlRel_cons. unfold flip. exact H.
 Qed.
 
-End Maps.
+Lemma Sorted_snoc {A} R (l : list A) x : Sorted R l -> TlRel R x l -> Sorted R (l ++ x :: nil).
+Proof.
+  induction 1 as [|y l Hsort IH Hhd]; intros Htl; simpl.
+  { repeat constructor. }
+  constructor. apply IH.
+  - inversion Htl as [|? [|??]]; subst; constructor; easy.
+  - destruct Hhd; constructor; try easy.
+    inversion Htl as [|? [|??]]; try easy.
+    destruct l; easy.
+Qed.
+
+Lemma Sorted_reverse {A} R (l : list A) :
+  Sorted R l -> Sorted (flip R) (rev l).
+Proof.
+  induction 1; try easy.
+  simpl. apply Sorted_snoc; try assumption.
+  apply HdRel_reverse; assumption.
+Qed.
+
+(** End code from Coq std++ *)
+
+End SortedEx.

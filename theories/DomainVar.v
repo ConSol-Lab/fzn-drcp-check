@@ -11,645 +11,339 @@ Import Utility.Maps.
 Import Utility.Tactics.
 Import Utility.Sets.
 Require Import Checker.Domain.
+Require Import Checker.Zext.
 
 (** This file adds variables to domains and the idea that atomic constraints can apply only to particular variables. It also provides functions to convert a list of atomic constraints into a map of domains, for which we use MMaps (defined in the Maps module in the Utility file). *)
 
 (** We use a simple pair instead of a Record since it is just two things. *)
 Definition BoundAtomic := (string * Atomic)%type.
-(** smap is a map with string keys (short for `string_map`). *)
-Definition DomainMap := smap.t Domain.
+Definition Domains := smap.t Domain.
 
-(** This is used when we want to ensure only a specific subset of variables ends up in the final map, which is useful when for example we want to prove we have parameters for all of them in a constraint. It is important in the implementation of the cumulative constraint. *)
-Definition check_in_vs (vs : option sstr.t) (x : string) :=
-  match vs with
-  | None => true
-  | Some vs => sstr.mem x vs
-  end.
+Definition included_doms (doms : Domains) : list (string * Domain) := smap.bindings doms.
 
-(** This applies a single atomic to the current domains, ensuring that only the domain of the variable it applies to is updated. It returns None if the domain of that variable becomes empty. *)
-Definition add_apply (vs : option sstr.t) (domains : DomainMap) (atom : (string * Atomic)) : option DomainMap :=
-  match atom with
-  | (x, atom) =>
-    if check_in_vs vs x then
-      let dom := 
-        match smap.find x domains with
-        | Some dom => dom
-        | None => initial_dom
-        end in
-      match apply_atomics (atom :: nil) (Some dom) with
-      | None => None
-      | Some new_dom => 
-        Some (smap.add x new_dom domains)
-      end
-    else Some domains
-  end.
+Definition dom_from_domains (m : Domains) (x : string) : Domain :=
+  option_default initial_dom (smap.find x m).
 
-(** This function is not very useful in practice, since it does 'apply_holes' for each single atomic, which is a lot of wasted work. However, it was developed first and shows that add_apply'ing multiple times is equivalent to using the domains_from_var_atomics_all below. Note, fold_left_error returns early when an intermediate step returns None. *)
-Definition domains_from_var_atomics (atoms : list (string * Atomic)) (vs : option sstr.t) :=
-  fold_left_error (add_apply vs) atoms smap.empty.
+Declare Scope Domain_scope.
+Local Open Scope Domain_scope.
+Infix "d->" := dom_from_domains (at level 65) : Domain_scope.
 
-(** Not used in practice, but is used for the specification. It simply filters all atomics for a particular key. *)
-Definition from_var_atoms (x : string) (atoms : list (string * Atomic)) : list Atomic :=
-  filter_pair_on_key x atoms.
-
-(** Given a list of atomics, it builds a map that maps every variable to the list of atomics in the map. *)
-Definition build_atoms_map (atoms : list (string * Atomic)) (vs : option sstr.t) :=
-  map_from_prod_list (check_in_vs vs) atoms.
-
-Definition map_domains_apply_f (atoms : list Atomic) :=
-  apply_atomics atoms (Some initial_dom).
-
-(** If multiple atomics are to be applied at once, this function is much more efficient since apply_atomics is called only once per variable. Note that `smap_valid` uses the MMap map operation so that the tree is not rebuilt, but it does have to check whether a none exists, iterating over all values and then mapping again to unwrap the options. The final empty check is to ensure equivalent behavior compared to domains_from_var_atomics. Use this for building the domains when you have multiple atomics that you immediately know must hold (like in premises). *)
-Definition domains_from_var_atomics_all (atoms : list (string * Atomic)) (vs : option sstr.t) :=
-  let atoms_map := build_atoms_map atoms vs in
-  let dom_map := smap_valid initial_dom map_domains_apply_f atoms_map in
-  if smap.is_empty dom_map
-    then 
-      if smap.is_empty atoms_map
-        then Some smap.empty
-        else None
-    else Some dom_map.
-
-(** Not used in practice, but used in the specification. It represents applying all atomics for a particular variable in one go to an initial, full domain. *)
-Definition applied_dom (x : string) (atoms : list (string * Atomic)) :=
-  apply_atomics (from_var_atoms x atoms) (Some initial_dom).
-
-(** Useful lemma that can be used to show that when a domain map does not contain a particular variable, that must be because there are no atomics in the original list that mention it. *)
-Lemma applied_exists_none :
-  forall x atoms,
-  dom_equiv (Some initial_dom) (applied_dom x atoms)
-    <->
-  forall a, ~ In (x, a) atoms.
+Lemma dom_from_domains_if_in :
+  forall doms x dom,
+    In (x, dom) (included_doms doms) -> doms d-> x = dom.
 Proof.
-  intros x atoms.
-  split; intros H.
-  - intros a. unfold applied_dom in H.
-    unfold dom_equiv in H.
-    setoid_rewrite dom_effect_atomics in H.
-    assert (forall y, is_in_dom y (Some initial_dom)) as Hinit.
-    { intros y. unfold initial_dom. simpl.
-      repeat split; try reflexivity.
-      intros Hin. apply (sint.empty_spec Hin). }
-    setoid_rewrite H in Hinit; clear H.
-    intros Hin.
-    assert (In a (from_var_atoms x atoms)) as Hatoms.
-    { unfold from_var_atoms. unfold filter_pair_on_key.
-      rewrite in_flat_map_option.
-      exists (x, a). split.
-      - exact Hin.
-      - simpl. destruct (x =? x)%string eqn:Hxx.
-        + reflexivity.
-        + rewrite String.eqb_neq in Hxx. contradiction. }
-    destruct (atm_cmp a) eqn:Hcmp.
-    + specialize (Hinit (atm_val a + 1)).
-      apply Hinit in Hatoms.
-      unfold atomic_holds in Hatoms.
-      rewrite Hcmp in Hatoms.
-      lia.
-    + specialize (Hinit (atm_val a - 1)).
-      apply Hinit in Hatoms.
-      unfold atomic_holds in Hatoms.
-      rewrite Hcmp in Hatoms.
-      lia.
-    + specialize (Hinit (atm_val a + 1)).
-      apply Hinit in Hatoms.
-      unfold atomic_holds in Hatoms.
-      rewrite Hcmp in Hatoms.
-      lia.
-    + specialize (Hinit (atm_val a)).
-      apply Hinit in Hatoms.
-      unfold atomic_holds in Hatoms.
-      rewrite Hcmp in Hatoms.
-      contradiction.
-  - apply filter_pair_on_key_no_x in H.
-    unfold applied_dom.
-    unfold from_var_atoms.
-    rewrite H.
-    unfold apply_atomics.
-    simpl. apply apply_holes_equiv.
+  intros doms x dom.
+  rewrite smap_in_spec. rewrite <- smap.find_spec.
+  unfold dom_from_domains.
+  intros H.
+  rewrite H. simpl. reflexivity.
 Qed.
 
-(** f here represents some assignment/solution. Indicates that all atomics are valid for their paticular variable. *)
-Definition valid_atoms (f : string -> Z) (atoms : list (string * Atomic)) :=
+Lemma doms_maps_or_not_included (doms : Domains) (x : string) :
+  {smap.MapsTo x (doms d-> x) doms} + {doms d-> x = initial_dom /\ forall dom, ~ In (x, dom) (included_doms doms)}.
+Proof.
+  unfold dom_from_domains. destruct smap.find eqn:Hfind.
+  - left. simpl. now rewrite <- smap.find_spec.
+  - right. split; try reflexivity.
+    intros dom.
+    apply find_none_bindings.
+    exact Hfind.
+Qed.
+
+Definition from_var_atoms (x : string) (atoms : list BoundAtomic) : list Atomic :=
+  filter_pair_on_key x atoms.
+
+Definition applied_dom (x : string) (atoms : list BoundAtomic) :=
+  apply_atomics (from_var_atoms x atoms) initial_dom.
+
+Definition valid_domains (doms : Domains) (atoms : list BoundAtomic) :=
+  forall x,
+    dom_equiv (doms d-> x) (applied_dom x atoms).
+
+Definition include_all (x : string) := true.
+
+Lemma include_all_true (x : string) :
+  include_all x = true.
+Proof. reflexivity. Qed.
+
+Definition tightened_doms (doms : Domains) :=
+  forall x,
+    dom_tightened (doms d-> x).
+
+Definition build_atoms_map (atoms : list BoundAtomic) :=
+  map_from_prod_list include_all atoms.
+
+Definition dom_from_initial (atoms : list Atomic) :=
+  apply_atomics atoms initial_dom.
+
+Definition domains_from_atomics (atoms : list BoundAtomic) : Domains :=
+  let atoms_map := build_atoms_map atoms in
+    smap.map dom_from_initial atoms_map.
+
+(* The reverse definitely does not hold. *)
+Lemma dom_equiv_initial :
+  forall atoms atoms',
+  (forall a, In a atoms <-> In a atoms')
+    ->
+  dom_equiv (apply_atomics atoms initial_dom) (apply_atomics atoms' initial_dom).
+Proof.
+  intros atoms atoms'.
+  intros Hatoms.
+  unfold dom_equiv. intros y.
+  setoid_rewrite dom_effect_atomics.
+  setoid_rewrite Hatoms. reflexivity.
+Qed.
+ 
+Lemma domains_from_atomics_correct :
+  forall atoms doms,
+  doms = domains_from_atomics atoms
+    ->
+  valid_domains doms atoms.
+Proof.
+  intros atoms doms.
+  intros Hdoms.
+  intros x.
+  unfold domains_from_atomics, build_atoms_map in Hdoms.
+  (* What to do? We want to use the properties of map_from_prod_list and map, but they need to know whether x is in the map or not. *)
+  destruct (doms_maps_or_not_included doms x) as [Hmaps | (Hinitial & Hnincluded)].
+  - rewrite <- smap_in_spec in Hmaps.
+    subst doms.
+    rewrite smap.map_spec in Hmaps.
+    rewrite in_map_iff in Hmaps.
+    destruct Hmaps as ((x' & xatoms) & H' & Hin).
+    inversion H'; subst x'; clear -Hin.
+    unfold dom_from_initial, applied_dom.
+    apply dom_equiv_initial.
+    intros a.
+    apply in_map_prod_list with (a := a) in Hin.
+    rewrite Hin. reflexivity.
+  - rewrite Hinitial.
+    unfold applied_dom.
+    enough (from_var_atoms x atoms = nil).
+    { rewrite H. simpl. reflexivity. }
+    apply filter_pair_on_key_no_x.
+    (* What to do? We know the goal can only be derived from map_from_prod_list if x is not in it. So we destruct on that possibility. *)
+    destruct (smap.find x (map_from_prod_list include_all atoms)) as [atoms' |] eqn:Hfindprod.
+    + exfalso. specialize (Hnincluded (dom_from_initial atoms')).
+      apply Hnincluded. subst doms.
+      unfold included_doms.
+      rewrite smap.map_spec.
+      rewrite in_map_iff.
+      exists (x, atoms').
+      split; try reflexivity.
+      rewrite smap_in_spec.
+      rewrite <- smap.find_spec.
+      exact Hfindprod.
+    + clear -Hfindprod.
+      specialize map_from_prod_list_spec as Hprod_spec.
+      unfold map_from_prod_list_P in Hprod_spec.
+      specialize (Hprod_spec _ include_all atoms x).
+      rewrite Hfindprod in Hprod_spec.
+      destruct Hprod_spec; try discriminate.
+      exact H.
+Qed.
+
+Lemma domains_from_atomics_if_in :
+  forall atoms x dom,
+    In (x, dom) (smap.bindings (domains_from_atomics atoms))
+      ->
+    exists atom, In atom (from_var_atoms x atoms).
+Proof.
+  intros atoms x dom.
+  unfold domains_from_atomics.
+  rewrite smap.map_spec. rewrite in_map_iff.
+  intros ((x' & xatoms) & H' & Hin).
+  inversion H'; subst; clear H'.
+  unfold build_atoms_map in Hin.
+  specialize (in_map_prod_list _ _ _ _ _ Hin) as [Hnnil Hinfilter].
+  destruct xatoms; try contradiction.
+  exists a.
+  rewrite <- Hinfilter.
+  left. reflexivity.
+Qed.
+
+Definition check_domains_consistent (doms : Domains) : bool :=
+  smap.for_all (fun x dom => dom_check_consistent dom) doms.
+
+Definition valid_atoms (sol : string -> Z) (atoms : list BoundAtomic) :=
   forall x a,
     In (x, a) atoms
       ->
-    atomic_holds (f x) a.
+    atomic_holds (sol x) a.
 
-(** If all atomics are valid and we get a domain equivalent to None, that means we have a contradiction. *)
-Lemma applied_dom_none_false :
-  forall atoms (f : string -> Z) x,
-    valid_atoms f atoms
-      ->
-    dom_equiv (applied_dom x atoms) None
-      ->
-    False.
+Lemma initial_consistent :
+  dom_consistent initial_dom.
 Proof.
-  intros atoms f x.
-  intros Hvalid Hnone.
-  assert (~ is_in_dom (f x) None).
-  { intros Hin. simpl in Hin. exact Hin. }
-  apply H.
-  unfold dom_equiv in Hnone.
-  rewrite <- Hnone.
-  unfold applied_dom.
-  rewrite dom_effect_atomics.
-  split.
-  - apply all_in_inital_dom.
-  - intros a Hin. apply Hvalid.
-    apply filter_pair_on_key_spec.
-    exact Hin.
-Qed.
-    
-Definition default_atom := mk_atm_le 0.
-
-(** Copied from Rocq 9.0 stdlib *)
-Lemma filter_rev {A} (pred : A -> bool) (l : list A) : filter pred (rev l) = rev (filter pred l).
-Proof.
-  induction l; cbn [rev]; trivial.
-  rewrite filter_app, IHl; cbn [filter].
-  case pred; cbn [app]; auto using app_nil_r.
+  exists 0. unfold is_in_dom, initial_dom.
+  simpl; easy.
 Qed.
 
-(** This proposition represents a map of domains being correct: i.e. the domain for each variable is equivalent to applying exactly all atomics related to that variable to the initial domain. It also supports a predicate so that certain variables can be ignored. *)
-Definition domains_equiv_atoms_cond (pred : string -> bool) (atoms : list (string * Atomic)) (domains : DomainMap) :=
-  forall x, 
-  match smap.find x domains with
-  | None => pred x = false \/ forall a, ~ In (x, a) atoms
-  | Some dom => pred x = true /\ dom_equiv (Some dom) (applied_dom x atoms)
-  end.
-
-(** Same as above but the specific condition that the variable must be in vs or that vs is None. *)
-Definition domains_equiv_atoms_vs (vs : option sstr.t) (atoms : list (string * Atomic)) (domains : DomainMap) :=
-  domains_equiv_atoms_cond (check_in_vs vs) atoms domains.
-
-(** Same but with no condition. *)
-Definition domains_equiv_atoms (atoms : list BoundAtomic) (domains : DomainMap) :=
-  forall x,
-    match smap.find x domains with
-    | None => forall a, ~ In (x, a) atoms
-    | Some dom => dom_equiv (Some dom) (applied_dom x atoms)
-    end.
-
-Lemma check_in_vs_none_domains_equiv :
-  forall atoms doms,
-  domains_equiv_atoms_vs None atoms doms
-    <->
-  domains_equiv_atoms atoms doms.
-Proof.
-  intros atoms doms.
-  split; intros; 
-  unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond, domains_equiv_atoms in *.
-  - intros x; specialize (H x).
-    simpl in H.
-    destruct smap.find.
-    + apply H.
-    + now destruct H. 
-  - intros x; specialize (H x).
-    destruct smap.find.
-    + easy.
-    + right. easy.
-Qed.
-
-(** This represents the state of a domain map being correct. If it is None, that means at least one variable has an empty domain based on all the atomics. *)
-Definition domains_from_vars_P vs (atoms : list (string * Atomic)) (dom_map : option DomainMap) :=
-  match dom_map with
-  | Some dom_map => domains_equiv_atoms_vs vs atoms dom_map
-  | None => exists x,
-    dom_equiv (applied_dom x atoms) None
-  end.
-
-(** Below a are a bunch of helper lemmas. *)
-Lemma applied_dom_cons_swap :
-  forall x a atoms,
-    dom_equiv (applied_dom x ((x, a) :: atoms))
-    (apply_atomics (a :: nil)
-    (applied_dom x atoms)).
-Proof.
-  intros x a atoms.
-  assert (x =? x = true)%string as Hxb.
-  { rewrite String.eqb_eq. reflexivity. }
-  unfold applied_dom.
-  rewrite <- apply_atomics_app.
-  simpl from_var_atoms.
-  rewrite Hxb.
-  rewrite apply_atomics_app_swap.
-  reflexivity.
-Qed.
- 
-Lemma applied_dom_cons_initial :
-  forall x a atoms,
-    (forall a, ~ In (x, a) atoms)
-      ->
-    dom_equiv (applied_dom x ((x, a) :: atoms))
-    (apply_atomics (a :: nil) (Some initial_dom)).
-Proof.
-  intros x a atoms Hnin.
-  assert (x =? x = true)%string as Hxb.
-  { rewrite String.eqb_eq. reflexivity. }
-  apply filter_pair_on_key_no_x in Hnin.
-  unfold applied_dom, from_var_atoms.
-  simpl; rewrite Hxb.
-  rewrite Hnin. simpl. reflexivity.
-Qed.
-
-Lemma applied_dom_cons_neq :
-  forall x x' a atoms,
-    x <> x'
-      ->
-    dom_equiv (applied_dom x' ((x, a) :: atoms))
-    (applied_dom x' atoms).
-Proof.
-  intros x x' a atoms Hnin.
-  assert (x =? x' = false)%string as Hxb.
-  { rewrite String.eqb_neq. assumption. }
-  unfold applied_dom, from_var_atoms.
-  simpl; rewrite Hxb; simpl.
-  reflexivity.
-Qed.
-
-(** Now come the proofs, which are all a bit too long and complicated for my taste. *)
-
-(** This represents the correctness of add_apply on its own so that it can be used when applying a single atomic at a time to a domain map. The proof is more complicated than it maybe should be and has a lot of duplciation. *)
-Lemma add_apply_step :
-  forall vs doms atoms,
-    domains_equiv_atoms_vs vs atoms doms 
-      ->
-    forall x a,
-      match add_apply vs doms (x, a) with
-      | None => check_in_vs vs x = true /\ dom_equiv (applied_dom x ((x, a) :: atoms)) None
-      | Some doms' => domains_equiv_atoms_vs vs ((x, a) :: atoms) doms'
-      end.
-Proof.
-  intros vs doms atoms.
-  intros Hequiv x a.
-  destruct add_apply as [doms'|] eqn:Haddapply.
-  - unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond in *.
-    intros x'.
-    unfold add_apply in Haddapply.
-    destruct apply_atomics as [d'|] eqn:Happly.
-    + destruct (String.string_dec x x') as [Hxx' | Hxx'].
-      * subst x'; specialize (Hequiv x).
-        destruct smap.find as [d|] eqn:Hfind.
-        -- destruct Hequiv as [Hcheck Hequiv].
-          rewrite Hcheck in Haddapply.
-          inversion Haddapply; subst doms'; clear Haddapply.
-          rewrite smap.add_spec1.
-          split; try assumption.
-          rewrite <- Happly; rewrite Hequiv.
-          symmetry. apply applied_dom_cons_swap.
-        -- destruct (check_in_vs);
-          destruct Hequiv as [Hcheckf | Hin].
-          ++ discriminate Hcheckf.
-          ++ inversion Haddapply; subst doms'.
-            rewrite smap.add_spec1.
-            split; try reflexivity.
-            rewrite <- Happly.
-            symmetry. apply applied_dom_cons_initial.
-            apply Hin.
-          ++ inversion Haddapply; subst doms'.
-            rewrite Hfind. left. reflexivity.
-          ++ inversion Haddapply; subst doms'.
-            rewrite Hfind. left. reflexivity.
-    * destruct check_in_vs eqn:Hcheck.
-      -- inversion Haddapply; subst doms'.
-        rewrite smap.add_spec2; try assumption.
-        specialize (Hequiv x').
-        destruct (smap.find x').
-        ++ split; try apply Hequiv.
-          rewrite (proj2 Hequiv). symmetry.
-          apply applied_dom_cons_neq;
-          assumption.
-        ++ destruct Hequiv as [Hcheckf' | Hin].
-          ** left. apply Hcheckf'.
-          ** right. intros a' [H | H]; try inversion H; subst;
-          try contradiction; apply (Hin a' H).
-      -- inversion Haddapply; subst doms'.
-        specialize (Hequiv x').
-        destruct (smap.find x' doms) eqn:Hfind.
-        ++ destruct Hequiv as [Hcheck' Hequiv].
-          split; try assumption.
-          rewrite Hequiv. symmetry.
-          apply applied_dom_cons_neq;
-          assumption.
-        ++ destruct Hequiv as [Hcheckf' | Hin].
-          ** left. apply Hcheckf'.
-          ** right. intros a' [H | H]; try inversion H; subst;
-          try contradiction; apply (Hin a' H).
-    + destruct check_in_vs eqn:Hcheck.
-      { discriminate Haddapply. }
-      inversion Haddapply; subst doms'.
-      destruct (String.string_dec x x') as [Hxx' | Hxx'].
-      * subst x'.
-        specialize (Hequiv x).
-        destruct (smap.find x).
-        { rewrite Hcheck in Hequiv. easy. }
-        destruct Hequiv as [Hcheckf | Hin].
-        -- left. apply Hcheck.
-        -- left. apply Hcheck.
-      * specialize (Hequiv x').
-        destruct (smap.find x').
-        -- split; try apply Hequiv.
-          rewrite (proj2 Hequiv).
-          symmetry.
-          apply applied_dom_cons_neq;
-          assumption.
-        -- destruct Hequiv as [Hcheckf | Hin].
-          ++ left. apply Hcheckf.
-          ++ right. intros a' [H | H]; try inversion H; subst;
-          try contradiction; apply (Hin a' H).
-  - unfold add_apply in Haddapply.
-    destruct check_in_vs eqn:Hcheck.
-    + split; try reflexivity.
-      destruct apply_atomics as [d'|] eqn:Happly.
-      * discriminate Haddapply.
-      * unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond in Hequiv.
-        specialize (Hequiv x).
-        destruct smap.find.
-        -- destruct Hequiv as [_ Hequiv].
-          rewrite <- Happly; rewrite Hequiv.
-          apply applied_dom_cons_swap.
-        -- destruct Hequiv as [Hcheckf | Hin].
-          ++ rewrite Hcheck in Hcheckf;
-            discriminate Hcheckf.
-          ++ rewrite <- Happly.
-            apply applied_dom_cons_initial;
-            assumption.
-    + discriminate Haddapply.
-Qed. 
- 
-Lemma domains_from_var_atomics_correct :
-  forall vs atoms,
-    domains_from_vars_P vs atoms (domains_from_var_atomics atoms vs). 
-Proof.
-  intros vs.
-  intros atoms.
-  enough (domains_from_vars_P vs (rev atoms) (domains_from_var_atomics atoms vs)).
-  {
-    unfold domains_from_vars_P in *.
-    assert (forall x, dom_equiv (applied_dom x atoms)
-      (applied_dom x (rev atoms))) as Hrev.
-    {
-      clear. intros x.
-      unfold dom_equiv; intros y.
-      assert (from_var_atoms x (rev atoms) = rev (from_var_atoms x atoms)) as Hrev.
-      {
-        unfold from_var_atoms, filter_pair_on_key.
-        repeat rewrite flat_map_option_as_filter_map with (d := default_atom).
-        rewrite <- map_rev.
-        rewrite filter_rev.
-        reflexivity. 
-      }
-      unfold applied_dom.
-      repeat rewrite dom_effect_atomics.
-      rewrite Hrev.
-      setoid_rewrite <- in_rev.
-      reflexivity.
-    }
-    destruct (domains_from_var_atomics atoms vs) eqn:Hres.
-    - unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond in *.
-      intros x; specialize (H x).
-      destruct smap.find.
-      + rewrite Hrev. exact H.
-      + setoid_rewrite in_rev. exact H.
-   - setoid_rewrite <- Hrev in H.
-      apply H.
-  }
-  unfold domains_from_var_atomics.
-  rewrite fold_left_error_as_fold_left.
-  rewrite <- fold_left_rev_right.
-  apply fold_ind.
-  - unfold domains_from_vars_P.
-    unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond.
-    intros x.
-    rewrite smap.empty_spec.
-    right.
-    intros a Hin.
-    destruct Hin.
-  - intros [x' a] dom_map s.
-    unfold domains_from_vars_P.
-    intros IH.
-    specialize add_apply_step with (vs := vs) (atoms := s) (a := a) (x := x') as Hstep.
-    destruct (fold_left_error_f (add_apply vs) dom_map (x', a)) as [dom_map'|] eqn:Happly.
-    { 
-      unfold fold_left_error_f in Happly.
-      destruct dom_map as [dom_map|].
-      - specialize (Hstep dom_map).
-        apply Hstep in IH; clear Hstep.
-        rewrite Happly in IH.
-        apply IH.
-      - discriminate Happly.
-    }
-    {
-      unfold fold_left_error_f in Happly.
-      destruct dom_map as [dom_map|].
-      - apply Hstep in IH; clear Hstep.
-        rewrite Happly in IH.
-        exists x'.
-        apply IH.
-      - clear Happly Hstep. destruct IH as [x Hx].
-        exists x.
-        unfold applied_dom; simpl.
-        rewrite apply_atomics_app_swap.
-        rewrite apply_atomics_app.
-        rewrite Hx.
-        unfold apply_atomics.
-        simpl.
-        reflexivity.
-    }
-Qed.
-
-Lemma domains_from_var_atomics_all_correct :
-  forall vs atoms,
-    domains_from_vars_P vs atoms (domains_from_var_atomics_all atoms vs). 
-Proof.
-  (* This proof was supposed to be easier... *)
-  intros vs atoms.
-  unfold domains_from_vars_P.
-  destruct (domains_from_var_atomics_all atoms vs) as [dom_map|] eqn:Hdom_map.
-  - intros x.
-    unfold domains_from_var_atomics_all in Hdom_map.
-    destruct smap.is_empty eqn:Hempty.
-    + destruct smap.is_empty eqn:Hempty2 in Hdom_map.
-      * unfold build_atoms_map in Hempty2.
-        inversion Hdom_map; subst; clear Hdom_map.
-        rewrite smap.empty_spec.
-        destruct (from_var_atoms x atoms) eqn:Hxatoms.
-        -- right. unfold from_var_atoms in Hxatoms.
-          apply filter_pair_on_key_no_x.
-          exact Hxatoms.
-        -- left.
-          rewrite smap.is_empty_spec in Hempty2.
-          specialize map_from_prod_list_spec with (f := check_in_vs vs) (l := atoms) as Hprod_spec.
-          unfold map_from_prod_list_P in Hprod_spec.
-          specialize (Hprod_spec x).
-          rewrite (Hempty2 x) in Hprod_spec; clear Hempty2.
-          destruct Hprod_spec; try assumption.
-          exfalso.
-          rewrite filter_pair_on_key_no_x in H.
-          unfold from_var_atoms in Hxatoms.
-          rewrite H in Hxatoms.
-          discriminate Hxatoms.
-      * discriminate Hdom_map.
-    + inversion Hdom_map as [Hdom_map']; clear Hdom_map Hdom_map'.
-      apply is_empty_map_exists in Hempty.
-      apply smap_valid_spec in Hempty as Hvalid.
-      specialize (in_smap_not_none _ _ _ _ _ Hempty) as Hnotnone; clear Hempty.
-      destruct smap.find eqn:Hfind.
-      * rewrite smap.find_spec in Hfind.
-        rewrite <- smap.bindings_spec1 in Hfind.
-        rewrite Hvalid in Hfind; clear Hvalid.
-        rewrite <- In_to_InA_Duo_eq in Hfind.
-        rewrite in_map_iff in Hfind.
-        destruct Hfind as [[x' xatoms] [Hvalid Hin]].
-        apply Hnotnone in Hin as Happly_not_none;
-        clear Hnotnone.
-        unfold valid_f in Hvalid.
-        inversion Hvalid; subst; clear Hvalid.
-        unfold option_map_default.
-        destruct map_domains_apply_f eqn:Happly; try contradiction.
-        rewrite <- Happly. clear -Hin.
-        unfold applied_dom, map_domains_apply_f.
-        split.
-        -- specialize map_from_prod_list_spec with (f := check_in_vs vs) (l := atoms) as Hspec.
-          specialize (Hspec x).
-          rewrite In_to_InA_Duo_eq in Hin;
-          rewrite smap.bindings_spec1 in Hin;
-          rewrite <- smap.find_spec in Hin.
-          unfold build_atoms_map in Hin.
-          rewrite Hin in Hspec.
-          apply Hspec.
-        -- unfold dom_equiv; intros y.
-          repeat rewrite dom_effect_atomics.
-          setoid_rewrite in_map_prod_list at 1.
-          2: { unfold build_atoms_map in Hin. apply Hin. }
-          reflexivity.
-      * destruct (smap.find x (build_atoms_map atoms vs)) as [xatoms|] eqn:Hatoms.
-        -- clear -Hfind Hvalid Hatoms. 
-          specialize (find_none_bindings _ _ _ Hfind) as Hin.
-          rewrite Hvalid in Hin; clear Hvalid.
-          setoid_rewrite in_map_iff in Hin.
-          remember (valid_f initial_dom map_domains_apply_f (x, xatoms)) as res.
-          destruct res as [x' xdom].
-          specialize (Hin xdom).
-          exfalso. apply Hin; clear Hin.
-          exists (x, xatoms).
-          rewrite <- Heqres.
-          unfold valid_f in Heqres.
-          inversion Heqres; subst x'.
-          split; try reflexivity.
-          rewrite In_to_InA_Duo_eq.
-          rewrite smap.bindings_spec1.
-          rewrite <- smap.find_spec.
-          exact Hatoms.
-        -- clear -Hatoms.
-          specialize map_from_prod_list_spec with (f := check_in_vs vs) (l := atoms) as Hspec.
-          specialize (Hspec x).
-          unfold build_atoms_map in Hatoms. 
-          rewrite Hatoms in Hspec.
-          destruct Hspec as [Hfalse | Hin].
-          ++ now left.
-          ++ now right. 
-  - unfold domains_from_var_atomics_all in Hdom_map.
-    destruct (smap.is_empty) eqn:Hempty.
-    + unfold smap_valid in Hempty.
-      destruct (check_none) eqn:Hcheck.
-      2: { 
-        apply smap_valid_nonempty_input with (d := initial_dom) in Hcheck as Hnot_empty.
-        - unfold smap_valid in Hnot_empty.
-          rewrite Hcheck in Hnot_empty.
-          rewrite Hnot_empty in Hempty.
-          discriminate Hempty.
-        - destruct (smap.is_empty (build_atoms_map atoms vs)) eqn:Hbuild.
-          { discriminate Hdom_map. }
-          clear Hdom_map.
-          rewrite smap_prps.not_empty_has_binding in Hbuild.
-          destruct Hbuild as [x [xatoms Hin]].
-          exists (x, xatoms).
-          exact Hin.
-      }
-      clear Hdom_map Hempty.
-      unfold check_none in Hcheck.
-      rewrite smap.exists_spec in Hcheck.
-      rewrite existsb_exists in Hcheck.
-      destruct Hcheck as [[x d] [Hx Hopt]].
-      exists x.
-      rewrite smap.map_spec in Hx.
-      rewrite in_map_iff in Hx.
-      destruct Hx as [[x' xatoms] [Hmap Hin]].
-      inversion Hmap; subst; clear Hmap.
-      unfold map_domains_apply_f in Hopt.
-      unfold opt_is_none in Hopt.
-      destruct apply_atomics eqn:Happly in Hopt.
-      { discriminate Hopt. }
-      clear Hopt.
-      rewrite <- Happly; clear Happly.
-      unfold applied_dom, dom_equiv; intros y.
-      repeat rewrite dom_effect_atomics.
-      setoid_rewrite in_map_prod_list at 2.
-      2: { apply Hin. }
-      reflexivity.
-    + discriminate Hdom_map.
-Qed.
-
-(** Primary soundness definition for a domain map. A bit of an easier definition to work with than domains_from_vars_P as it has the assignment. *)
-Definition doms_hold_for_sol (sol : string -> Z) (doms : DomainMap) :=
-  forall x dom,
-    smap.MapsTo x dom doms
-      ->
-    is_in_dom (sol x) (Some dom).
-
-Lemma doms_hold_for_sol_from_domains_var_P :
-  forall vs atoms doms sol,
-    valid_atoms sol atoms 
-      -> 
-    domains_from_vars_P vs atoms (Some doms)
-      ->
-    doms_hold_for_sol sol doms.
-Proof.
-  intros vs atoms doms sol.
-  unfold domains_from_vars_P, domains_equiv_atoms_vs, domains_equiv_atoms_cond.
-  intros Hvalid Hdomains_from.
-  intros x dom Hmapsto.
-  rewrite <- smap.find_spec in Hmapsto.
-  specialize (Hdomains_from x).
-  rewrite Hmapsto in Hdomains_from.
-  specialize Hdomains_from as [_ Hdom].
-  clear -Hvalid Hdom.
-  apply dom_equiv_holds with (atoms := (from_var_atoms x atoms)).
-  - intros a Hin.
-    apply Hvalid.
-    rewrite <- filter_pair_on_key_spec.
-    apply Hin.
-  - apply Hdom.
-Qed.
-
-Lemma doms_from_var_all_hold :
-  forall vs atoms doms sol,
+Lemma dom_consistent_if_valid_atoms :
+  forall sol atoms,
     valid_atoms sol atoms
       ->
-    domains_from_var_atomics_all atoms vs = Some doms
-      ->
-    doms_hold_for_sol sol doms.
+    forall x,
+      dom_consistent (applied_dom x atoms).
 Proof.
-  intros vs atoms doms sol.
-  intros Hvalid Hdoms_from.
-  apply doms_hold_for_sol_from_domains_var_P with (vs := vs) (atoms := atoms).
-  - exact Hvalid.
-  - setoid_rewrite <- Hdoms_from.
-    apply domains_from_var_atomics_all_correct.
+  intros sol atoms. intros Hatoms.
+  intros x.
+  exists (sol x).
+  unfold applied_dom. rewrite dom_effect_atomics.
+  split; try easy.
+  intros a Hin.
+  apply Hatoms.
+  rewrite <- filter_pair_on_key_spec.
+  exact Hin.
 Qed.
 
-(* Lemma doms_from_add_apply_hold :
-  forall vs doms doms' sol x a,
-    doms_hold_for_sol sol doms
+Lemma domains_consistent_if_valid_atoms :
+  forall sol atoms doms,
+    valid_atoms sol atoms
       ->
-    atomic_holds (sol x) a
+    valid_domains doms atoms
       ->
-    add_apply vs doms (x, a) = Some doms'
-      ->
-    doms_hold_for_sol sol doms'.
+    forall x,
+      dom_consistent (doms d-> x).
 Proof.
-  #### Proving this requires building atoms from sol and doms ####
+  intros sol atoms doms.
+  intros Hatoms Hdoms. intros x.
+  rewrite (Hdoms x).
+  apply dom_consistent_if_valid_atoms with (sol := sol).
+  exact Hatoms.
 Qed.
- *)
+
+      
+Lemma inconsistent_contradiction :
+  forall sol atoms doms,
+    valid_atoms sol atoms
+      ->
+    valid_domains doms atoms
+      ->
+    check_domains_consistent doms <> false.
+Proof.
+  intros sol atoms doms Hatoms Hdoms.
+  unfold check_domains_consistent.
+  rewrite smap.for_all_spec.
+  intros Hfalse.
+  apply forallb_false in Hfalse.
+  destruct Hfalse as ((x & xdom) & Hindoms & Hcheck).
+  apply dom_inconsistent_if_checked_false in Hcheck.
+  apply Hcheck.
+  apply dom_from_domains_if_in in Hindoms.
+  rewrite <- Hindoms.
+  apply domains_consistent_if_valid_atoms with (sol := sol) (atoms := atoms); assumption.
+Qed.
+
+Definition tighten_doms (doms : Domains) :=
+  smap.map tighten_dom doms.
+
+Definition tighten_doms_equiv :
+  forall doms x,
+    dom_equiv (tighten_doms doms d-> x) (doms d-> x).
+Proof.
+  intros doms x.
+  destruct (doms_maps_or_not_included (tighten_doms doms) x) as [Hmaps | (Hinitial & Hnincluded)].
+  - rewrite <- smap_in_spec in Hmaps.
+    unfold tighten_doms in *.
+    rewrite smap.map_spec in Hmaps.
+    rewrite in_map_iff in Hmaps.
+    destruct Hmaps as ((x' & dom_tight) & Htighten & Hin).
+    inversion Htighten.
+    subst x'. rewrite smap_in_spec in Hin.
+    rewrite <- smap.find_spec in Hin.
+    unfold dom_from_domains. rewrite Hin.
+    simpl. rewrite <- tighten_equiv. reflexivity.
+  - destruct (doms_maps_or_not_included doms x) as [Hmaps_doms | (Hinitial_doms & Hnincluded_doms)].
+    + exfalso. 
+      apply Hnincluded with (dom := (tighten_dom (doms d-> x))).
+      unfold included_doms, tighten_doms.
+      rewrite smap.map_spec.
+      rewrite in_map_iff.
+      exists (x, (doms d-> x)).
+      split; try reflexivity.
+      rewrite smap_in_spec.
+      exact Hmaps_doms.
+    + rewrite Hinitial_doms. rewrite Hinitial.
+      reflexivity. 
+Qed.
+
+Definition doms_apply_tighten (doms : Domains) (atomic : BoundAtomic) : option Domains :=
+  match atomic with
+  | (x, atom) =>
+    match apply_atomic_tighten (doms d-> x) atom with
+    | None => None
+    | Some dom => Some (smap.add x dom doms)
+    end
+  end.
+
+Lemma doms_apply_tighten_step :
+  forall doms atoms,
+    valid_domains doms atoms
+      ->
+    forall x a,
+      match doms_apply_tighten doms (x, a) with
+      | None => ~ dom_consistent (applied_dom x ((x, a) :: atoms))
+      | Some doms' => valid_domains doms' ((x, a) :: atoms)
+      end.
+Proof.
+  intros doms atoms. intros Hdoms.
+  intros x xatom.
+  unfold doms_apply_tighten. specialize (apply_atomic_tighten_valid (doms d-> x) xatom) as Hspec.
+  destruct apply_atomic_tighten as [dom|].
+  - unfold valid_domains. intros x'.
+    unfold applied_dom. simpl. unfold dom_from_domains.
+    destruct (x =? x')%string eqn:Hxx'; simpl.
+    + rewrite String.eqb_eq in Hxx'; subst x'.
+      rewrite smap.add_spec1. simpl.
+      rewrite Hspec; clear Hspec.
+      (* could be improved with some more propers *)
+      unfold dom_equiv. intros y. 
+      rewrite <- apply_atomic_spec.
+      rewrite dom_effect_atomics.
+      rewrite <- apply_atomic_spec.
+      rewrite (Hdoms x).
+      unfold applied_dom. rewrite dom_effect_atomics.
+      repeat split; try easy.
+    + rewrite String.eqb_neq in Hxx'.
+      rewrite smap.add_spec2; try easy.
+      apply Hdoms.
+  - intros Hconsistent.
+    apply Hspec. destruct Hconsistent as (y & Hy).
+    exists y. revert Hy.
+    rewrite <- apply_atomic_spec.
+    rewrite (Hdoms x).
+    unfold applied_dom.
+    setoid_rewrite dom_effect_atomics.
+    simpl. destruct (x =? x)%string eqn:Hxx.
+    2: { rewrite String.eqb_neq in Hxx. contradiction. }
+    simpl. intros (_ & Hholds).
+    split; [split|]; try easy.
+    + intros a Hin.
+      apply Hholds. right. exact Hin.
+    + apply Hholds. left. reflexivity.
+Qed.
+  
+Definition sol_in_doms (sol : string -> Z) (doms : Domains) :=
+  forall x,
+    is_in_dom (sol x) (doms d-> x).
+
+Lemma sol_in_doms_if_valid :
+  forall atoms doms sol,
+    valid_atoms sol atoms
+      ->
+    valid_domains doms atoms
+      ->
+    sol_in_doms sol doms.
+Proof.
+  intros atoms doms sol.
+  intros Hatoms Hdoms.
+  intros x.
+  rewrite (Hdoms x).
+  unfold applied_dom.
+  rewrite dom_effect_atomics.
+  split; try easy.
+  intros a Hin.
+  apply Hatoms.
+  rewrite <- filter_pair_on_key_spec.
+  apply Hin.
+Qed.

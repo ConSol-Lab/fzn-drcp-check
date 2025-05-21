@@ -21,8 +21,11 @@ Import Utility.ZRange.
 Import Utility.SubList.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
+Require Import Checker.Zext.
 Require Import Checker.Deduction.
 Import Datatypes.
+
+Open Scope Z_scope.
 
 Record ActivityBound := mkBound {
   b_x : string;
@@ -46,19 +49,15 @@ Definition constraint_to_vs (c : CumulativeConstraint) : sstr.t :=
   sstr.build (constraint_to_vars c).
 
 Definition domain_to_bound (param_map : string -> (N * N)) (x : string) (dom : Domain) :=
-  match dom.(d_lb) with
-  | Some lb =>
-    match dom.(d_ub) with
-    | Some ub =>
+  match dom.(d_lb), dom.(d_ub) with
+  | zz lb, zz ub =>
       match param_map x with
       | (p, u) => Some (mkBound x lb ub p u)
       end
-    | _ => None
-    end
-  | _ => None
+  | _, _ => None
   end.
 
-Definition domains_to_bounds (doms : DomainMap) (param_map : string -> (N * N)) :=
+Definition domains_to_bounds (doms : Domains) (param_map : string -> (N * N)) :=
   smap.mapi (domain_to_bound param_map) doms.
 
 Definition unwrap_bindings {A B} (l : list (A * option B)) :=
@@ -66,7 +65,7 @@ Definition unwrap_bindings {A B} (l : list (A * option B)) :=
 
 Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : Deduction.Inference) :=
   let activity_vars := constraint_to_vs constr in
-  match infer_domains (Some activity_vars) fact with
+  match infer_domains activity_vars fact with
   | None => (nil, None)
   | Some (domains, prop_var) =>
     let param_map := constraint_to_param_map constr in
@@ -162,8 +161,8 @@ Proof.
       inversion Hpair; subst; clear Hpair.
       rename H1 into Hto_bound.
       unfold domain_to_bound in Hto_bound.
-      destruct dom as [lb ub holes].
-      destruct lb as [lb|]; try easy; destruct ub as [ub|]; try easy; simpl in Hto_bound.
+      destruct dom as [lb ub holes]; simpl in Hto_bound.
+      destruct lb as [lb| |]; try easy; destruct ub as [ub| |]; try easy; simpl in Hto_bound.
       destruct constraint_to_param_map as [p u].
       destruct a; inversion Hto_bound.
       reflexivity.
@@ -210,13 +209,13 @@ Proof.
   unfold inferred_cumulative_bounds in Hinfer_bounds.
   destruct infer_domains as [[doms prop_var_opt]|] eqn:Hinfer.
   2: { inversion Hinfer_bounds; subst. contradiction. }
-  apply infer_domains_correct with (vs := (Some (constraint_to_vs constr))) (doms := doms) (xconsq := prop_var_opt); try assumption.
+  apply infer_domains_correct with (vs := (constraint_to_vs constr)) (doms := doms) (xconsq := prop_var_opt); try assumption.
   intros Hdoms_hold.
   remember (unwrap_bindings
     (smap.bindings
     (domains_to_bounds doms
     (constraint_to_param_map constr)))) as bounds'.
-  assert (infer_domains (Some (constraint_to_vs constr)) fact = Some (doms, prop_var_opt) -> doms_hold_for_sol sol doms -> valid_bounds bounds' constr sol) as H.
+  assert (infer_domains (constraint_to_vs constr) fact = Some (doms, prop_var_opt) -> sol_in_doms sol doms -> valid_bounds bounds' constr sol) as H.
   {
     clear -Heqbounds'. intros Hinfer Hdoms_hold.
     subst bounds'.
@@ -233,10 +232,13 @@ Proof.
     rename H1 into Hto_bound.
     apply infer_domains_vs with (x := x) (dom := dom) in Hinfer; try assumption.
     rewrite smap_in_spec in Hindoms.
-    apply (Hdoms_hold x dom) in Hindoms; clear Hdoms_hold.
+    specialize (Hdoms_hold x).
+    unfold dom_from_domains in Hdoms_hold.
+    rewrite <- smap.find_spec in Hindoms.
+    rewrite Hindoms in Hdoms_hold; simpl in Hdoms_hold.
     unfold domain_to_bound in Hto_bound.
     destruct dom as [lb ub holes] eqn:Hdom;
-    destruct lb as [lb|]; destruct ub as [ub|]; try easy; simpl in Hto_bound.
+    destruct lb as [lb| |]; destruct ub as [ub| |]; try easy; simpl in Hto_bound.
     destruct (constraint_to_param_map constr x) as [p u] eqn:Hpu.
     destruct bound as [bx blb bub bp bu]; inversion Hto_bound; subst bx blb bub bp bu; clear Hto_bound.
     simpl in *.
@@ -261,9 +263,9 @@ Proof.
         split; try assumption.
         destruct a_def. simpl.
         apply Hx.
-    - unfold is_in_dom in Hindoms. lia.
+    - unfold is_in_dom in Hdoms_hold. simpl in Hdoms_hold.
+      zext_as_z. lia.
   }
-
   destruct prop_var_opt as [prop_var |] eqn:Hprop_var.
   {
     destruct smap.find as [prop_bound_opt' |] eqn:Hfind.

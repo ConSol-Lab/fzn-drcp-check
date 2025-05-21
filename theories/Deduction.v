@@ -12,7 +12,7 @@ Import Utility.Tactics.
 Import Utility.Sets.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
-
+Local Open Scope Domain_scope.
 (** This file represents the process of verifying a deduction step, although it does not actually mention the deduction itself so there is still some freedom to implement it. Given a number of valid inferences and premises we assume to hold, if the checker returns true we know we have a contradiction (hence of the premises must have been incorrect). *)
 
 (** An inference is a set of premises and a consequent. If the consequent is None, it represents a nogood. *)
@@ -31,12 +31,12 @@ Definition negate_bound_atomic (atomic : BoundAtomic) :=
 
 
 (** Check whether a premise holds. *)
-Definition check_premise (domains : DomainMap) (premise : BoundAtomic) := 
+Definition check_premise (domains : Domains) (premise : BoundAtomic) := 
   match premise with
   | (x, a) =>
     match smap.find x domains with
     | Some dom =>
-      check_holds a dom.(d_lb) dom.(d_ub) dom.(d_holes)
+      check_holds a dom
     | None => false
     end
   end.
@@ -47,20 +47,20 @@ Inductive DeductStep :=
 | deduct_valid
 | deduct_reject.
 
-Definition step_inference (inference : Inference) (domains : DomainMap) :=
+Definition step_inference (inference : Inference) (domains : Domains) :=
   if forallb (check_premise domains) inference.(i_premises)
     then
       match inference.(i_consequent) with
       | None => deduct_valid
       | Some consequent =>
-        match add_apply None domains consequent with
+        match doms_apply_tighten domains consequent with
         | None => deduct_valid
         | Some domains => deduct_domains domains
         end
       end
     else deduct_reject.
 
-Fixpoint deduct_check_inferences (inferences : list Inference) (domains : DomainMap) : bool :=
+Fixpoint deduct_check_inferences (inferences : list Inference) (domains : Domains) : bool :=
   match inferences with
   | nil => false
   | inf :: inferences' =>
@@ -72,12 +72,12 @@ Fixpoint deduct_check_inferences (inferences : list Inference) (domains : Domain
   end.
 
 Definition check_deduct (premises : list BoundAtomic) (steps : list Inference) :=
-  match domains_from_var_atomics_all premises None with
-  | None =>
-    (** This means we have a trivial nogood, decide what to do *)
-      true
-  | Some domains => deduct_check_inferences steps domains
-  end.
+  let doms := domains_from_atomics premises in
+  let doms_tight := tighten_doms doms in
+    if check_domains_consistent doms
+      then deduct_check_inferences steps doms_tight
+      (* Inconsistent premises, which we do not expect *)
+      else false.
 
 Definition bound_atomic_holds (assignment : string -> Z) (atom : BoundAtomic) :=
   match atom with
@@ -123,38 +123,43 @@ Proof.
 Qed. 
 
 Lemma forall_premises :
-  forall doms assignment atoms cpremises,
-  forallb (check_premise doms) cpremises = true
+  forall doms assignment atoms premises,
+  forallb (check_premise doms) premises = true
     ->
   valid_atoms assignment atoms
     ->
-  domains_equiv_atoms atoms doms   
+  valid_domains doms atoms
     ->
-  valid_atoms assignment cpremises.
+  valid_atoms assignment premises.
 Proof.
-  intros doms assignment atoms cpremises.
-  intros Hforall Hvalid Hequiv. 
-  rewrite forallb_forall in Hforall.
+  intros doms assignment atoms premises.
+  intros Hforall Hvalid Hequiv.
   unfold valid_atoms.
   intros x a Hin.
-  apply Hforall in Hin; clear Hforall.
-  unfold check_premise in Hin.
-  specialize (Hequiv x).
-  destruct smap.find; try discriminate Hin.
-  apply dom_equiv_holds with (y := assignment x) in Hequiv.
-  - apply check_holds_implies with (dom := d); assumption.
-  - intros a' Hinprem.
+  apply check_holds_implies with (dom := doms d-> x).
+  - rewrite (Hequiv x).
+    unfold applied_dom. rewrite dom_effect_atomics.
+    split; try easy.
+    intros a' Hin'.
     apply Hvalid.
     rewrite <- filter_pair_on_key_spec.
-    apply Hinprem.
-Qed.
+    apply Hin'.
+  - rewrite forallb_forall in Hforall.
+    apply Hforall in Hin; clear Hforall.
+    unfold check_premise in Hin.
+    destruct smap.find eqn:Hfind; try discriminate Hin.
+    rewrite smap.find_spec in Hfind.
+    rewrite <- smap_in_spec in Hfind.
+    apply dom_from_domains_if_in in Hfind; subst d.
+    assumption.
+ Qed.
 
 (** This is the main inductive proof. Separating it out is important so that we can put domains_equiv_atoms as a hypothesis so that we have enough information in our induction hypothesis. *)
 Lemma deduct_check_inferences_correct :
   forall assignment steps domains atoms,
     valid_atoms assignment atoms
       ->
-    domains_equiv_atoms atoms domains
+    valid_domains domains atoms
       ->
     (forall inf, In inf steps -> inference_valid assignment inf)
       ->
@@ -164,74 +169,59 @@ Lemma deduct_check_inferences_correct :
 Proof.
   intros assignment.
   induction steps as [|step steps IH].
-  - intros doms atoms Hequiv Hinfs.
-    easy.
-  - intros doms atoms Hatoms Hequiv Hinfs.
-    simpl.
-    assert (forall inf, In inf steps -> inference_valid assignment inf) as Hprev.
-    { intros inf Hin. apply Hinfs. now right. }
-    assert (inference_valid assignment step) as Hstep.
-    { apply Hinfs. now left. }
-    clear Hinfs.
-    destruct step_inference as [doms' | |] eqn:Hinf.
-    + unfold step_inference in Hinf.
-      destruct forallb eqn:Hforall in Hinf;
+  { easy. }
+  intros doms atoms Hatoms Hequiv Hinfs.
+  simpl.
+  assert (forall inf, In inf steps -> inference_valid assignment inf) as Hprev.
+  { intros inf Hin. apply Hinfs. now right. }
+  assert (inference_valid assignment step) as Hstep.
+  { apply Hinfs. now left. }
+  clear Hinfs.
+  destruct step_inference as [doms' | |] eqn:Hinf.
+  - unfold step_inference in Hinf.
+    destruct forallb eqn:Hforall in Hinf;
+    try discriminate Hinf.
+    unfold inference_valid in Hstep.
+    destruct i_consequent as [conseq|];
+    try discriminate Hinf.
+    apply forall_premises with (assignment := assignment) (atoms := atoms) in Hforall; try assumption.
+    apply Hstep in Hforall as Hconseq; clear Hstep Hforall.
+    apply IH with (domains := doms') (atoms := conseq :: atoms); try apply Hprev; clear IH.
+    {
+      unfold valid_atoms. intros x a.
+      intros Hin.
+      destruct Hin as [Hconseqxa | Hprevatoms].
+      - subst conseq. apply Hconseq.
+      - apply Hatoms. exact Hprevatoms.
+    }
+    destruct conseq as [x a].
+    clear Hprev.
+    specialize (doms_apply_tighten_step doms atoms Hequiv x a) as Happly_spec.
+    destruct doms_apply_tighten as [doms_apply|] eqn:Happly;
+    try discriminate Hinf.
+    inversion Hinf; subst doms_apply; clear Hinf.
+    apply Happly_spec.
+  - intros _; clear IH.
+    unfold step_inference in Hinf.
+    destruct forallb eqn:Hforall in Hinf;
+    try discriminate Hinf.
+    unfold inference_valid in Hstep.
+    destruct i_consequent as [conseq|].
+    + destruct conseq as [x a].
+      specialize (doms_apply_tighten_step doms atoms Hequiv x a) as Happly_spec.
+      destruct doms_apply_tighten eqn:Happly;
       try discriminate Hinf.
-      unfold inference_valid in Hstep.
-      destruct i_consequent as [conseq|];
-      try discriminate Hinf.
-      apply forall_premises with (assignment := assignment) (atoms := atoms) in Hforall; try assumption.
-      apply Hstep in Hforall as Hconseq; clear Hstep Hforall.
-      destruct add_apply eqn:Happly in Hinf;
-      try discriminate Hinf.
-      inversion Hinf; subst d; clear Hinf.
-      apply IH with (domains := doms') (atoms := conseq :: atoms); try apply Hprev; clear IH.
-      {
-        unfold valid_atoms. intros x a.
-        intros Hin.
-        destruct Hin as [Hconseqxa | Hprevatoms].
-        - subst conseq. apply Hconseq.
-        - apply Hatoms. exact Hprevatoms.
-      }
-      clear Hprev.
-      destruct conseq as [x a].
-      specialize add_apply_step with (vs := None) as Hadd_apply.
-      setoid_rewrite check_in_vs_none_domains_equiv in Hadd_apply.
-      apply Hadd_apply with (x := x) (a := a) in Hequiv;
-      clear Hadd_apply.
-      rewrite Happly in Hequiv.
-      setoid_rewrite check_in_vs_none_domains_equiv in Hequiv.
-      apply Hequiv.
-    + clear IH.
-      unfold step_inference in Hstep.
-      intros _.
-      unfold step_inference in Hinf.
-      destruct forallb eqn:Hforall in Hinf;
-      try discriminate Hinf.
-      unfold inference_valid in Hstep.
-      destruct i_consequent as [conseq|].
-      * destruct add_apply eqn:Happly in Hinf;
-        try discriminate Hinf.
-        clear Hinf.
-        destruct conseq as [x a].
-        specialize add_apply_step with (vs := None) as Hadd_apply.
-        setoid_rewrite check_in_vs_none_domains_equiv in Hadd_apply.
-        pose proof Hequiv as Hequiv'.
-        apply Hadd_apply with (x := x) (a := a) in Hequiv;
-        clear Hadd_apply.
-        rewrite Happly in Hequiv.
-        apply applied_dom_none_false with (f := assignment) (x := x) (atoms := (x, a) :: atoms).
-        -- unfold valid_atoms.
-          intros x' a' [Hxa | Hin].
-          ++ inversion Hxa; subst; clear Hxa.
-            apply Hstep.
-            apply forall_premises with (doms := doms) (atoms := atoms); assumption.
-          ++ apply Hatoms.
-            exact Hin.
-        -- apply Hequiv.
-      * clear Hinf. apply Hstep.
+      apply Happly_spec; clear Happly_spec Happly.
+      apply dom_consistent_if_valid_atoms with (sol := assignment).
+      unfold valid_atoms.
+      intros x' a'.
+      intros [Hxx' | Hin].
+      * inversion Hxx'; subst. apply Hstep.
         apply forall_premises with (doms := doms) (atoms := atoms); assumption.
-    + easy.
+      * apply Hatoms. exact Hin.
+    + apply Hstep.
+      apply forall_premises with (doms := doms) (atoms := atoms); assumption.
+  - easy.
 Qed. 
 
 (** This is the main correctness proof that factors out the use of the domain map. *)
@@ -247,41 +237,42 @@ Lemma check_deduct_correct :
 Proof.
   intros assignment.
   intros premises steps Hvalid Hinfs.
-  specialize domains_from_var_atomics_all_correct with (vs := None) (atoms := premises) as Hdomains.
-  unfold domains_from_vars_P in Hdomains.
+  specialize domains_from_atomics_correct with (atoms := premises) as Hdomains.
   unfold check_deduct.
-  destruct domains_from_var_atomics_all as [doms|].
-  - apply deduct_check_inferences_correct with (assignment := assignment) (atoms := premises).
-    + exact Hvalid.
-    + unfold domains_equiv_atoms.
-      intros x. specialize (Hdomains x).
-      destruct smap.find.
-      * now apply Hdomains.
-      * now destruct Hdomains.
-    + exact Hinfs.
-  - intros _.
-    destruct Hdomains as [x H].
-    apply applied_dom_none_false with (f := assignment) (atoms := premises) (x := x); assumption.
+  destruct check_domains_consistent; try easy.
+  apply deduct_check_inferences_correct with (assignment := assignment) (atoms := premises).
+  - exact Hvalid.
+  - unfold valid_domains.
+    intros x. 
+    rewrite tighten_doms_equiv.
+    apply Hdomains. reflexivity.
+  - exact Hinfs.
 Qed.
 
-Definition infer_domains (vs : option sstr.t) (fact : Inference) :=
-  match domains_from_var_atomics_all (fact.(i_premises)) vs with
-  | None => None
-  | Some doms =>
-    match fact.(i_consequent) with
-    | None => Some (doms, None)
-    | Some (x, consq) =>
-      match add_apply vs doms (x, (negate_atomic consq)) with
-      | None => None
-      | Some doms => Some (doms, Some x)
-      end
-    end
+Definition check_in_vs (vs : sstr.t) (a : BoundAtomic) :=
+  match a with 
+  | (x, atom) => sstr.mem x vs
   end.
+
+Definition atomics_from_fact (fact : Inference) :=
+  match fact.(i_consequent) with
+  | None => (None, fact.(i_premises))
+  | Some (x, consq) => (Some x, (negate_bound_atomic (x, consq)) :: fact.(i_premises))
+  end.
+
+Definition infer_domains (vs : sstr.t) (fact : Inference) :=
+  let (x, atomics) := atomics_from_fact fact in
+  let atomics' := filter (check_in_vs vs) atomics in
+  let doms := domains_from_atomics atomics' in
+  let doms_tight := tighten_doms doms in
+  if check_domains_consistent doms_tight
+    then Some (doms_tight, x)
+    else None.
 
 (** This is the main lemma to make use of vs, which ensures that all output variables will be in a particular set. Useful for ensuring that you get a result when matching against some map of parameters (see e.g. cumulative).  *)
 Lemma infer_domains_vs :
-  forall vs fact x dom doms c,
-    infer_domains (Some vs) fact = Some (doms, c)
+  forall vs fact (x : string) dom (doms : Domains) c,
+    infer_domains vs fact = Some (doms, c)
       ->
     In (x, dom) (smap.bindings doms)
       ->
@@ -289,40 +280,23 @@ Lemma infer_domains_vs :
 Proof.
   intros vs fact x dom doms c.
   unfold infer_domains.
-  destruct domains_from_var_atomics_all as [doms'|] eqn:Hdoms_from; try discriminate.
-  intros Hdoms.
-  enough (exists atoms, domains_equiv_atoms_vs (Some vs) atoms doms) as Hvs.
-  { clear -Hvs.
-    destruct Hvs as [atoms Hvs].
-    unfold domains_equiv_atoms_vs, domains_equiv_atoms_cond in Hvs.
-    rewrite In_to_InA_Duo_eq.
-    rewrite smap.bindings_spec1.
-    rewrite <- smap.find_spec.
-    intros Hfind.
-    specialize (Hvs x).
-    rewrite Hfind in Hvs.
-    destruct Hvs as [Hvs _].
-    unfold check_in_vs in Hvs.
-    rewrite <- sstr.mem_spec.
-    exact Hvs.
-  }
-  assert (domains_equiv_atoms_vs (Some vs) (i_premises fact) doms') as Hdoms'.
-    { enough (domains_from_vars_P (Some vs) (i_premises fact) (Some doms')).
-      - assumption.
-      - setoid_rewrite <- Hdoms_from. apply domains_from_var_atomics_all_correct. }
-  destruct i_consequent as [[cx ca]|].
-  - destruct add_apply as [doms''|] eqn:Hadd_apply;
-    try discriminate.
-    inversion Hdoms; subst; clear Hdoms.
-    specialize (add_apply_step (Some vs) doms' (i_premises fact)) as Hstep.
-    rename Hdoms' into Hstep'.
-    apply Hstep with (x := cx) (a := (negate_atomic ca)) in Hstep'; clear Hstep.
-    rewrite Hadd_apply in Hstep'.
-    exists ((cx, negate_atomic ca) :: i_premises fact).
-    exact Hstep'.
-  - inversion Hdoms; subst; clear Hdoms.
-    exists (i_premises fact).
-    exact Hdoms'.
+  destruct atomics_from_fact as [c' atomics].
+  remember (filter (check_in_vs vs) atomics) as atomics'.
+  destruct check_domains_consistent eqn:Hconsistent; try discriminate.
+  intros Hdomsc; inversion Hdomsc; subst doms c'; clear Hdomsc.
+  unfold tighten_doms.
+  rewrite smap.map_spec.
+  rewrite in_map_iff.
+  intros ((x' & dom') & Hxdom & Hin).
+  inversion Hxdom; subst x'; clear Hxdom.
+  apply domains_from_atomics_if_in in Hin.
+  destruct Hin as (xatom & Hin).
+  rewrite filter_pair_on_key_spec in Hin.
+  subst atomics'.
+  rewrite filter_In in Hin.
+  unfold check_in_vs in Hin.
+  rewrite <- sstr.mem_spec.
+  apply Hin.
 Qed.
 
 (** This lemma is primarily useful for inference checkers. *)
@@ -330,7 +304,7 @@ Lemma infer_domains_correct fact vs doms xconsq :
   forall sol, 
     infer_domains vs fact = Some (doms, xconsq)
       ->
-    (doms_hold_for_sol sol doms
+    (sol_in_doms sol doms
       ->
     False)
       ->
@@ -338,37 +312,49 @@ Lemma infer_domains_correct fact vs doms xconsq :
 Proof.
   intros sol.
   unfold infer_domains.
-  destruct domains_from_var_atomics_all as [doms'|] eqn:Hdoms_from; try discriminate.
-  destruct i_consequent as [[x consq]|] eqn:Hconsq.
-  - destruct add_apply as [doms_x|] eqn:Happly; try discriminate.
-    intros H; inversion H; subst; clear H.
-    intros Hdoms_hold.
-    assert (fact = mkInf (i_premises fact) (Some (x, consq))).
-    { destruct fact. simpl in Hconsq. subst. reflexivity. }
-    rewrite H. apply inference_valid_neg_rhs.
-    unfold inference_valid. simpl.
-    intros Hatoms.
-    apply Hdoms_hold; clear Hdoms_hold.
-    remember ((x, negate_atomic consq) :: i_premises fact) as atoms.
-    enough (domains_from_vars_P vs atoms (Some doms)) as Henough.
-    { apply doms_hold_for_sol_from_domains_var_P with (vs := vs) (atoms := atoms).
-      - apply Hatoms.
-      - apply Henough. }
-    unfold domains_from_vars_P.
-    rewrite Heqatoms.
-    specialize (add_apply_step vs doms' (i_premises fact)) with (x := x) (a := (negate_atomic consq)) as Hstep.
-    rewrite Happly in Hstep.
-    apply Hstep.
-    clear -Hdoms_from.
-    enough (domains_from_vars_P vs (i_premises fact) (Some doms')).
-    + apply H.
-    + setoid_rewrite <- Hdoms_from. 
-      apply domains_from_var_atomics_all_correct.
-  - intros H; inversion H; subst; clear H.
-    intros Hdoms_hold.
-    unfold inference_valid.
-    intros Hatoms.
-    rewrite Hconsq.
-    apply Hdoms_hold.
-    now apply doms_from_var_all_hold with (vs := vs) (atoms := (i_premises fact)).
+  destruct atomics_from_fact as [x atomics'] eqn:Hatomics'.
+  destruct check_domains_consistent; try discriminate.
+  intros H; inversion H; subst; clear H.
+  unfold atomics_from_fact in Hatomics'.
+  intros Hfalse.
+  enough (
+    exists atoms, 
+      (inference_valid sol (mkInf atoms None) <-> inference_valid sol fact) 
+        /\ 
+        (sol_in_doms sol (tighten_doms (domains_from_atomics (filter (check_in_vs vs) atoms))) 
+          -> 
+        False)
+  ).
+  {  
+    clear -H.
+    destruct H as (atoms & Hfact & Hdoms).
+    rewrite <- Hfact.
+    clear Hfact fact.
+    intros Hatoms. simpl in *.
+    apply Hdoms; clear Hdoms.
+    unfold sol_in_doms. intros x.
+    rewrite tighten_doms_equiv.
+    remember (domains_from_atomics (filter (check_in_vs vs) atoms)) as doms.
+    revert x. fold (sol_in_doms sol doms). apply sol_in_doms_if_valid with (atoms := (filter (check_in_vs vs) atoms)).
+    + intros x a Hin. apply Hatoms.
+      rewrite filter_In in Hin. 
+      apply Hin.
+    + apply domains_from_atomics_correct, Heqdoms.
+  }
+  destruct i_consequent as [(x & consq)|] eqn:Hconsq.
+  - inversion Hatomics'; subst; clear Hatomics'.
+    exists ((x, negate_atomic consq) :: i_premises fact).
+    split.
+    + clear Hfalse. 
+      destruct fact as [premises [[x' consq'] | ]].
+      2: { discriminate Hconsq. }
+      simpl in *; inversion Hconsq; subst x' consq'; clear Hconsq. 
+      rewrite inference_valid_neg_rhs.
+      reflexivity.
+    + exact Hfalse.
+  - exists (i_premises fact).
+    inversion Hatomics'; subst.
+    split.
+    + destruct fact as [premises [xconsq | ]]; simpl in *; try discriminate. reflexivity.
+    + exact Hfalse.
 Qed.
