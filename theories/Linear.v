@@ -2,274 +2,150 @@ Require Import Bool.
 Require Import ZArith.
 Require Import Int.
 Require Import Checker.Variable.
-Require Import Checker.Inference.
-Require Import Checker.Atomic.
+Require Import Checker.Deduction.
+Require Import Checker.DomainVar.
 Require Import Checker.Nogood.
 Require Import List.
 Require Import Logic.FunctionalExtensionality.
+Require Import String.
+Require Import Lia.
+Import Utility.Maps.
 Open Scope Z_scope.
 Import ListNotations.
 
 Record LinearConstraint :=
   {
-    terms : list (Z * Var);
-    bound : Z;
+    l_terms : list (Z * string);
+    l_bound : Z;
   }.
 
-Fixpoint evaluate_linear (x : list (Z * Var)) (sol : Assignment) : Z :=
+Fixpoint evaluate_linear (x : list (Z * string)) (sol : string -> Z) : Z :=
   match x with
   | [] => 0
-  | (coef, v) :: xs =>
-      let val := (find_value sol) v in
-      let rest := evaluate_linear xs sol in
-      coef * val + rest
+  | (coef, v) :: xs => coef * (sol v) + (evaluate_linear xs sol)
   end.
 
-Definition satisfies_linear (cons : LinearConstraint) (sol : Assignment) : bool :=
-  evaluate_linear (terms cons) sol <=? bound cons.
+Definition linear_leq (c : LinearConstraint) (sol : string -> Z) :=
+  evaluate_linear (c.(l_terms)) (sol) <= c.(l_bound).
 
-Definition is_valid_linear_inference 
-  (inference : list Atomic) (constraint : LinearConstraint) : Prop := 
-  forall (sol : Assignment),
-  Is_true (satisfies_linear constraint sol) ->
-  Is_true (satisfies_nogood inference sol).
+Definition term_lower_bound (coef : Z) (var : string) (dom : Domain.Domain) : option Z :=
+  if coef >? 0
+  then match (Domain.d_lb dom) with
+       | Some lb => Some (coef * lb)
+       | None => None
+       end
+  else match (Domain.d_ub dom) with
+       | Some ub => Some (coef * ub)
+       | None => None
+       end.
 
-Definition scaled_lower_bound (w : Z) (x : Var) :=
-  w * if w >? 0 then var_lower_bound x else var_upper_bound x.
-
-Theorem valid_scaled_lower_bound : forall (w : Z) (x : Var) (v : Z),
-  Is_true (is_in x v) -> w * v >= scaled_lower_bound w x.
-Proof.
-  intros.
-  specialize (Z.gtb_spec w 0) as wbound.
-  destruct wbound as [wpos|wneg].
-  - assert (Hrhs: scaled_lower_bound w x = w * var_lower_bound x). {
-      unfold scaled_lower_bound.
-      apply Z.lt_gt, Z.gtb_gt in wpos.
-      rewrite wpos.
-      reflexivity.
-    }
-    rewrite Hrhs.
-    apply Z.le_ge, Z.mul_le_mono_nonneg_l.
-    + apply Z.lt_le_incl, wpos.
-    + apply Z.ge_le, is_in_implies_lower_bound, H.
-  - assert (Hrhs: scaled_lower_bound w x = w * var_upper_bound x). {
-      unfold scaled_lower_bound.
-      rewrite Z.gtb_ltb.
-      rewrite negb_involutive_reverse with (0 <? w).
-      rewrite <- Z.leb_antisym.
-      apply Z.leb_le in wneg.
-      rewrite wneg.
-      reflexivity.
-    }
-    rewrite Hrhs.
-    apply Z.le_ge, Z.mul_le_mono_nonpos_l.
-    + apply wneg.
-    + apply is_in_implies_upper_bound, H.
-Qed.
-
-Definition evaluate_optimistic_scaled (w : Z) (x : Var) (atomic : Atomic) :=
-  match (comparator atomic) with
-  | less_equal => if w >=? 0 then w * var_lower_bound x else w * value atomic
-  | greater_equal => if w <? 0 then w * var_upper_bound x else w * value atomic
-  | equal => w * value atomic
-  | _ => scaled_lower_bound w x
+Fixpoint lower_bound (terms : list (Z * string)) (doms : DomainMap) :=
+  match terms with
+  | [] => Some 0
+  | (coef, v) :: tail =>
+      match smap.find v doms with
+      | Some dom => 
+          match term_lower_bound coef v dom, lower_bound tail doms with
+          | Some term_lb, Some tail_lb => Some (term_lb + tail_lb)
+          | _, _ => None
+          end
+      | None => None
+      end
   end.
 
-Lemma valid_scaled_atomic_nonneg : forall (w : Z) (x : Var) (atomic : Atomic) (v : Z),
-  Is_true (is_in x v) ->
-  Is_true (test_atomic atomic v) ->
-  w >= 0 -> 
-  w * v >= evaluate_optimistic_scaled w x atomic.
-Proof.
-  intros w x atomic v Hin Hatomic Hnonneg.
-  unfold evaluate_optimistic_scaled.
-  destruct (comparator atomic) eqn:cmp ;
-  unfold test_atomic in Hatomic ;
-  rewrite cmp in Hatomic ;
-  apply Is_true_eq_true in Hatomic.
-  - apply Z.geb_ge in Hnonneg as Hnonnegb. 
-    rewrite Hnonnegb.
-    apply Z.le_ge, Z.mul_le_mono_nonneg_l ; apply Z.ge_le.
-    * apply Hnonneg.
-    * apply is_in_implies_lower_bound, Hin.
-  - rewrite Z.ltb_antisym.
-    apply Z.ge_le, Zle_imp_le_bool in Hnonneg as Hnonnegb. 
-    rewrite Hnonnegb.
-    simpl.
-    apply Z.le_ge, Z.mul_le_mono_nonneg_l.
-    * apply Hnonneg.
-    * apply Z.geb_ge in Hatomic.
-      apply Z.ge_le, Hatomic.
-  - apply valid_scaled_lower_bound, Hin.
-  - apply Z.eqb_eq in Hatomic.
-    rewrite Hatomic.
-    apply Z.le_ge, Z.le_refl.
-Qed.
-
-Lemma valid_scaled_atomic_neg : forall (w : Z) (x : Var) (atomic : Atomic) (v : Z),
-  Is_true (is_in x v) ->
-  Is_true (test_atomic atomic v) ->
-  w < 0 -> 
-  w * v >= evaluate_optimistic_scaled w x atomic.
-Proof.
-  intros w x atomic v Hin Hatomic Hneg.
-  unfold evaluate_optimistic_scaled.
-  destruct (comparator atomic) eqn:cmp ;
-  unfold test_atomic in Hatomic ;
-  rewrite cmp in Hatomic ;
-  apply Is_true_eq_true in Hatomic.
-  - rewrite Z.geb_leb, Z.leb_antisym.
-    apply Z.ltb_lt in Hneg as Hnegb.  
-    rewrite Hnegb.
-    simpl.
-    apply Z.le_ge, Z.mul_le_mono_nonpos_l.
-    * apply Z.lt_le_incl, Hneg.
-    * apply Z.leb_le in Hatomic.
-      apply Hatomic.
-  - apply Z.ltb_lt in Hneg as Hnegb.  
-    rewrite Hnegb.
-    apply Z.le_ge, Z.mul_le_mono_nonpos_l.
-    * apply Z.lt_le_incl, Hneg.
-    * apply is_in_implies_upper_bound, Hin.
-  - apply valid_scaled_lower_bound, Hin.
-  - apply Z.eqb_eq in Hatomic.
-    rewrite Hatomic.
-    apply Z.le_ge, Z.le_refl.
-Qed.
-
-Theorem valid_scaled_atomic : forall (w : Z) (x : Var) (atomic : Atomic) (v : Z),
-  Is_true (is_in x v) ->
-  Is_true (test_atomic atomic v) ->
-  w * v >= evaluate_optimistic_scaled w x atomic.
-Proof.
-  intros w x atomic v Hin Hatomic.
-  specialize (Z.geb_spec w 0) as wbound.
-  destruct wbound as [Hnonneg|Hneg].
-  - apply valid_scaled_atomic_nonneg.
-    + apply Hin.
-    + apply Hatomic.
-    + apply Z.le_ge, Hnonneg.
-  - apply valid_scaled_atomic_neg.
-    + apply Hin.
-    + apply Hatomic.
-    + apply Hneg.
-Qed.
-
-Definition evaluate_optimistic_scaled_list (w : Z) (x : Var) (atomics: list Atomic) :=
-  fold_right
-    Z.max (scaled_lower_bound w x)
-    (map (evaluate_optimistic_scaled w x) atomics).
-
-Theorem valid_scaled_atomic_list : forall
-  (w : Z) (x : Var) (atomics : list Atomic) (v : Z),
-  Is_true (is_in x v) ->
-  (forall (atomic : Atomic), In atomic atomics -> Is_true(test_atomic atomic v)) ->
-  w * v >= evaluate_optimistic_scaled_list w x atomics.
-Proof.
-  intros w x atomics v Hin Hlist.
-  unfold evaluate_optimistic_scaled_list.
-  induction atomics.
-  - simpl.
-    apply valid_scaled_lower_bound, Hin.
-  - assert (Htail: forall atomic : Atomic, In atomic atomics -> Is_true (test_atomic atomic v)). {
-      intros.
-      apply Hlist.
-      simpl.
-      right.
-      apply H.
-    }
-    apply IHatomics in Htail.
-    simpl.
-    apply Z.le_ge, Z.max_lub ; apply Z.ge_le.
-    + apply valid_scaled_atomic.
-      * apply Hin.
-      * apply Hlist.
-        simpl.
-        left.
-        reflexivity.
-    + apply Htail.
-Qed.
-
-Fixpoint evaluate_optimistic_linear (x : list (Z * Var)) (inference : list Atomic) :=
-  match x with
-  | [] => 0
-  | (coef, v) :: xs =>
-      evaluate_optimistic_scaled_list coef v (
-        filter (fun atomic => Checker.Variable.eqb v (var atomic)) inference
-      ) + evaluate_optimistic_linear xs inference
+Definition linear_checker (fact : Deduction.Inference) (c : LinearConstraint) :=
+  (* TODO Handle the implication case by normalization *)
+  match fact.(i_consequent) with
+  | None =>
+      let doms := DomainVar.domains_from_var_atomics_all fact.(i_premises) None
+      in 
+      match doms with
+        (* TODO What does the none mean here? *)
+      | None => false
+      | Some doms => 
+          match lower_bound (c.(l_terms)) doms with
+          | None => false
+          | Some lb => lb >? c.(l_bound)
+          end
+      end
+  | Some _ => false
   end.
 
-
-Theorem evaluate_optimistic_linear_falsifies : forall
-  (x : list (Z * Var)) (inference : list Atomic) (sol : Assignment),
-  (forall (atomic : Atomic), In atomic inference -> Is_true (test_atomic_assignment atomic sol)) ->
-  evaluate_linear x sol >= evaluate_optimistic_linear x inference.
+Lemma term_bound_validity : forall
+  (coef : Z) (var : string) (dom : Domain.Domain)
+  (val : Z)
+  (bound : Z),
+  Domain.is_in_dom val (Some dom) ->
+  term_lower_bound coef var dom = Some bound ->
+  bound <= coef * val.
 Proof.
-  intros x inference sol Hsat.
-  induction x ; simpl.
-  - apply Z.le_ge, Z.le_refl.
-  - destruct a as [coef v].
-    apply Z.le_ge, Z.add_le_mono ; apply Z.ge_le.
-    + apply valid_scaled_atomic_list.
-      * apply (consistency_proof sol).
-      * intros atomic Hatomic_filter.
-        assert (Hatomic: In atomic inference). {
-          apply filter_In in Hatomic_filter.
-          destruct Hatomic_filter as [Hin _].
-          apply Hin.
-        }
-        apply Hsat in Hatomic.
-        unfold test_atomic_assignment in Hatomic.
-        apply filter_In in Hatomic_filter.
-        destruct Hatomic_filter as [_ Heq_var].
-        apply Is_true_eq_left, Checker.Variable.eqb_eq in Heq_var.
-        rewrite Heq_var.
-        apply Hatomic.
-    + apply IHx.
+  intros coef var dom sol bound Hvalid Elb.
+  unfold Domain.is_in_dom in Hvalid.
+  destruct dom.
+  destruct Hvalid as [Hub [Hlb _]].
+  unfold term_lower_bound in Elb.
+  simpl in Elb.
+  destruct (coef >? 0) eqn:Hsign.
+  - destruct d_lb ; inversion Elb as [Elb'].
+    apply OrdersEx.Z_as_OT.mul_le_mono_nonneg_l ; lia.
+  - destruct d_ub ; inversion Elb as [Elb'].
+    apply OrdersEx.Z_as_OT.mul_le_mono_nonpos_l ; lia.
 Qed.
 
-
-Definition linear_checker
-  (inference : list Atomic) (constraint : LinearConstraint) : bool := 
-  let expr_lower_bound := evaluate_optimistic_linear
-    (terms constraint)
-    (map atomic_not inference) in
-    expr_lower_bound >? bound constraint.
-
-
-
-Theorem linear_inference_checker_correct : 
-  forall (inference : list Atomic) (constraint : LinearConstraint),
-    linear_checker inference constraint = true ->
-    is_valid_linear_inference inference constraint.
+Lemma bound_validity : forall
+  (terms : list (Z * string)) (doms : DomainMap)
+  (sol : string -> Z)
+  (bound : Z),
+  doms_hold_for_sol sol doms -> lower_bound terms doms = Some bound ->
+  bound <= evaluate_linear terms sol.
 Proof.
-  unfold is_valid_linear_inference, satisfies_linear, linear_checker.
-  intros inference constraint Hchk sol Hnogood.
-  destruct (satisfies_nogood inference sol) as [|] eqn:Hsat.
-  reflexivity.
-  exfalso.
-  assert (Hfalse: forall (atomic : Atomic), In atomic (map atomic_not inference) -> Is_true (test_atomic_assignment atomic sol)). {
-    intros.
-    apply unsat_nogood with (i := inference) (s := sol).
-    apply Hsat.
-    apply H.
+  intros terms doms sol bound Hvalid.
+  generalize dependent bound.
+  Opaque term_lower_bound.
+  induction terms ; simpl ; intros bound Elb ; inversion Elb ; try easy.
+  destruct a as [coef var].
+  destruct (smap.find var doms) as [dom|] eqn:Efind ; inversion Elb.
+  destruct (term_lower_bound coef var dom) as [term_bound|] eqn:Eterm_bound ;
+      inversion Elb.
+  assert (Htail_bound: term_bound <= coef * sol var). {
+    unfold DomainVar.doms_hold_for_sol in Hvalid.
+    apply term_bound_validity with (var := var) (dom := dom).
+    - apply Hvalid, smap_prps.find_2, Efind.
+    - assumption.
   }
-  specialize (evaluate_optimistic_linear_falsifies
-  (terms constraint)
-  (map atomic_not inference)
-  sol
-  Hfalse
-  ) as Hev_bound.
-  remember (evaluate_optimistic_linear (terms constraint) (map atomic_not inference)) as opt_ev.
-  remember (evaluate_linear (terms constraint) sol) as ev.
-  apply Is_true_eq_true, Z.leb_le in Hnogood.
-  apply Z.lt_irrefl with opt_ev.
-  apply Z.le_lt_trans with (bound constraint).
-  * apply Z.le_trans with (m := ev).
-    + apply Z.ge_le, Hev_bound.
-    + apply Hnogood.
-  * apply Z.gtb_gt in Hchk.
-    apply Z.gt_lt, Hchk.
+  destruct (lower_bound terms doms) as [tail_bound|] eqn:Etail_bound ;
+      inversion Etail_bound ; inversion Elb.
+  assert (Hbound: tail_bound <= evaluate_linear terms sol). {
+    apply IHterms.
+    reflexivity.
+  }
+  lia.
+Qed.
+
+Theorem linear_checker_soundness : forall
+  (fact : Deduction.Inference) (sol : string -> Z) (c : LinearConstraint),
+  linear_leq c sol ->
+  Is_true (linear_checker fact c)
+  -> Deduction.inference_valid sol fact.
+Proof.
+  intros fact sol c.
+  unfold linear_checker.
+  unfold inference_valid.
+  destruct fact.(i_consequent) ; try contradiction.
+  destruct c as [lin_terms lin_bound].
+  unfold linear_leq.
+  simpl.
+  remember (fact.(i_premises)) as atoms.
+  clear Heqatoms.
+  intros Hsat Hbound Hatoms.
+  destruct (domains_from_var_atomics_all atoms None) as [doms|] eqn:Edoms.
+  - destruct (lower_bound lin_terms doms) eqn:Elb ; try contradiction.
+    apply Is_true_eq_true, Z.gtb_gt, Z.gt_lt in Hbound.
+    apply doms_from_var_all_hold with (vs := None) (doms := doms) in Hatoms.
+    + apply bound_validity with (terms := lin_terms) (bound := z) in Hatoms.
+      * lia.
+      * exact Elb.
+    + exact Edoms.
+  - contradiction.
 Qed.
 

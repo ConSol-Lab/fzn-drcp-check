@@ -13,8 +13,9 @@ Open Scope Z_scope.
 
 
 Inductive InferenceRule :=
-  (* | linear *)
-| cumulative
+  | linear
+  (* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
+  | cumulative
   (* | alldifferent *)
   .
 
@@ -60,9 +61,14 @@ Definition CPProof := (list ProofStage)%type.
 
 Definition validate_inference (fact : Deduction.Inference) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
-   | cumulative =>
+  | cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
+      | _ => false
+      end
+  | linear =>
+      match hint with
+      | [linear_leq c] => Linear.linear_checker fact c
       | _ => false
       end
   end.
@@ -76,18 +82,11 @@ Proof.
   intros fact hint rule sol Hsat Hvalid.
   unfold validate_inference in Hvalid.
   destruct rule; simpl in Hvalid.
-  (* - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy. *)
-  (*   simpl in Hsat. *)
-  (*   apply Is_true_eq_true, linear_inference_checker_correct in Hvalid. *)
-(*   unfold is_valid_linear_inference in Hvalid. *)
-(*   specialize (Hvalid sol). *)
-  (*   apply Hvalid. *)
-  (*   specialize (Hsat c). *)
-  (*   rewrite Ec in Hsat. *)
-  (*   simpl in Hsat. *)
-  (*   apply Hsat. *)
-  (*   left. *)
-  (*   reflexivity. *)
+  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    apply Linear.linear_checker_soundness with (c := constraint); try assumption.
+    specialize (Hsat (linear_leq constraint)).
+    apply Hsat.
+    simpl. left. reflexivity.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply checker_cumulative with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).

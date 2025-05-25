@@ -1,5 +1,5 @@
 Require Import Checker.Atomic.
-(* Require Import Checker.Linear. *)
+Require Checker.Linear.
 Require Checker.Cumulative.
 Require Checker.Deduction.
 Require Checker.AllDifferent.
@@ -12,7 +12,7 @@ Import Utility.Maps.
 Open Scope Z_scope.
 
 Inductive Constraint :=
-  (* | linear_leq (constraint : LinearConstraint) *)
+  | linear_leq (constraint : Linear.LinearConstraint)
   | cumulative_c (constraint : Cumulative.CumulativeConstraint)
   | fact_c (constraint : Deduction.Inference)
   (* | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
@@ -20,7 +20,7 @@ Inductive Constraint :=
 
 Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
   match c with
-  (* | linear_leq lin => satisfies_linear lin sol *)
+  | linear_leq c => Linear.linear_leq c sol
   | cumulative_c c => Is_true (Cumulative.cumulative_decide c sol)
   | fact_c c => Deduction.inference_valid sol c
   (* | alldifferent_c c => AllDifferent.alldifferent_decide c sol *)
@@ -30,13 +30,11 @@ Definition ConstraintMap := nmap.t Constraint.
 
 Record ConstraintProblem := 
   {
-    csp_variables : list string;
     csp_constraints : ConstraintMap;
   }.
 
 Definition add (index : N) (fact : Deduction.Inference) (csp : ConstraintProblem) : ConstraintProblem :=
   {|
-    csp_variables := csp.(csp_variables) ;
     csp_constraints := nmap.add index (fact_c fact) (csp.(csp_constraints))
   |}.
 
