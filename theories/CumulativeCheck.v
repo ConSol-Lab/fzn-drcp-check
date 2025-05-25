@@ -35,7 +35,7 @@ Record ActivityBound := mkBound {
   b_usage : N;
 }.
 
-Definition constraint_to_param_map (c : CumulativeConstraint) : string -> (N * N) :=
+Definition constraint_to_param_map (c : CumulativeConstraint) : string -> option (N * N) :=
   let params := map (fun elt =>
     match elt with
     | mkActDef x p u => (x, (p, u))
@@ -48,16 +48,17 @@ Definition constraint_to_vars (c : CumulativeConstraint) : list string :=
 Definition constraint_to_vs (c : CumulativeConstraint) : sstr.t :=
   sstr.build (constraint_to_vars c).
 
-Definition domain_to_bound (param_map : string -> (N * N)) (x : string) (dom : Domain) :=
+Definition domain_to_bound (param_map : string -> option (N * N)) (x : string) (dom : Domain) :=
   match dom.(d_lb), dom.(d_ub) with
   | zz lb, zz ub =>
       match param_map x with
-      | (p, u) => Some (mkBound x lb ub p u)
+      | Some (p, u) => Some (mkBound x lb ub p u)
+      | None => None
       end
   | _, _ => None
   end.
 
-Definition domains_to_bounds (doms : Domains) (param_map : string -> (N * N)) :=
+Definition domains_to_bounds (doms : Domains) (param_map : string -> option (N * N)) :=
   smap.mapi (domain_to_bound param_map) doms.
 
 Definition unwrap_bindings {A B} (l : list (A * option B)) :=
@@ -65,7 +66,7 @@ Definition unwrap_bindings {A B} (l : list (A * option B)) :=
 
 Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : Deduction.Inference) :=
   let activity_vars := constraint_to_vs constr in
-  match infer_domains activity_vars fact with
+  match infer_domains fact with
   | None => (nil, None)
   | Some (domains, prop_var) =>
     let param_map := constraint_to_param_map constr in
@@ -163,7 +164,7 @@ Proof.
       unfold domain_to_bound in Hto_bound.
       destruct dom as [lb ub holes]; simpl in Hto_bound.
       destruct lb as [lb| |]; try easy; destruct ub as [ub| |]; try easy; simpl in Hto_bound.
-      destruct constraint_to_param_map as [p u].
+      destruct constraint_to_param_map as [[p u]|]; try discriminate.
       destruct a; inversion Hto_bound.
       reflexivity.
     }
@@ -209,13 +210,13 @@ Proof.
   unfold inferred_cumulative_bounds in Hinfer_bounds.
   destruct infer_domains as [[doms prop_var_opt]|] eqn:Hinfer.
   2: { inversion Hinfer_bounds; subst. contradiction. }
-  apply infer_domains_correct with (vs := (constraint_to_vs constr)) (doms := doms) (xconsq := prop_var_opt); try assumption.
+  apply infer_domains_correct with (doms := doms) (xconsq := prop_var_opt); try assumption.
   intros Hdoms_hold.
   remember (unwrap_bindings
     (smap.bindings
     (domains_to_bounds doms
     (constraint_to_param_map constr)))) as bounds'.
-  assert (infer_domains (constraint_to_vs constr) fact = Some (doms, prop_var_opt) -> sol_in_doms sol doms -> valid_bounds bounds' constr sol) as H.
+  assert (infer_domains fact = Some (doms, prop_var_opt) -> sol_in_doms sol doms -> valid_bounds bounds' constr sol) as H.
   {
     clear -Heqbounds'. intros Hinfer Hdoms_hold.
     subst bounds'.
@@ -230,7 +231,6 @@ Proof.
     destruct Hin_bindings as ([x' dom] & Hto_bound & Hindoms).
     inversion Hto_bound; subst x'; clear Hto_bound.
     rename H1 into Hto_bound.
-    apply infer_domains_vs with (x := x) (dom := dom) in Hinfer; try assumption.
     rewrite smap_in_spec in Hindoms.
     specialize (Hdoms_hold x).
     unfold dom_from_domains in Hdoms_hold.
@@ -239,7 +239,7 @@ Proof.
     unfold domain_to_bound in Hto_bound.
     destruct dom as [lb ub holes] eqn:Hdom;
     destruct lb as [lb| |]; destruct ub as [ub| |]; try easy; simpl in Hto_bound.
-    destruct (constraint_to_param_map constr x) as [p u] eqn:Hpu.
+    destruct (constraint_to_param_map constr x) as [[p u]|] eqn:Hpu; try discriminate.
     destruct bound as [bx blb bub bp bu]; inversion Hto_bound; subst bx blb bub bp bu; clear Hto_bound.
     simpl in *.
     split.
@@ -249,20 +249,10 @@ Proof.
       unfold constraint_to_param_map in Hpu.
       symmetry in Hpu.
       apply param_map_in in Hpu.
-      + rewrite in_map_iff in Hpu.
-        destruct Hpu as (a_def & Ha_def & Hin).
-        destruct a_def as [x' p' u']; inversion Ha_def; subst.
-        exact Hin.
-      + clear Hpu.
-        unfold constraint_to_vs, constraint_to_vars in Hinfer.
-        rewrite sstr.build_spec in Hinfer.
-        rewrite map_map.
-        rewrite in_map_iff in *.
-        destruct Hinfer as (a_def & Hx & Hin).
-        exists a_def.
-        split; try assumption.
-        destruct a_def. simpl.
-        apply Hx.
+      rewrite in_map_iff in Hpu.
+      destruct Hpu as (a_def & Ha_def & Hin).
+      destruct a_def as [x' p' u']; inversion Ha_def; subst.
+      exact Hin.
     - unfold is_in_dom in Hdoms_hold. simpl in Hdoms_hold.
       zext_as_z. lia.
   }

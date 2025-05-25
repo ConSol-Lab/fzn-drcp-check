@@ -1,12 +1,10 @@
 Require Import Bool.
 Require Import ZArith.
-Require Import Int.
-Require Import Checker.Variable.
 Require Import Checker.Deduction.
 Require Import Checker.DomainVar.
-Require Import Checker.Nogood.
+Require Import Checker.Zext.
+Require Import Checker.Domain.
 Require Import List.
-Require Import Logic.FunctionalExtensionality.
 Require Import String.
 Require Import Lia.
 Import Utility.Maps.
@@ -31,15 +29,15 @@ Definition linear_leq (c : LinearConstraint) (sol : string -> Z) :=
 Definition term_lower_bound (coef : Z) (var : string) (dom : Domain.Domain) : option Z :=
   if coef >? 0
   then match (Domain.d_lb dom) with
-       | Some lb => Some (coef * lb)
-       | None => None
+       | zz lb => Some (coef * lb)
+       | _ => None
        end
   else match (Domain.d_ub dom) with
-       | Some ub => Some (coef * ub)
-       | None => None
+       | zz ub => Some (coef * ub)
+       | _ => None
        end.
 
-Fixpoint lower_bound (terms : list (Z * string)) (doms : DomainMap) :=
+Fixpoint lower_bound (terms : list (Z * string)) (doms : Domains) :=
   match terms with
   | [] => Some 0
   | (coef, v) :: tail =>
@@ -54,49 +52,43 @@ Fixpoint lower_bound (terms : list (Z * string)) (doms : DomainMap) :=
   end.
 
 Definition linear_checker (fact : Deduction.Inference) (c : LinearConstraint) :=
-  (* TODO Handle the implication case by normalization *)
-  match fact.(i_consequent) with
-  | None =>
-      let doms := DomainVar.domains_from_var_atomics_all fact.(i_premises) None
-      in 
-      match doms with
-        (* TODO What does the none mean here? *)
-      | None => false
-      | Some doms => 
-          match lower_bound (c.(l_terms)) doms with
-          | None => false
-          | Some lb => lb >? c.(l_bound)
-          end
-      end
-  | Some _ => false
+  match Deduction.infer_domains fact with
+  (* Currently information on what variable is r.h.s. is not used. *)
+  | Some (doms, _) => 
+    match lower_bound (c.(l_terms)) doms with
+    | None => false
+    | Some lb => lb >? c.(l_bound)
+    end
+  (* Trivial, maybe accept them in linear's case? *)
+  | None => false
   end.
 
 Lemma term_bound_validity : forall
   (coef : Z) (var : string) (dom : Domain.Domain)
   (val : Z)
   (bound : Z),
-  Domain.is_in_dom val (Some dom) ->
+  Domain.is_in_dom val dom ->
   term_lower_bound coef var dom = Some bound ->
   bound <= coef * val.
 Proof.
   intros coef var dom sol bound Hvalid Elb.
   unfold Domain.is_in_dom in Hvalid.
-  destruct dom.
+  destruct dom; simpl in Hvalid.
   destruct Hvalid as [Hub [Hlb _]].
   unfold term_lower_bound in Elb.
   simpl in Elb.
   destruct (coef >? 0) eqn:Hsign.
-  - destruct d_lb ; inversion Elb as [Elb'].
-    apply OrdersEx.Z_as_OT.mul_le_mono_nonneg_l ; lia.
-  - destruct d_ub ; inversion Elb as [Elb'].
-    apply OrdersEx.Z_as_OT.mul_le_mono_nonpos_l ; lia.
+  - destruct d_lb; zext_as_z; inversion Elb as [Elb'].
+    apply Z.mul_le_mono_nonneg_l ; lia.
+  - destruct d_ub; zext_as_z; inversion Elb as [Elb'].
+    apply Z.mul_le_mono_nonpos_l ; lia.
 Qed.
 
 Lemma bound_validity : forall
-  (terms : list (Z * string)) (doms : DomainMap)
+  (terms : list (Z * string)) (doms : Domains)
   (sol : string -> Z)
   (bound : Z),
-  doms_hold_for_sol sol doms -> lower_bound terms doms = Some bound ->
+  sol_in_doms sol doms -> lower_bound terms doms = Some bound ->
   bound <= evaluate_linear terms sol.
 Proof.
   intros terms doms sol bound Hvalid.
@@ -108,9 +100,9 @@ Proof.
   destruct (term_lower_bound coef var dom) as [term_bound|] eqn:Eterm_bound ;
       inversion Elb.
   assert (Htail_bound: term_bound <= coef * sol var). {
-    unfold DomainVar.doms_hold_for_sol in Hvalid.
+    unfold DomainVar.sol_in_doms in Hvalid.
     apply term_bound_validity with (var := var) (dom := dom).
-    - apply Hvalid, smap_prps.find_2, Efind.
+    - specialize (Hvalid var). unfold dom_from_domains in Hvalid. rewrite Efind in Hvalid. apply Hvalid.
     - assumption.
   }
   destruct (lower_bound terms doms) as [tail_bound|] eqn:Etail_bound ;
@@ -130,22 +122,16 @@ Theorem linear_checker_soundness : forall
 Proof.
   intros fact sol c.
   unfold linear_checker.
-  unfold inference_valid.
-  destruct fact.(i_consequent) ; try contradiction.
   destruct c as [lin_terms lin_bound].
   unfold linear_leq.
   simpl.
-  remember (fact.(i_premises)) as atoms.
-  clear Heqatoms.
-  intros Hsat Hbound Hatoms.
-  destruct (domains_from_var_atomics_all atoms None) as [doms|] eqn:Edoms.
-  - destruct (lower_bound lin_terms doms) eqn:Elb ; try contradiction.
-    apply Is_true_eq_true, Z.gtb_gt, Z.gt_lt in Hbound.
-    apply doms_from_var_all_hold with (vs := None) (doms := doms) in Hatoms.
-    + apply bound_validity with (terms := lin_terms) (bound := z) in Hatoms.
-      * lia.
-      * exact Elb.
-    + exact Edoms.
-  - contradiction.
+  intros Hsat Hbound.
+  destruct (infer_domains fact) as [[doms rhs_var]|] eqn:Edoms ; try contradiction.
+  apply infer_domains_correct with (doms := doms) (xconsq := rhs_var) ; try apply Edoms.
+  destruct (lower_bound lin_terms doms) as [lb|] eqn:Elb ; try contradiction.
+  apply Is_true_eq_true, Z.gtb_gt, Z.gt_lt in Hbound.
+  intros Hvalid.
+  enough (lb <= evaluate_linear lin_terms sol) by lia.
+  apply bound_validity with (doms := doms) ; assumption.
 Qed.
 

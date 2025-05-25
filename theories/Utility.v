@@ -1396,53 +1396,35 @@ Definition add_to_map {U}  (elt : string * U) (m : smap.t U) :=
   | (x, u) => smap.add x u m
   end.
 
-Definition param_map {U} (l : list (string * U)) (d : U) : string -> U :=
+Definition param_map {U} (l : list (string * U)) (d : U) : string -> option U :=
   let map := fold_right add_to_map smap.empty l in
   fun x =>
-    match smap.find x map with
-    | Some u => u
-    | None => d
-    end.
-
+    smap.find x map.
 
 Lemma param_map_in {U} :
   forall (d : U) x (l : list (string * U)) (u : U), 
-  u = (param_map l d) x
-    ->
-  In x (map fst l)
+  Some u = (param_map l d) x
     ->
   In (x, u) l.
 Proof.
   intros d x. induction l.
-  - intros u. intros H Hin.
-    destruct Hin.
+  - intros u. unfold param_map. simpl. intros H.
+    rewrite smap.empty_spec in H; discriminate.
   - intros u. 
     unfold param_map in *.
     intros Hu. simpl in Hu.
     destruct a as [x' u'].
-    intros Hin.
-    simpl in Hin.
-    destruct Hin as [Hxx' | Hxinl].
-    + subst x'.
+    destruct (x =? x')%string eqn:Hxx'.
+    + rewrite String.eqb_eq in Hxx'; subst x'.
       unfold add_to_map in Hu.
       rewrite smap.add_spec1 in Hu.
-      subst u'.
-      left. reflexivity.
-    + destruct (x =? x')%string eqn:Hxx'.
-      { rewrite String.eqb_eq in Hxx'; subst x'.
-        unfold add_to_map in Hu.
-        rewrite smap.add_spec1 in Hu.
-        subst u'.
-        left. reflexivity. }
-      rewrite String.eqb_neq in Hxx'.
+      inversion Hu.
+      left. reflexivity. 
+    + rewrite String.eqb_neq in Hxx'.
       unfold add_to_map in Hu.
-      rewrite smap.add_spec2 in Hu.
-      * apply IHl in Hu; clear IHl.
-        -- right. exact Hu.
-        -- exact Hxinl.
-      * intros Hxix'.
-        apply Hxx'.
-        symmetry. exact Hxix'.
+      rewrite smap.add_spec2 in Hu by easy.
+      apply IHl in Hu; clear IHl.
+      right. exact Hu.
 Qed.
 
 Definition opt_is_none {A} (x : string) (a : option A) : bool :=

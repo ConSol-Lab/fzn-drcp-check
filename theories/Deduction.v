@@ -260,49 +260,18 @@ Definition atomics_from_fact (fact : Inference) :=
   | Some (x, consq) => (Some x, (negate_bound_atomic (x, consq)) :: fact.(i_premises))
   end.
 
-Definition infer_domains (vs : sstr.t) (fact : Inference) :=
+Definition infer_domains (fact : Inference) :=
   let (x, atomics) := atomics_from_fact fact in
-  let atomics' := filter (check_in_vs vs) atomics in
-  let doms := domains_from_atomics atomics' in
+  let doms := domains_from_atomics atomics in
   let doms_tight := tighten_doms doms in
   if check_domains_consistent doms_tight
     then Some (doms_tight, x)
     else None.
 
-(** This is the main lemma to make use of vs, which ensures that all output variables will be in a particular set. Useful for ensuring that you get a result when matching against some map of parameters (see e.g. cumulative).  *)
-Lemma infer_domains_vs :
-  forall vs fact (x : string) dom (doms : Domains) c,
-    infer_domains vs fact = Some (doms, c)
-      ->
-    In (x, dom) (smap.bindings doms)
-      ->
-    sstr.In x vs.
-Proof.
-  intros vs fact x dom doms c.
-  unfold infer_domains.
-  destruct atomics_from_fact as [c' atomics].
-  remember (filter (check_in_vs vs) atomics) as atomics'.
-  destruct check_domains_consistent eqn:Hconsistent; try discriminate.
-  intros Hdomsc; inversion Hdomsc; subst doms c'; clear Hdomsc.
-  unfold tighten_doms.
-  rewrite smap.map_spec.
-  rewrite in_map_iff.
-  intros ((x' & dom') & Hxdom & Hin).
-  inversion Hxdom; subst x'; clear Hxdom.
-  apply domains_from_atomics_if_in in Hin.
-  destruct Hin as (xatom & Hin).
-  rewrite filter_pair_on_key_spec in Hin.
-  subst atomics'.
-  rewrite filter_In in Hin.
-  unfold check_in_vs in Hin.
-  rewrite <- sstr.mem_spec.
-  apply Hin.
-Qed.
-
 (** This lemma is primarily useful for inference checkers. *)
-Lemma infer_domains_correct fact vs doms xconsq :
+Lemma infer_domains_correct fact doms xconsq :
   forall sol, 
-    infer_domains vs fact = Some (doms, xconsq)
+    infer_domains fact = Some (doms, xconsq)
       ->
     (sol_in_doms sol doms
       ->
@@ -321,9 +290,9 @@ Proof.
     exists atoms, 
       (inference_valid sol (mkInf atoms None) <-> inference_valid sol fact) 
         /\ 
-        (sol_in_doms sol (tighten_doms (domains_from_atomics (filter (check_in_vs vs) atoms))) 
-          -> 
-        False)
+      (sol_in_doms sol (tighten_doms (domains_from_atomics atoms)) 
+        -> 
+      False)
   ).
   {  
     clear -H.
@@ -334,11 +303,9 @@ Proof.
     apply Hdoms; clear Hdoms.
     unfold sol_in_doms. intros x.
     rewrite tighten_doms_equiv.
-    remember (domains_from_atomics (filter (check_in_vs vs) atoms)) as doms.
-    revert x. fold (sol_in_doms sol doms). apply sol_in_doms_if_valid with (atoms := (filter (check_in_vs vs) atoms)).
-    + intros x a Hin. apply Hatoms.
-      rewrite filter_In in Hin. 
-      apply Hin.
+    remember (domains_from_atomics atoms) as doms.
+    revert x. fold (sol_in_doms sol doms). apply sol_in_doms_if_valid with (atoms := atoms).
+    + intros x a Hin. apply Hatoms, Hin.
     + apply domains_from_atomics_correct, Heqdoms.
   }
   destruct i_consequent as [(x & consq)|] eqn:Hconsq.
