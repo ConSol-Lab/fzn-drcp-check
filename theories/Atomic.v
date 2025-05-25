@@ -11,12 +11,53 @@ Inductive AtomicComparator :=
   | not_equal
   | equal.
 
+Definition cmp_eqb (x : AtomicComparator) (y : AtomicComparator) :=
+  match x, y with 
+  | less_equal, less_equal => true
+  | greater_equal, greater_equal => true
+  | not_equal, not_equal => true
+  | equal, equal => true
+  | _, _ => false
+  end.
+
+Lemma cmp_eqb_eq : forall (x y : AtomicComparator),
+  Is_true (cmp_eqb x y) -> x = y.
+Proof.
+  intros.
+  destruct x ; destruct y ; try easy.
+Qed.
+
 Record Atomic :=
   {
     var : Var;
     comparator : AtomicComparator;
     value : Z;
   }.
+
+Definition eqb (x : Atomic) (y : Atomic) :=
+  (eqb (var x) (var y)) &&
+  ((value x) =? (value y)) &&
+  (cmp_eqb (comparator x) (comparator y)).
+
+Lemma eqb_eq : forall (x y : Atomic),
+  Is_true (eqb x y) -> x = y.
+Proof.
+  unfold eqb.
+  intros.
+  apply andb_prop_elim in H.
+  destruct H as [H Hcmp].
+  apply andb_prop_elim in H.
+  destruct H as [Hvar Hvalue].
+  apply eqb_eq in Hvar.
+  apply Is_true_eq_true, Z.eqb_eq in Hvalue.
+  apply cmp_eqb_eq in Hcmp.
+  destruct x ; destruct y.
+  simpl in Hvar.
+  simpl in Hvalue.
+  simpl in Hcmp.
+  rewrite Hvar, Hvalue, Hcmp.
+  reflexivity.
+Qed.
 
 Definition atomic_not (x : Atomic) :=
   match comparator x with
@@ -83,141 +124,215 @@ Definition test_atomic (x : Atomic) (v : Z) :=
 Definition test_atomic_assignment (atomic : Atomic) (sol : Assignment) :=
   test_atomic atomic ((find_value sol) (var atomic)).
 
+Fixpoint contradiction_variable (predicates : list Atomic) (v : Var) (range : list Z) : bool :=
+  match range with
+  | [] => true
+  | _ => match predicates with 
+         | [] => false
+         | head :: tail => contradiction_variable tail v (filter (test_atomic head) range)
+         end
+  end.
 
-Definition contradiction_binary (lhs : Atomic) (rhs : Atomic) : bool :=
-  if eqb (var lhs) (var rhs) then
-  let lhs_val := value lhs in
-  let rhs_val := value rhs in
-  match (comparator lhs), (comparator rhs) with
-  | less_equal, greater_equal => lhs_val <? rhs_val
-  | less_equal, equal => lhs_val <? rhs_val
-  | greater_equal, less_equal => lhs_val >? rhs_val
-  | greater_equal, equal => lhs_val >? rhs_val
-  | equal, greater_equal => lhs_val <? rhs_val
-  | equal, less_equal => lhs_val >? rhs_val
-  | equal, equal => negb (lhs_val =? rhs_val)
-  | equal, not_equal => lhs_val =? rhs_val
-  | not_equal, equal => lhs_val =? rhs_val
-  | _, _ => false
-  end
-  else false.
-
-
-Lemma integer_cover : forall (x l r : Z), l < r -> ~(x <= l) \/ ~(x >= r).
+Lemma contradiction_implies_not_in_range :
+  forall (predicates : list Atomic) (v : Var) (x : Z) (r : list Z),
+  In x r ->
+  Is_true (contradiction_variable predicates v r) ->
+  (exists (p : Atomic), In p predicates /\ ~Is_true(test_atomic p x)).
 Proof.
-  intros.
-  destruct (x <=? l) eqn:Ecmp ; simpl.
-  - right.
-    intros contra.
-    apply Z.lt_irrefl with (x := r).
-    apply Z.le_lt_trans with (m := l).
-    + apply Z.le_trans with (m := x).
-      * apply Z.ge_le, contra.
-      * apply Z.leb_le in Ecmp.
-        apply Ecmp.
-    + apply H.
-  - left.
-    apply Z.leb_nle, Ecmp.
-Qed.
-
-Lemma binarize : forall (a b c : Z),
-  ~(a <= b) \/ ~(a >= c) -> ~Is_true (a <=? b) \/ ~Is_true (a >=? c).
-Proof.
-  intros.
-  destruct H.
-  + left.
-    apply negb_prop_elim, Is_true_eq_left, negb_true_iff, Z.leb_nle, H.
-  + right.
-    apply negb_prop_elim, Is_true_eq_left, negb_true_iff.
-    rewrite Z.geb_leb.
-    apply Z.leb_nle.
-    unfold not.
-    intros contra.
-    apply Z.le_ge in contra.
-    contradiction.
-Qed.
-
-Lemma weaken_equality_le : forall (a b : Z) (P : Prop),
-  P \/ ~Is_true(a <=? b) -> P \/ ~Is_true(a =? b).
-Proof.
-  intros.
-  destruct H.
-  - left.
-    exact H.
-  - right.
-    apply negb_prop_intro, Is_true_eq_true, negb_true_iff, Z.leb_gt in H.
-    apply negb_prop_elim, Is_true_eq_left, negb_true_iff,
-    Z.eqb_neq, not_eq_sym, Z.lt_neq, H.
-Qed.
-
-Lemma weaken_equality_ge : forall (a b : Z) (P : Prop),
-  P \/ ~Is_true(a >=? b) -> P \/ ~Is_true(a =? b).
-Proof.
-  intros.
-  destruct H.
-  - left.
-    exact H.
-  - right.
-    apply negb_prop_intro, Is_true_eq_true, negb_true_iff in H.
-    rewrite Z.geb_leb in H.
-    apply Z.leb_gt in H.
-    apply negb_prop_elim, Is_true_eq_left, negb_true_iff,
-    Z.eqb_neq, Z.lt_neq, H.
-Qed.
-
-Theorem contradiction_at_most_one :
-  forall (x : Z) (lhs rhs : Atomic), 
-  Is_true (contradiction_binary lhs rhs) ->
-  ~Is_true (test_atomic lhs x) \/ ~Is_true (test_atomic rhs x).
-Proof.
-  unfold contradiction_binary, test_atomic.
-  intros x lhs rhs.
-  destruct (eqb (var lhs) (var rhs)) ; try contradiction.
-  destruct (comparator lhs) ;
-  destruct (comparator rhs) ;
+  intros predicates v.
+  induction predicates ;
   simpl ;
-  intros ;
-  try contradiction ;
-  apply Is_true_eq_true in H ;
-  try apply Z.ltb_lt in H ;
-  try apply Z.gtb_gt in H ;
-  try apply Z.eqb_eq in H .
-  - apply binarize, integer_cover, H.
-  - apply weaken_equality_ge, binarize, integer_cover, H.
-  - apply or_comm, binarize, integer_cover, Z.gt_lt, H.
-  - apply weaken_equality_le, or_comm, binarize, integer_cover, Z.gt_lt, H.
-  - rewrite H.
-    remember (value rhs) as y.
-    destruct (x =? y) ; simpl .
-    + left.
-      intros contra.
-      contradiction.
-    + right.
-      intros contra.
-      contradiction.
-  - apply or_comm, weaken_equality_ge, binarize, integer_cover, Z.gt_lt, H.
-  - apply or_comm, weaken_equality_le, or_comm, binarize, integer_cover, H.
-  - rewrite H.
-    remember (value rhs) as y.
-    destruct (x =? y) ; simpl.
-    + right.
-      intros contra.
-      contradiction.
-    + left.
-      intros contra.
-      contradiction.
-  - destruct (x =? value lhs) eqn:Elhs ; simpl.
-    + right.
-      apply Z.eqb_eq in Elhs.
-      apply negb_true_iff in H.
-      rewrite Elhs, H.
-      simpl.
-      intros contra.
-      contradiction.
-    + left.
-      intros contra.
-      contradiction.
+  intros x r Hin ;
+  destruct r eqn:Erange.
+  - simpl in Hin.
+    contradiction.
+  - intros Hcontra.
+    simpl in Hcontra.
+    contradiction.
+  - simpl in Hin.
+    contradiction.
+  - rewrite <- Erange.
+    rewrite <- Erange in Hin.
+    destruct (test_atomic a x) eqn:Etest.
+    + intros Hcontra.
+      assert (Himpl:
+      (exists (p : Atomic), In p predicates /\ ~Is_true (test_atomic p x)) ->
+      (exists (p : Atomic), (a = p \/ In p predicates) /\ ~Is_true (test_atomic p x))
+      ). {
+        intros.
+        destruct H as [p [Hp Hfalse]].
+        exists p.
+        split.
+        - right.
+          apply Hp.
+        - apply Hfalse.
+      }
+      apply Himpl.
+      apply IHpredicates with (r := filter (test_atomic a) r).
+      * apply filter_In.
+        split.
+        -- apply Hin.
+        -- apply Etest.
+      * apply Hcontra.
+    + exists a.
+      split.
+      * left.
+        reflexivity.
+      * rewrite Etest.
+        simpl.
+        unfold not.
+        intros.
+        contradiction.
 Qed.
+
+Theorem contradiction_implies_not_all :
+  forall (predicates : list Atomic) (v : Var) (x : Z),
+  Is_true (is_in v x) ->
+  Is_true (contradiction_variable predicates v (range v)) ->
+  (exists (p : Atomic), In p predicates /\ ~Is_true(test_atomic p x)).
+Proof.
+  intros predicates v x Hin Hpred.
+  apply range_equiv in Hin.
+  apply contradiction_implies_not_in_range with (v := v) (r := range v).
+  - apply Hin.
+  - apply Hpred.
+Qed.
+
+
+(* Definition contradiction_binary (lhs : Atomic) (rhs : Atomic) : bool := *)
+(*   if eqb (var lhs) (var rhs) then *)
+(*   let lhs_val := value lhs in *)
+(*   let rhs_val := value rhs in *)
+(*   match (comparator lhs), (comparator rhs) with *)
+(*   | less_equal, greater_equal => lhs_val <? rhs_val *)
+(*   | less_equal, equal => lhs_val <? rhs_val *)
+(*   | greater_equal, less_equal => lhs_val >? rhs_val *)
+(*   | greater_equal, equal => lhs_val >? rhs_val *)
+(*   | equal, greater_equal => lhs_val <? rhs_val *)
+(*   | equal, less_equal => lhs_val >? rhs_val *)
+(*   | equal, equal => negb (lhs_val =? rhs_val) *)
+(*   | equal, not_equal => lhs_val =? rhs_val *)
+(*   | not_equal, equal => lhs_val =? rhs_val *)
+(*   | _, _ => false *)
+(*   end *)
+(*   else false. *)
+
+
+(* Lemma integer_cover : forall (x l r : Z), l < r -> ~(x <= l) \/ ~(x >= r). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct (x <=? l) eqn:Ecmp ; simpl. *)
+(*   - right. *)
+(*     intros contra. *)
+(*     apply Z.lt_irrefl with (x := r). *)
+(*     apply Z.le_lt_trans with (m := l). *)
+(*     + apply Z.le_trans with (m := x). *)
+(*       * apply Z.ge_le, contra. *)
+(*       * apply Z.leb_le in Ecmp. *)
+(*         apply Ecmp. *)
+(*     + apply H. *)
+(*   - left. *)
+(*     apply Z.leb_nle, Ecmp. *)
+(* Qed. *)
+
+(* Lemma binarize : forall (a b c : Z), *)
+(*   ~(a <= b) \/ ~(a >= c) -> ~Is_true (a <=? b) \/ ~Is_true (a >=? c). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct H. *)
+(*   + left. *)
+(*     apply negb_prop_elim, Is_true_eq_left, negb_true_iff, Z.leb_nle, H. *)
+(*   + right. *)
+(*     apply negb_prop_elim, Is_true_eq_left, negb_true_iff. *)
+(*     rewrite Z.geb_leb. *)
+(*     apply Z.leb_nle. *)
+(*     unfold not. *)
+(*     intros contra. *)
+(*     apply Z.le_ge in contra. *)
+(*     contradiction. *)
+(* Qed. *)
+
+(* Lemma weaken_equality_le : forall (a b : Z) (P : Prop), *)
+(*   P \/ ~Is_true(a <=? b) -> P \/ ~Is_true(a =? b). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct H. *)
+(*   - left. *)
+(*     exact H. *)
+(*   - right. *)
+(*     apply negb_prop_intro, Is_true_eq_true, negb_true_iff, Z.leb_gt in H. *)
+(*     apply negb_prop_elim, Is_true_eq_left, negb_true_iff, *)
+(*     Z.eqb_neq, not_eq_sym, Z.lt_neq, H. *)
+(* Qed. *)
+
+(* Lemma weaken_equality_ge : forall (a b : Z) (P : Prop), *)
+(*   P \/ ~Is_true(a >=? b) -> P \/ ~Is_true(a =? b). *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct H. *)
+(*   - left. *)
+(*     exact H. *)
+(*   - right. *)
+(*     apply negb_prop_intro, Is_true_eq_true, negb_true_iff in H. *)
+(*     rewrite Z.geb_leb in H. *)
+(*     apply Z.leb_gt in H. *)
+(*     apply negb_prop_elim, Is_true_eq_left, negb_true_iff, *)
+(*     Z.eqb_neq, Z.lt_neq, H. *)
+(* Qed. *)
+
+(* Theorem contradiction_at_most_one : *)
+(*   forall (x : Z) (lhs rhs : Atomic),  *)
+(*   Is_true (contradiction_binary lhs rhs) -> *)
+(*   ~Is_true (test_atomic lhs x) \/ ~Is_true (test_atomic rhs x). *)
+(* Proof. *)
+(*   unfold contradiction_binary, test_atomic. *)
+(*   intros x lhs rhs. *)
+(*   destruct (eqb (var lhs) (var rhs)) ; try contradiction. *)
+(*   destruct (comparator lhs) ; *)
+(*   destruct (comparator rhs) ; *)
+(*   simpl ; *)
+(*   intros ; *)
+(*   try contradiction ; *)
+(*   apply Is_true_eq_true in H ; *)
+(*   try apply Z.ltb_lt in H ; *)
+(*   try apply Z.gtb_gt in H ; *)
+(*   try apply Z.eqb_eq in H . *)
+(*   - apply binarize, integer_cover, H. *)
+(*   - apply weaken_equality_ge, binarize, integer_cover, H. *)
+(*   - apply or_comm, binarize, integer_cover, Z.gt_lt, H. *)
+(*   - apply weaken_equality_le, or_comm, binarize, integer_cover, Z.gt_lt, H. *)
+(*   - rewrite H. *)
+(*     remember (value rhs) as y. *)
+(*     destruct (x =? y) ; simpl . *)
+(*     + left. *)
+(*       intros contra. *)
+(*       contradiction. *)
+(*     + right. *)
+(*       intros contra. *)
+(*       contradiction. *)
+(*   - apply or_comm, weaken_equality_ge, binarize, integer_cover, Z.gt_lt, H. *)
+(*   - apply or_comm, weaken_equality_le, or_comm, binarize, integer_cover, H. *)
+(*   - rewrite H. *)
+(*     remember (value rhs) as y. *)
+(*     destruct (x =? y) ; simpl. *)
+(*     + right. *)
+(*       intros contra. *)
+(*       contradiction. *)
+(*     + left. *)
+(*       intros contra. *)
+(*       contradiction. *)
+(*   - destruct (x =? value lhs) eqn:Elhs ; simpl. *)
+(*     + right. *)
+(*       apply Z.eqb_eq in Elhs. *)
+(*       apply negb_true_iff in H. *)
+(*       rewrite Elhs, H. *)
+(*       simpl. *)
+(*       intros contra. *)
+(*       contradiction. *)
+(*     + left. *)
+(*       intros contra. *)
+(*       contradiction. *)
+(* Qed. *)
 
 
 

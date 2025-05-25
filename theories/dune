@@ -1,2 +1,11 @@
 (coq.theory
-  (name Checker))
+  (name Checker)
+  (theories MMaps)
+  (coqdoc_flags 
+    :standard --toc --toc-depth 2 --interpolate --index indexpage --no-lib-name
+    --with-header ../../../../../coqdocjs/header.html
+    --with-footer ../../../../../coqdocjs/footer.html))
+
+(copy_files
+ (files ../coqdocjs/resources/*)
+ (alias doc))

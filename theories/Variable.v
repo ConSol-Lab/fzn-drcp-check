@@ -18,6 +18,14 @@ Open Scope Z_scope.
 Inductive Var :=
   | interval (var : IntervalVariable).
 
+
+Lemma var_eq_dec :
+  forall x y : Var, {x = y}+{x <> y}.
+Proof.
+  intros x y.
+  repeat decide equality.
+Qed.
+
 Definition eqb (lhs : Var) (rhs : Var) :=
   match (lhs, rhs) with
   | (interval lhs, interval rhs) => andb
@@ -149,8 +157,101 @@ Proof.
   apply Hub.
 Qed.
 
+Import ListNotations.
+Fixpoint delta_seq (from : Z) (delta : nat) : list Z :=
+  match delta with
+  | S d => from :: delta_seq (Z.succ from) d
+  | _ => [from]
+  end.
+
+Definition range (var : Var) : list Z :=
+  match var with
+  | interval var => delta_seq (lower_bound var) (size var)
+  end.
+
+
+Lemma In_range_equiv_ineq : forall (from : Z) (delta : nat) (x : Z),
+  In x (delta_seq from delta) <-> from <= x /\ x <= from + Z.of_nat delta.
+Proof.
+  intros.
+  split ; generalize dependent from.
+  - induction delta ; simpl.
+    + intros from [Hfrom|Hcontra] ; try contradiction.
+      rewrite Hfrom, Z.add_0_r.
+      apply Ztac.eq_incl.
+      reflexivity.
+    + intros from [Hfrom|Hin].
+      * rewrite Hfrom.
+        split.
+        -- apply Z.le_refl.
+        -- rewrite <- Z.add_0_r at 1.
+           apply Z.add_le_mono.
+           ++ apply Z.le_refl.
+           ++ apply Pos2Z.is_nonneg.
+      * apply IHdelta in Hin.
+        rewrite Z.add_succ_comm in Hin.
+        destruct Hin as [Hl Hu].
+        split.
+        -- apply Zle_succ_le, Hl.
+        -- rewrite Zpos_P_of_succ_nat.
+           apply Hu.
+  - induction delta ; simpl.
+    + intros from [Hl Hu].
+      left.
+      apply Z.le_antisymm.
+      * apply Hl.
+      * rewrite <- Z.add_0_r.
+        apply Hu.
+    + intros from [Hl Hu].
+      destruct (x >? from) eqn:Ex.
+      * right.
+        apply IHdelta with (from := Z.succ from).
+        split.
+        -- apply Z.gtb_gt in Ex.
+           apply Zlt_le_succ, Z.gt_lt, Ex.
+        -- rewrite Zpos_P_of_succ_nat, <- Z.add_succ_comm in Hu.
+           apply Hu.
+      * left.
+        rewrite Z.gtb_ltb in Ex.
+        apply negb_true_iff in Ex.
+        rewrite <- Z.leb_antisym in Ex.
+        apply Z.leb_le in Ex.
+        apply Z.le_antisymm.
+        -- apply Hl.
+        -- apply Ex.
+Qed.
+
+
+Theorem range_equiv : forall (var : Var) (x : Z),
+  In x (range var) <-> Is_true (is_in var x).
+Proof.
+  split ; destruct var ; simpl ; unfold upper_bound .
+  - intros Hrange.
+    apply In_range_equiv_ineq in Hrange.
+    destruct Hrange as [Hl Hu].
+    apply Is_true_eq_left, andb_true_intro.
+    split.
+    + apply Z.leb_le, Hl.
+    + apply Z.leb_le, Hu.
+  - intros Hbounds.
+    apply In_range_equiv_ineq.
+    apply Is_true_eq_true, andb_prop in Hbounds.
+    destruct Hbounds as [Hl Hu].
+    apply Z.leb_le in Hl.
+    apply Z.leb_le in Hu.
+    split.
+    + apply Hl.
+    + apply Hu.
+Qed.
+
+Definition var_name (v : Var) : string :=
+  match v with
+  | interval v_i => v_i.(name)
+  end.
+
 Record Assignment := {
   find_value : Var -> Z ;
-  consistency_proof : forall (v : Var), Is_true (is_in v (find_value v))
+  consistency_proof : forall (v : Var), Is_true (is_in v (find_value v));
+  find_value_eq_name : forall (v1 v2 : Var), var_name v1 = var_name v2 -> find_value v1 = find_value v2
 }.
 
