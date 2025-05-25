@@ -11,5 +11,5 @@ Set Extraction Output Directory ".".
 
 Extraction "checker" 
   Checker.ConstraintProblem.ConstraintProblem 
-  Checker.Proof.Proof 
+  Checker.Proof.CPProof 
   validate.
