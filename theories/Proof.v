@@ -13,6 +13,7 @@ Open Scope Z_scope.
 
 
 Inductive InferenceRule :=
+  | fact_equiv
   | linear
   (* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
   | cumulative
@@ -61,6 +62,11 @@ Definition CPProof := (list ProofStage)%type.
 
 Definition validate_inference (fact : Deduction.Inference) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
+  | fact_equiv =>
+      match hint with
+      | [fact_c ref_fact] => Deduction.equiv fact ref_fact
+      | _ => false
+      end
   | cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
@@ -73,6 +79,33 @@ Definition validate_inference (fact : Deduction.Inference) (hint : list Constrai
       end
   end.
 
+
+Compute validate_inference 
+  {|
+    i_premises := [("x", Domain.mk_atm_le 5 )];
+    i_consequent := Some (("y", Domain.mk_atm_le 3 ));
+  |}
+  [
+  fact_c {|
+    i_premises := [("x", Domain.mk_atm_le 5 ) ; ("y", Domain.mk_atm_ge 4)];
+    i_consequent := None;
+  |}
+  ]
+  fact_equiv.
+Compute validate_inference 
+  {|
+    i_premises := [("x", Domain.mk_atm_le 5 ) ; ("y", Domain.mk_atm_ge 4)];
+    i_consequent := None;
+  |}
+  [
+  fact_c {|
+    i_premises := [("x", Domain.mk_atm_le 5 )];
+    i_consequent := Some (("y", Domain.mk_atm_le 3 ));
+  |}
+  ]
+  fact_equiv.
+
+
 Lemma validate_inference_soundness :
   forall (fact : Inference) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
   (forall (c : Constraint), In c hint -> satisfies_constraint c sol) ->
@@ -82,6 +115,12 @@ Proof.
   intros fact hint rule sol Hsat Hvalid.
   unfold validate_inference in Hvalid.
   destruct rule; simpl in Hvalid.
+  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    apply Deduction.equiv_implies_equisat with (lhs := fact) (rhs := constraint).
+    exact Hvalid.
+    specialize (Hsat (fact_c constraint)).
+    apply Hsat.
+    simpl. left. reflexivity.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply Linear.linear_checker_soundness with (c := constraint); try assumption.
     specialize (Hsat (linear_leq constraint)).

@@ -325,3 +325,29 @@ Proof.
     + destruct fact as [premises [xconsq | ]]; simpl in *; try discriminate. reflexivity.
     + exact Hfalse.
 Qed.
+
+Definition equiv (lhs : Inference) (rhs : Inference) :=
+  match (infer_domains lhs), (infer_domains rhs) with
+  | Some (lhs_doms, _), Some (rhs_doms, _) =>
+      smap.equal Domain.eqb lhs_doms rhs_doms
+  | _, _ => false
+  end.
+
+Lemma equiv_implies_equisat : forall lhs rhs,
+  Is_true (equiv lhs rhs) ->
+  (forall sol, inference_valid sol lhs <-> inference_valid sol rhs).
+Proof.
+  intros lhs rhs Hequiv sol.
+  unfold equiv in Hequiv.
+  destruct (infer_domains lhs) as [[dom_lhs str_lhs] | ] eqn:Elhs ;
+  destruct (infer_domains rhs) as [[dom_rhs str_rhs] | ] eqn:Erhs ;
+  try contradiction.
+  Search (smap.equal _ _ _).
+  split ; intros.
+  - apply infer_domains_correct with (doms := dom_rhs) (xconsq := str_rhs) ;
+    try assumption.
+    admit.
+  - apply infer_domains_correct with (doms := dom_lhs) (xconsq := str_lhs) ;
+    try assumption.
+    admit.
+  Admitted.
