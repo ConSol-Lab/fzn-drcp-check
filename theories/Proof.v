@@ -60,6 +60,7 @@ Record ProofStage := {
 
 Definition CPProof := (list ProofStage)%type.
 
+(* TODO: see the comment above Deduction.equiv, currently some equivalent inferences might still return false. *)
 Definition validate_inference (fact : Deduction.Inference) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
   | fact_equiv =>
@@ -80,7 +81,7 @@ Definition validate_inference (fact : Deduction.Inference) (hint : list Constrai
   end.
 
 
-Compute validate_inference 
+(* Compute validate_inference 
   {|
     i_premises := [("x", Domain.mk_atm_le 5 )];
     i_consequent := Some (("y", Domain.mk_atm_le 3 ));
@@ -104,7 +105,7 @@ Compute validate_inference
   |}
   ]
   fact_equiv.
-
+ *)
 
 Lemma validate_inference_soundness :
   forall (fact : Inference) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
