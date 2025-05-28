@@ -321,24 +321,8 @@ Proof.
   apply infer_domains_valid_as_nogood with (sol := sol) in Hinfer.
   destruct Hinfer as (atoms & Hvalid & Hinf_valid_atoms).
   rewrite <- Hinf_valid_atoms; clear Hinf_valid_atoms.
-  split; intros H.
-  - intros Hatoms; simpl in *.
-    apply H.
-    apply sol_in_doms_if_valid with (atoms := atoms) ;
-    assumption.
-  - intros Hin_doms.
-    apply H; clear H; simpl.
-    intros x a.
-    intros Hin.
-    specialize (Hin_doms x).
-    specialize (Hvalid x).
-    rewrite Hvalid in Hin_doms.
-    unfold applied_dom in Hin_doms.
-    rewrite dom_effect_atomics in Hin_doms.
-    destruct Hin_doms as [_ Hholds].
-    apply Hholds.
-    rewrite filter_pair_on_key_spec.
-    exact Hin.
+  unfold inference_valid; simpl.
+  now rewrite <- valid_domains_sol_in_doms_iff_valid_atoms with (atoms := atoms).
 Qed.
 
 Lemma equiv_domains (sol : string -> Z) :
@@ -420,19 +404,10 @@ Proof.
   try contradiction.
   apply Is_true_eq_true in Hequiv.
   apply smap_prps.equal_2 in Hequiv.
-  split ; intros.
-  - apply infer_domains_correct with (doms := dom_rhs) (xconsq := str_rhs) ;
-    try assumption.
-    intros Hin_doms.
-    rewrite <- infer_domains_correct in H.
-    2: { exact Elhs. }
-    apply equiv_domains with (sol := sol )in Hequiv.
-    rewrite Hequiv in H. contradiction.
-  - apply infer_domains_correct with (doms := dom_lhs) (xconsq := str_lhs) ;
-    try assumption.
-    intros Hin_doms.
-    rewrite <- infer_domains_correct in H.
-    2: { exact Erhs. }
-    apply equiv_domains with (sol := sol )in Hequiv.
-    rewrite <- Hequiv in H. contradiction.
+  apply equiv_domains with (sol := sol )in Hequiv.
+  rewrite <- infer_domains_correct with (doms := dom_lhs).
+  rewrite <- infer_domains_correct with (doms := dom_rhs).
+  - rewrite Hequiv. reflexivity.
+  - apply Erhs.
+  - apply Elhs.
 Qed.
