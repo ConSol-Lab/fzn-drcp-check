@@ -2,8 +2,6 @@ Require Import ZArith.
 Require Import Bool.
 Require Import String.
 Require Import List.
-(* Require Import Checker.Proof (validate, step_soundness). *)
-(* Require Import Checker.ConstraintProblem (entailed_addition). *)
 Require Checker.Utility.
 Import Checker.Utility.Maps.
 
@@ -210,49 +208,6 @@ Module Proofs.
       ConstraintDefinitions.satisfies_problem csp sol ->
       ProofFacts.fact_valid sol fact.
 
-  (* Theorem soundness : forall *)
-  (*     (csp : ConstraintDefinitions.ConstraintProblem) *)
-  (*     (p : CPProof) *)
-  (*     (fact : ProofFacts.ProofFact), *)
-  (*     conclusion p = Some fact -> *)
-  (*     Is_true (validate csp p) -> *)
-  (*     conclusion_holds csp fact. *)
-  (* Proof. *)
-  (*   intros csp p fact Hconcl Hvalid. *)
-  (*   generalize dependent csp. *)
-  (*   (* Induction by proof length; base case p = nil is vacuously true. *) *)
-  (*   induction p as [|stage] ; try discriminate. *)
-  (*   intros csp Hvalid. *)
-  (*   destruct p eqn:Ep. *)
-  (*   (* The proof has a single stage; use stage checker soundness directly *)
-  (*    after appropriately unpacking all variables *) *)
-  (*   { *)
-  (*     inversion Hconcl as [Hconcl']. *)
-  (*     apply step_soundness with (p := nil). *)
-  (*     exact Hvalid. *)
-  (*   } *)
-  (*   (* Use the induction hypothesis for the remainder of the proof and *)
-  (*    the mutated CSP problem instance *) *)
-  (*   assert (Hholds: conclusion_holds csp (stage.(s_conclusion))). { *)
-  (*     apply step_soundness with (p := p0 :: l). *)
-  (*     exact Hvalid. *)
-  (*   } *)
-  (*   unfold conclusion_holds. *)
-  (*   apply entailed_addition with *)
-  (*     (fact := stage.(s_conclusion)) *)
-  (*     (index := stage.(s_conclusion_index)) ; *)
-  (*     try exact Hholds. *)
-  (*   remember (add (stage.(s_conclusion_index)) (stage.(s_conclusion)) csp) as csp'. *)
-  (*   unfold conclusion_holds in IHp. *)
-  (*   apply IHp with (csp := csp'). *)
-  (*   + (* Proof conclusion stays the same, as it is not empty. *) *)
-  (*     easy. *)
-  (*   + (* Checker reports true on the upcoming proof prefix *)
-  (*      after mutating the CSP *) *)
-  (*     remember (p0 :: l) as q. *)
-  (*     unfold validate in Hvalid. *)
-  (*     rewrite <- Heqcsp' in Hvalid. *)
-  (*     destruct (validate_proof_stage (hydrate csp stage)) ; try easy. *)
-  (* Qed. *)
-
+  Definition checker_sound (checker_impl : ConstraintDefinitions.ConstraintProblem -> CPProof -> bool) : Prop :=
+    forall csp p fact, conclusion p = Some fact -> Is_true (checker_impl csp p) -> conclusion_holds csp fact.
 End Proofs.

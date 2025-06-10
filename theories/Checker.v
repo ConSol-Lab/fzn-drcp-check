@@ -401,12 +401,9 @@ Proof.
 Qed.
 
 
-Theorem soundness : forall
-  (csp : ConstraintProblem) (p : CPProof) (fact : ProofFact),
-    conclusion p = Some fact ->
-    Is_true (validate csp p) ->
-    conclusion_holds csp fact.
+Theorem soundness : checker_sound validate.
 Proof.
+  unfold checker_sound.
   intros csp p fact Hconcl Hvalid.
   generalize dependent csp.
   (* Induction by proof length; base case p = nil is vacuously true. *)
