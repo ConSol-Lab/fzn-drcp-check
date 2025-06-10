@@ -6,17 +6,12 @@ Require Import Coq.Bool.Bool.
 Require Import Lia.
 Require Import Checker.Domain.
 Require Import Checker.Utility.
+Require Import Checker.Spec.
+Import Spec.ConstraintDefinitions.
 Import Utility.ListEx.
 Import Utility.Sets.
 Import Utility.ListInd.
 Import Utility.ZRange.
-
-Record ActivityDefine := mkActDef
-  {
-    def_x : string;
-    def_p : N;
-    def_u : N;
-  }.
 
 Fixpoint def_xs (l : list ActivityDefine) : sstr.t :=
   match l with
@@ -83,6 +78,7 @@ Lemma def_to_vs_checks_correct :
     let activities' := def_to_vs activities xs in
     NoDup (map def_x activities') /\ forall a, In a activities' -> (def_p a >= 1)%N.
 Proof.
+  intros activities.
   induction activities as [| a activities IH].
   - intros xs. simpl. split.
     + apply NoDup_nil.
@@ -137,14 +133,6 @@ Proof.
     + simpl. apply IH.
 Qed.
 
-Record CumulativeConstraint :=
-  {
-    capacity: N;
-    activities: list ActivityDefine;
-    valid_p_times : forall a, In a activities -> (a.(def_p) >= 1)%N;
-    acts_nodup : NoDup (map def_x activities)
-  }.
-
 Definition build_cumulative (activities_in : list ActivityDefine) (cap : N) : CumulativeConstraint :=
   {|
     capacity := cap ;
@@ -152,13 +140,6 @@ Definition build_cumulative (activities_in : list ActivityDefine) (cap : N) : Cu
     valid_p_times := (proj2 (def_to_vs_checks_correct activities_in sstr.empty));
     acts_nodup := (proj1 (def_to_vs_checks_correct activities_in sstr.empty))
   |}.
-
-Record Activity := mkAct {
-  a_name : string;
-  start : Z;
-  p_time : N;
-  usage : N;
-}.
 
 Lemma activity_eq_dec :
   forall x y : Activity, {x = y}+{x <> y}.
@@ -170,20 +151,8 @@ Proof.
   - apply String.string_dec.
 Qed.
 
-Fixpoint n_sum_rec (l : list N) (current : N) : N :=
-  match l with
-  | nil => current
-  | n :: l' => n_sum_rec l' (current + n)
-  end.
-
 
 Open Scope N_scope.
-Definition n_sum (l : list N) : N :=
-  n_sum_rec l N0.
-
-Definition xn_sum (l : list (string * N)) : N :=
-  n_sum (map snd l).
-
 Lemma xn_eq_dec :
   forall x y : (string * N), {x = y}+{x <> y}.
 Proof.
@@ -192,40 +161,13 @@ Proof.
   - apply String.string_dec.
 Qed.
 
-Definition act_to_xn (a : Activity) : (string * N) :=
-  (a.(a_name), a.(usage)).
-
-Definition usage_sum (l : list Activity) : N :=
-  xn_sum (map act_to_xn l).
-
 Open Scope Z_scope.
-Definition is_active_at (start_time : Z) (p_time : N) (t : Z) : bool :=
-  let end_time := (start_time + (Z.of_N p_time)) in
-    (start_time <=? t) && (t <? end_time).
-
-Definition activities_at_t (l : list Activity) (t : Z) : list Activity :=
-  filter (fun a => is_active_at a.(start) a.(p_time) t) l
-.
-
-Definition activity_from_a_def (a : string -> Z) (act : ActivityDefine) : Activity :=
-  match act with
-  | mkActDef x p u => 
-    mkAct x (a x) p u
-  end.
 
 Definition a_def_from_activity (act : Activity) : ActivityDefine :=
   match act with
   | mkAct x start p u =>
     mkActDef x p u
   end.
-
-Definition activity_list_inner (l : list ActivityDefine) (a : string -> Z) : list Activity :=
-  map (activity_from_a_def a) l
-.
-
-Definition activity_list (c : CumulativeConstraint) (a : string -> Z) : list Activity :=
-  activity_list_inner c.(activities) a
-.
 
 Lemma a_def_in_iff :
   forall c a act,
@@ -311,103 +253,14 @@ Proof.
       lia.
 Qed.
 
-Open Scope N_scope.
-Definition Cumulative (constraint : CumulativeConstraint) (a : string -> Z) : Prop :=
-  let activities := activity_list constraint a in
-  forall t,
-    usage_sum (activities_at_t activities t) <= constraint.(capacity).
 
-
-Open Scope N_scope.
-Definition cumulative_decide (constraint : CumulativeConstraint) (a : string -> Z) : bool :=
-  let activities := activity_list constraint a in
-  let t_min := min_l (starts activities) in
-  let t_max := max_l (ends activities) in
-  forallb 
-    (fun t => 
-      usage_sum (activities_at_t activities t) <=? constraint.(capacity)
-    )
-    (range t_min t_max)
-.
 
 (* From Coq 9.0 *)
 Lemma filter_false {A} l : filter (fun _ : A => false) l = nil.
 Proof. induction l; cbn [filter]; congruence. Qed.
 
-Open Scope Z_scope.
-Lemma cumulative_decides :
-  forall c a,
-    reflect (Cumulative c a) (cumulative_decide c a).
-Proof.
-  intros c a.
-  destruct (cumulative_decide c a) eqn:Hdec.
-  - apply ReflectT. 
-    unfold Cumulative.
-    remember (activity_list c a) as acts.
-    assert (forall t, t < min_l (starts acts) -> activities_at_t (activity_list c a) t = nil) as Ht_min.
-    {
-      intros t Htmin.
-      unfold activities_at_t; rewrite <- Heqacts.
-      rewrite <- filter_false with (l := acts).
-      apply filter_ext_in.
-      intros act Hin.
-      unfold is_active_at.
-      enough (t < start act) by lia.
-      enough (min_l (starts acts) <= start act) by lia.
-      apply min_l_spec.
-      unfold starts. rewrite in_map_iff.
-      now exists act.
-    }
-    assert (forall t, t > max_l (ends acts) -> activities_at_t (activity_list c a) t = nil) as Ht_max.
-    {
-      intros t Htmin.
-      unfold activities_at_t; rewrite <- Heqacts.
-      rewrite <- filter_false with (l := acts).
-      apply filter_ext_in.
-      intros act Hin.
-      unfold is_active_at.
-      enough (t >= start act + Z.of_N (p_time act)) by lia.
-      enough (start act + Z.of_N (p_time act) - 1 <= max_l (ends acts)) by lia.
-      apply max_l_spec.
-      unfold ends. rewrite in_map_iff.
-      now exists act.
-    }
-    intros t.
-    destruct (t <? min_l (starts acts)) eqn:Ht_small.
-    { 
-      rewrite <- Heqacts in *; clear Heqacts Hdec.
-      rewrite Ht_min.
-      - unfold usage_sum, xn_sum, n_sum. simpl. lia.
-      - lia.
-    }
-    destruct (t >? max_l (ends acts)) eqn:Ht_large.
-    { 
-      rewrite <- Heqacts in *; clear Heqacts Hdec.
-      rewrite Ht_max.
-      - unfold usage_sum, xn_sum, n_sum. simpl. lia.
-      - lia.
-    }
-    clear Ht_min Ht_max.
-    unfold cumulative_decide in Hdec.
-    rewrite <- Heqacts in *.
-    rewrite forallb_forall in Hdec.
-    rewrite <- N.leb_le.
-    apply Hdec.
-    rewrite <- in_range.
-    lia.
-  - apply ReflectF. 
-    intros Hcumul.
-    unfold cumulative_decide in Hdec.
-    rewrite <- not_true_iff_false in Hdec.
-    rewrite forallb_forall in Hdec.
-    apply Hdec; clear Hdec.
-    intros t. intros Htin; clear Htin.
-    rewrite N.leb_le.
-    apply Hcumul.
-Qed.
-
 (* This is not the right place for this, probably also there are some better ways to do this. *)
-
+Open Scope Z_scope.
 Lemma reflect_neg_iff (P : Prop) (b : bool) :
   reflect P b -> (~ P <-> b = false).
 Proof.

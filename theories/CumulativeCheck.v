@@ -1,4 +1,3 @@
-
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.NArith.NArith.
 Require Import String.
@@ -10,6 +9,9 @@ Require Import Lia.
 
 Require Import Checker.Cumulative.
 Require Checker.CumulativeUtil.
+Require Import Checker.Spec.
+Import Spec.ConstraintDefinitions.
+Import Spec.ProofFacts.
 Import CumulativeUtil.RunOfN.
 Import CumulativeUtil.XNSum.
 
@@ -64,7 +66,7 @@ Definition domains_to_bounds (doms : Domains) (param_map : string -> option (N *
 Definition unwrap_bindings {A B} (l : list (A * option B)) :=
   flat_map_option snd l.
 
-Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : Deduction.Inference) :=
+Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : ProofFact) :=
   let activity_vars := constraint_to_vs constr in
   match infer_domains fact with
   | None => (nil, None)
@@ -204,7 +206,7 @@ Lemma inferred_cumulative_bounds_spec constr fact bounds prop_bound_opt :
       ->
     False)
       ->
-    inference_valid sol fact.
+    fact_valid sol fact.
 Proof.
   intros sol Hnnil Hinfer_bounds Hvalid.
   unfold inferred_cumulative_bounds in Hinfer_bounds.
@@ -508,7 +510,7 @@ Definition resource_profile_full (capacity : N) (bounds : list ActivityBound) :=
 (* Main possible improvements:
   - Reuse the full resource profile for the cannot schedule
   - Allow the use of 'hints' to be able to determine at what time there is a profile conflict, or what activity cannot be scheduled (requires changing the proof format) *)
-Definition cumulative_checker (fact : Deduction.Inference) (constraint : CumulativeConstraint) : bool :=
+Definition cumulative_checker (fact : ProofFact) (constraint : CumulativeConstraint) : bool :=
   match inferred_cumulative_bounds constraint fact with
   | (nil, _) => false
   | (bounds, rhs_bound) =>
@@ -804,9 +806,9 @@ Qed.
 
 Lemma checker_cumulative_eq_true :
   forall fact sol constr,
-  cumulative_decide constr sol = true
+  Cumulative constr sol
   -> cumulative_checker fact constr = true
-  -> inference_valid sol fact.
+  -> fact_valid sol fact.
 Proof.
   intros fact sol constr.
   intros Hcumul Hchecked.
@@ -821,7 +823,7 @@ Proof.
   apply inferred_cumulative_bounds_unique in Hbounds as Hunique.
   clear Hboundsnnil.
   intros Hvalid Hprop_bound.
-  reflect_rewrite (cumulative_decides constr sol) in Hcumul.
+  (* reflect_rewrite (cumulative_decides constr sol) in Hcumul. *)
   assert ((exists bound, In bound bounds /\ cannot_schedule_activity (capacity constr) bounds bound = true) \/ resource_profile_full (capacity constr) bounds = true).
   {
     destruct prop_bound_opt as [prop_bound|].
@@ -863,13 +865,13 @@ Qed.
 
 Lemma checker_cumulative :
   forall fact sol constr,
-  Is_true (cumulative_decide constr sol)
+  Cumulative constr sol
   -> Is_true (cumulative_checker fact constr)
-  -> inference_valid sol fact.
+  -> fact_valid sol fact.
 Proof.
   intros fact sol constr.
   intros H1 H2.
-  apply Is_true_eq_true in H1, H2.
+  apply Is_true_eq_true in H2.
   apply checker_cumulative_eq_true with (constr := constr);
   assumption.
 Qed.

@@ -8,21 +8,13 @@ Require Import List.
 Require Import Coq.Strings.String.
 Require Import Coq.NArith.NArith.
 Require Import Coq.ZArith.ZArith.
+Require Import Checker.Spec.
+Import Spec.ConstraintDefinitions.
+Import Spec.Proofs.
+Import Spec.ProofFacts.
 Import Coq.Lists.List.ListNotations.
 Open Scope Z_scope.
 
-
-Inductive InferenceRule :=
-  | fact_equiv
-  | linear
-  (* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
-  | cumulative
-  (* | alldifferent *)
-  .
-
-Inductive Step := 
-  | inference (fact : Deduction.Inference) (hint : list N) (rule : InferenceRule)
-  | nogood (fact : Deduction.Inference) (chain : list N).
 
 Definition step_fact (step : Step) :=
   match step with
@@ -32,36 +24,20 @@ Definition step_fact (step : Step) :=
 
 Record HydratedInference := {
   hinf_index : N ;
-  hinf_fact : Inference ;
+  hinf_fact : ProofFact ;
   hinf_hint : list Constraint ;
   hinf_rule : InferenceRule
 }.
 
 Record HydratedProofStage := {
   hs_inferences : list HydratedInference ;
-  hs_chain : list Inference ;
-  hs_conclusion : Inference ;
+  hs_chain : list ProofFact ;
+  hs_conclusion : ProofFact ;
   hs_conclusion_index : N
 }.
 
-Record IndexedInference := {
-  iinf_index : N ;
-  iinf_fact : Inference ;
-  iinf_hint : list N ;
-  iinf_rule : InferenceRule
-}.
-
-Record ProofStage := {
-  s_inferences : list IndexedInference ;
-  s_chain : list N ;
-  s_conclusion : Inference ;
-  s_conclusion_index : N
-}.
-
-Definition CPProof := (list ProofStage)%type.
-
 (* TODO: see the comment above Deduction.equiv, currently some equivalent inferences might still return false. *)
-Definition validate_inference (fact : Deduction.Inference) (hint : list Constraint) (rule : InferenceRule) :=
+Definition validate_inference (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
   | fact_equiv =>
       match hint with
@@ -108,10 +84,10 @@ Compute validate_inference
  *)
 
 Lemma validate_inference_soundness :
-  forall (fact : Inference) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
+  forall (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
   (forall (c : Constraint), In c hint -> satisfies_constraint c sol) ->
   Is_true (validate_inference fact hint rule) -> 
-  inference_valid sol fact.
+  fact_valid sol fact.
 Proof.
   intros fact hint rule sol Hsat Hvalid.
   unfold validate_inference in Hvalid.
@@ -141,7 +117,7 @@ Proof.
 Qed.
 
 
-Definition validate_nogood (fact : Inference) (chain : list Inference) := 
+Definition validate_nogood (fact : ProofFact) (chain : list ProofFact) :=
   match (i_consequent fact) with
   | None => check_deduct fact.(i_premises) chain
   | Some _ => false
@@ -178,7 +154,7 @@ Lemma valid_proof_stage_implies_conclusion : forall
   (forall (c : Constraint),
     In c (used_constraints stage) -> satisfies_constraint c sol
   ) ->
-  inference_valid sol (stage.(hs_conclusion)).
+  fact_valid sol (stage.(hs_conclusion)).
 Proof.
   intros stage sol Hvalid Estage_conclusion Hcons_sat.
   unfold validate_proof_stage in Hvalid.
@@ -207,7 +183,7 @@ Proof.
   - apply Is_true_eq_true, Hnogood_valid.
 Qed.
 
-Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list Inference :=
+Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
   match index_chain with
   | nil => nil
   | index :: tail =>
@@ -226,7 +202,7 @@ Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedI
 
 Lemma hydrated_chain_lookup : forall
   (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N)
-  (fact : Inference),
+  (fact : ProofFact),
   In fact (hydrate_deduction_chain csp infs index_chain) ->
   (exists x, ConstraintProblem.lookup csp x = Some (fact_c fact)) \/
   (exists inf, In inf infs /\ inf.(iinf_fact) = fact).
@@ -307,18 +283,6 @@ Fixpoint validate (csp : ConstraintProblem) (p : CPProof) :=
   end.
 
 
-Fixpoint conclusion (p : CPProof) := 
-  match p with
-  | [] => None
-  | [stage] => Some (stage.(s_conclusion))
-  | _ :: p' => conclusion p'
-  end.
-
-
-Definition conclusion_holds (csp : ConstraintProblem) (fact : Deduction.Inference) :=
-  forall (sol : string -> Z),
-    satisfies_problem csp sol ->
-    Deduction.inference_valid sol fact.
 
 
 Theorem step_soundness : forall
@@ -438,7 +402,7 @@ Qed.
 
 
 Theorem soundness : forall
-  (csp : ConstraintProblem) (p : CPProof) (fact : Deduction.Inference),
+  (csp : ConstraintProblem) (p : CPProof) (fact : ProofFact),
     conclusion p = Some fact ->
     Is_true (validate csp p) ->
     conclusion_holds csp fact.
@@ -479,4 +443,3 @@ Proof.
     rewrite <- Heqcsp' in Hvalid.
     destruct (validate_proof_stage (hydrate csp stage)) ; try easy.
 Qed.
-

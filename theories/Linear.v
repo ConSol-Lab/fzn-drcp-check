@@ -4,27 +4,15 @@ Require Import Checker.Deduction.
 Require Import Checker.DomainVar.
 Require Import Checker.Zext.
 Require Import Checker.Domain.
+Require Import Checker.Spec.
+Import Spec.ConstraintDefinitions.
+Import Spec.ProofFacts.
 Require Import List.
 Require Import String.
 Require Import Lia.
 Import Utility.Maps.
 Open Scope Z_scope.
 Import ListNotations.
-
-Record LinearConstraint :=
-  {
-    l_terms : list (Z * string);
-    l_bound : Z;
-  }.
-
-Fixpoint evaluate_linear (x : list (Z * string)) (sol : string -> Z) : Z :=
-  match x with
-  | [] => 0
-  | (coef, v) :: xs => coef * (sol v) + (evaluate_linear xs sol)
-  end.
-
-Definition linear_leq (c : LinearConstraint) (sol : string -> Z) :=
-  evaluate_linear (c.(l_terms)) (sol) <= c.(l_bound).
 
 Definition term_lower_bound (coef : Z) (var : string) (dom : Domain.Domain) : option Z :=
   if coef >? 0
@@ -51,7 +39,7 @@ Fixpoint lower_bound (terms : list (Z * string)) (doms : Domains) :=
       end
   end.
 
-Definition linear_checker (fact : Deduction.Inference) (c : LinearConstraint) :=
+Definition linear_checker (fact : ProofFact) (c : LinearConstraint) :=
   match Deduction.infer_domains fact with
   (* Currently information on what variable is r.h.s. is not used. *)
   | Some (doms, _) => 
@@ -115,15 +103,15 @@ Proof.
 Qed.
 
 Theorem linear_checker_soundness : forall
-  (fact : Deduction.Inference) (sol : string -> Z) (c : LinearConstraint),
-  linear_leq c sol ->
+  (fact : ProofFact) (sol : string -> Z) (c : LinearConstraint),
+  Linear c sol ->
   Is_true (linear_checker fact c)
-  -> Deduction.inference_valid sol fact.
+  -> fact_valid sol fact.
 Proof.
   intros fact sol c.
   unfold linear_checker.
   destruct c as [lin_terms lin_bound].
-  unfold linear_leq.
+  unfold Linear.
   simpl.
   intros Hsat Hbound.
   destruct (infer_domains fact) as [[doms rhs_var]|] eqn:Edoms ; try contradiction.
@@ -134,4 +122,3 @@ Proof.
   enough (lb <= evaluate_linear lin_terms sol) by lia.
   apply bound_validity with (doms := doms) ; assumption.
 Qed.
-

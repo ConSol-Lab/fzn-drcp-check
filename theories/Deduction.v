@@ -12,14 +12,11 @@ Import Utility.Tactics.
 Import Utility.Sets.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
+Require Import Checker.Spec.
+Import Spec.ProofFacts.
 Local Open Scope Domain_scope.
 (** This file represents the process of verifying a deduction step, although it does not actually mention the deduction itself so there is still some freedom to implement it. Given a number of valid inferences and premises we assume to hold, if the checker returns true we know we have a contradiction (hence of the premises must have been incorrect). *)
 
-(** An inference is a set of premises and a consequent. If the consequent is None, it represents a nogood. *)
-Record Inference := mkInf {
-  i_premises : list BoundAtomic;
-  i_consequent : option BoundAtomic
-}.
 
 
 Definition negate_bound_atomic (atomic : BoundAtomic) :=
@@ -47,10 +44,10 @@ Inductive DeductStep :=
 | deduct_valid
 | deduct_reject.
 
-Definition step_inference (inference : Inference) (domains : Domains) :=
-  if forallb (check_premise domains) inference.(i_premises)
+Definition step_inference (fact : ProofFact) (domains : Domains) :=
+  if forallb (check_premise domains) fact.(i_premises)
     then
-      match inference.(i_consequent) with
+      match fact.(i_consequent) with
       | None => deduct_valid
       | Some consequent =>
         match doms_apply_tighten domains consequent with
@@ -60,18 +57,18 @@ Definition step_inference (inference : Inference) (domains : Domains) :=
       end
     else deduct_reject.
 
-Fixpoint deduct_check_inferences (inferences : list Inference) (domains : Domains) : bool :=
-  match inferences with
+Fixpoint deduct_check_inferences (facts : list ProofFact) (domains : Domains) : bool :=
+  match facts with
   | nil => false
-  | inf :: inferences' =>
-    match step_inference inf domains with
-    | deduct_domains domains' => deduct_check_inferences inferences' domains'
+  | fact :: facts' =>
+    match step_inference fact domains with
+    | deduct_domains domains' => deduct_check_inferences facts' domains'
     | deduct_valid => true
     | deduct_reject => false
     end
   end.
 
-Definition check_deduct (premises : list BoundAtomic) (steps : list Inference) :=
+Definition check_deduct (premises : list BoundAtomic) (steps : list ProofFact) :=
   let doms := domains_from_atomics premises in
   let doms_tight := tighten_doms doms in
     if check_domains_consistent doms
@@ -79,29 +76,14 @@ Definition check_deduct (premises : list BoundAtomic) (steps : list Inference) :
       (* Inconsistent premises, which we do not expect *)
       else false.
 
-Definition bound_atomic_holds (assignment : string -> Z) (atom : BoundAtomic) :=
-  match atom with
-  | (x, atom) =>
-    atomic_holds (assignment x) atom
-  end.
-
-(** If the premises hold for the assignment, then the consequent holds *)
-Definition inference_valid (assignment : string -> Z) (inference : Inference) :=
-  valid_atoms assignment inference.(i_premises)
-    ->
-  match inference.(i_consequent) with
-  | None => False
-  | Some consequent => bound_atomic_holds assignment consequent
-  end.
-
 Lemma inference_valid_neg_rhs :
   forall sol premises consequent,
-    inference_valid sol (mkInf premises (Some consequent))
+    fact_valid sol (mkFact premises (Some consequent))
       <->
-    inference_valid sol (mkInf ((negate_bound_atomic consequent) :: premises) None).
+    fact_valid sol (mkFact ((negate_bound_atomic consequent) :: premises) None).
 Proof.
   intros sol premises consq.
-  unfold inference_valid.
+  unfold fact_valid.
   destruct consq as [x consqa]; simpl.
   split; intros Hvalid; intros H.
   - assert (valid_atoms sol premises) as Hpremises.
@@ -161,7 +143,7 @@ Lemma deduct_check_inferences_correct :
       ->
     valid_domains domains atoms
       ->
-    (forall inf, In inf steps -> inference_valid assignment inf)
+    (forall fact, In fact steps -> fact_valid assignment fact)
       ->
     deduct_check_inferences steps domains = true
       ->
@@ -172,16 +154,16 @@ Proof.
   { easy. }
   intros doms atoms Hatoms Hequiv Hinfs.
   simpl.
-  assert (forall inf, In inf steps -> inference_valid assignment inf) as Hprev.
-  { intros inf Hin. apply Hinfs. now right. }
-  assert (inference_valid assignment step) as Hstep.
+  assert (forall fact, In fact steps -> fact_valid assignment fact) as Hprev.
+  { intros fact Hin. apply Hinfs. now right. }
+  assert (fact_valid assignment step) as Hstep.
   { apply Hinfs. now left. }
   clear Hinfs.
   destruct step_inference as [doms' | |] eqn:Hinf.
   - unfold step_inference in Hinf.
     destruct forallb eqn:Hforall in Hinf;
     try discriminate Hinf.
-    unfold inference_valid in Hstep.
+    unfold fact_valid in Hstep.
     destruct i_consequent as [conseq|];
     try discriminate Hinf.
     apply forall_premises with (assignment := assignment) (atoms := atoms) in Hforall; try assumption.
@@ -205,7 +187,7 @@ Proof.
     unfold step_inference in Hinf.
     destruct forallb eqn:Hforall in Hinf;
     try discriminate Hinf.
-    unfold inference_valid in Hstep.
+    unfold fact_valid in Hstep.
     destruct i_consequent as [conseq|].
     + destruct conseq as [x a].
       specialize (doms_apply_tighten_step doms atoms Hequiv x a) as Happly_spec.
@@ -229,7 +211,7 @@ Lemma check_deduct_correct :
   forall assignment premises steps,
     valid_atoms assignment premises
       ->
-    (forall inf, In inf steps -> inference_valid assignment inf)
+    (forall inf, In inf steps -> fact_valid assignment inf)
       ->
     check_deduct premises steps = true
       ->
@@ -254,13 +236,13 @@ Definition check_in_vs (vs : sstr.t) (a : BoundAtomic) :=
   | (x, atom) => sstr.mem x vs
   end.
 
-Definition atomics_from_fact (fact : Inference) :=
+Definition atomics_from_fact (fact : ProofFact) :=
   match fact.(i_consequent) with
   | None => (None, fact.(i_premises))
   | Some (x, consq) => (Some x, (negate_bound_atomic (x, consq)) :: fact.(i_premises))
   end.
 
-Definition infer_domains (fact : Inference) :=
+Definition infer_domains (fact : ProofFact) :=
   let (x, atomics) := atomics_from_fact fact in
   let doms := domains_from_atomics atomics in
   let doms_tight := tighten_doms doms in
@@ -275,7 +257,7 @@ Lemma infer_domains_valid_as_nogood fact doms xconsq :
     exists atoms,
       valid_domains doms atoms
         /\
-      (inference_valid sol (mkInf atoms None) <-> inference_valid sol fact).
+      (fact_valid sol (mkFact atoms None) <-> fact_valid sol fact).
 Proof.
   intros sol.
   unfold infer_domains.
@@ -314,14 +296,14 @@ Lemma infer_domains_correct fact doms xconsq :
       ->
     ~ sol_in_doms sol doms 
       <->
-    inference_valid sol fact.
+    fact_valid sol fact.
 Proof.
   intros sol.
   intros Hinfer.
   apply infer_domains_valid_as_nogood with (sol := sol) in Hinfer.
   destruct Hinfer as (atoms & Hvalid & Hinf_valid_atoms).
   rewrite <- Hinf_valid_atoms; clear Hinf_valid_atoms.
-  unfold inference_valid; simpl.
+  unfold fact_valid; simpl.
   now rewrite <- valid_domains_sol_in_doms_iff_valid_atoms with (atoms := atoms).
 Qed.
 
@@ -386,7 +368,7 @@ Proof.
 Qed.
 
 (* TODO: currently eqb assumes the holes are exactly the same, but infer_domains does not remove redundant holes. To fix this, Domain.eqb should be changed to be more like an 'equivb', i.e. it should only look for equality of the holes within the bounds. Note: infer_domains DOES already tighten the bounds themselves, so there equality is totally fine. *)
-Definition equiv (lhs : Inference) (rhs : Inference) :=
+Definition equiv (lhs : ProofFact) (rhs : ProofFact) :=
   match (infer_domains lhs), (infer_domains rhs) with
   | Some (lhs_doms, _), Some (rhs_doms, _) =>
       smap.equal Domain.eqb lhs_doms rhs_doms
@@ -395,7 +377,7 @@ Definition equiv (lhs : Inference) (rhs : Inference) :=
 
 Lemma equiv_implies_equisat : forall lhs rhs,
   Is_true (equiv lhs rhs) ->
-  (forall sol, inference_valid sol lhs <-> inference_valid sol rhs).
+  (forall sol, fact_valid sol lhs <-> fact_valid sol rhs).
 Proof.
   intros lhs rhs Hequiv sol.
   unfold equiv in Hequiv.

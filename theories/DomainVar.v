@@ -12,11 +12,11 @@ Import Utility.Tactics.
 Import Utility.Sets.
 Require Import Checker.Domain.
 Require Import Checker.Zext.
+Require Import Checker.Spec.
+Import Spec.ProofFacts.
 
 (** This file adds variables to domains and the idea that atomic constraints can apply only to particular variables. It also provides functions to convert a list of atomic constraints into a map of domains, for which we use MMaps (defined in the Maps module in the Utility file). *)
 
-(** We use a simple pair instead of a Record since it is just two things. *)
-Definition BoundAtomic := (string * Atomic)%type.
 Definition Domains := smap.t Domain.
 
 Definition included_doms (doms : Domains) : list (string * Domain) := smap.bindings doms.
@@ -164,12 +164,6 @@ Qed.
 
 Definition check_domains_consistent (doms : Domains) : bool :=
   smap.for_all (fun x dom => dom_check_consistent dom) doms.
-
-Definition valid_atoms (sol : string -> Z) (atoms : list BoundAtomic) :=
-  forall x a,
-    In (x, a) atoms
-      ->
-    atomic_holds (sol x) a.
 
 Lemma initial_consistent :
   dom_consistent initial_dom.

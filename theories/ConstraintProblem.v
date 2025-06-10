@@ -10,40 +10,16 @@ Require Import List.
 Require Import String.
 Import Utility.Maps.
 Open Scope Z_scope.
+Require Import Spec.
+Import Spec.ProofFacts.
+Import Spec.ConstraintDefinitions.
 
-Inductive Constraint :=
-  | linear_leq (constraint : Linear.LinearConstraint)
-  | cumulative_c (constraint : Cumulative.CumulativeConstraint)
-  | fact_c (constraint : Deduction.Inference)
-  (* | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
-  .
-
-Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
-  match c with
-  | linear_leq c => Linear.linear_leq c sol
-  | cumulative_c c => Is_true (Cumulative.cumulative_decide c sol)
-  | fact_c c => Deduction.inference_valid sol c
-  (* | alldifferent_c c => AllDifferent.alldifferent_decide c sol *)
-  end.
-
-Definition ConstraintMap := nmap.t Constraint.
-
-Record ConstraintProblem := 
-  {
-    csp_constraints : ConstraintMap;
-  }.
-
-Definition add (index : N) (fact : Deduction.Inference) (csp : ConstraintProblem) : ConstraintProblem :=
-  {|
-    csp_constraints := nmap.add index (fact_c fact) (csp.(csp_constraints))
-  |}.
+Definition add (index : N) (fact : ProofFact) (csp : ConstraintProblem) : ConstraintProblem :=
+  nmap.add index (fact_c fact) csp.
 
 Definition lookup (csp : ConstraintProblem) (index : N) : option Constraint :=
-  nmap.find index csp.(csp_constraints).
+  nmap.find index csp.
 
-Definition satisfies_problem (csp : ConstraintProblem) (sol : string -> Z) :=
-  forall index c, nmap.MapsTo index c csp.(csp_constraints) -> satisfies_constraint c sol.
-  
 Lemma sat_csp_implies_sat_lookup : forall index csp sol c,
   lookup csp index = Some c ->
   satisfies_problem csp sol -> 
@@ -55,9 +31,9 @@ Proof.
 Qed.
 
 Lemma entailed_addition : forall csp fact index conclusion,
-  (forall sol, satisfies_problem csp sol -> Deduction.inference_valid sol fact) ->
-  (forall sol, satisfies_problem (add index fact csp) sol -> Deduction.inference_valid sol conclusion) ->
-  (forall sol, satisfies_problem csp sol -> Deduction.inference_valid sol conclusion).
+  (forall sol, satisfies_problem csp sol -> fact_valid sol fact) ->
+  (forall sol, satisfies_problem (add index fact csp) sol -> fact_valid sol conclusion) ->
+  (forall sol, satisfies_problem csp sol -> fact_valid sol conclusion).
 Proof.
   intros csp fact index conclusion Hentail Hvalid_concl sol Hsat.
   apply Hvalid_concl.
