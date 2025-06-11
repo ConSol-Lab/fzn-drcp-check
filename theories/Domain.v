@@ -152,6 +152,40 @@ Proof.
     rewrite H1. rewrite <- H2. reflexivity.
 Qed.
 
+Definition eqb (lhs : Domain) (rhs : Domain) :=
+  let same_lb := (Zext.eqb (lhs.(d_lb)) (rhs.(d_lb)))
+  in
+  let same_ub := (Zext.eqb (lhs.(d_ub)) (rhs.(d_ub)))
+  in
+  let same_holes := sint.equal (lhs.(d_holes)) (rhs.(d_holes))
+  in
+  same_lb && same_ub && same_holes.
+
+Lemma eqb_eq : forall lhs rhs, Is_true (eqb lhs rhs) -> dom_equiv lhs rhs.
+Proof.
+  intros lhs rhs.
+  destruct lhs.
+  destruct rhs.
+  unfold eqb.
+  simpl.
+  intros.
+  apply andb_prop_elim in H.
+  destruct H as [H Eholes].
+  apply andb_prop_elim in H.
+  destruct H as [Elb Eub].
+  apply Is_true_eq_true, Zext.eqb_eq in Elb.
+  apply Is_true_eq_true, Zext.eqb_eq in Eub.
+  apply Is_true_eq_true, sint_prps.Dec.F.equal_2 in Eholes.
+  rewrite Elb, Eub.
+  unfold dom_equiv, is_in_dom.
+  intros.
+  unfold sint.Equal in Eholes.
+  split ; intros ; destruct H as [P Q] ; destruct Q as [Q R] ;
+  simpl ; simpl in P ; simpl in Q ; simpl in R ;
+  split ; try assumption ; split ; try assumption ;
+  unfold not ; intros ; apply Eholes in H ; contradiction.
+Qed.
+
 (** A domain is consistent when there is at least one element inside it. This rules out many weird domains such as having negative infinity as upper bound. *)
 Definition dom_consistent (dom : Domain) :=
   exists y,

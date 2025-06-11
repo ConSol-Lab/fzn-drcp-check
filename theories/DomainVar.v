@@ -327,23 +327,34 @@ Definition sol_in_doms (sol : string -> Z) (doms : Domains) :=
   forall x,
     is_in_dom (sol x) (doms d-> x).
 
-Lemma sol_in_doms_if_valid :
+Lemma valid_domains_sol_in_doms_iff_valid_atoms :
   forall atoms doms sol,
-    valid_atoms sol atoms
-      ->
     valid_domains doms atoms
       ->
+    valid_atoms sol atoms
+      <->
     sol_in_doms sol doms.
 Proof.
   intros atoms doms sol.
-  intros Hatoms Hdoms.
-  intros x.
-  rewrite (Hdoms x).
-  unfold applied_dom.
-  rewrite dom_effect_atomics.
-  split; try easy.
-  intros a Hin.
-  apply Hatoms.
-  rewrite <- filter_pair_on_key_spec.
-  apply Hin.
+  intros Hdoms.
+  split.
+  - intros Hatoms. intros x.
+    rewrite (Hdoms x).
+    unfold applied_dom.
+    rewrite dom_effect_atomics.
+    split; try easy.
+    intros a Hin.
+    apply Hatoms.
+    rewrite <- filter_pair_on_key_spec.
+    apply Hin.
+  - intros Hindoms.
+    intros x a Hin.
+    specialize (Hdoms x).
+    specialize (Hindoms x).
+    rewrite Hdoms in Hindoms.
+    unfold applied_dom in Hindoms.
+    rewrite dom_effect_atomics in Hindoms.
+    apply Hindoms.
+    rewrite filter_pair_on_key_spec.
+    exact Hin.
 Qed.

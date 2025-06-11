@@ -268,16 +268,14 @@ Definition infer_domains (fact : Inference) :=
     then Some (doms_tight, x)
     else None.
 
-(** This lemma is primarily useful for inference checkers. *)
-Lemma infer_domains_correct fact doms xconsq :
+Lemma infer_domains_valid_as_nogood fact doms xconsq :
   forall sol, 
     infer_domains fact = Some (doms, xconsq)
       ->
-    (sol_in_doms sol doms
-      ->
-    False)
-      ->
-    inference_valid sol fact.
+    exists atoms,
+      valid_domains doms atoms
+        /\
+      (inference_valid sol (mkInf atoms None) <-> inference_valid sol fact).
 Proof.
   intros sol.
   unfold infer_domains.
@@ -285,43 +283,131 @@ Proof.
   destruct check_domains_consistent; try discriminate.
   intros H; inversion H; subst; clear H.
   unfold atomics_from_fact in Hatomics'.
-  intros Hfalse.
-  enough (
-    exists atoms, 
-      (inference_valid sol (mkInf atoms None) <-> inference_valid sol fact) 
-        /\ 
-      (sol_in_doms sol (tighten_doms (domains_from_atomics atoms)) 
-        -> 
-      False)
-  ).
-  {  
-    clear -H.
-    destruct H as (atoms & Hfact & Hdoms).
-    rewrite <- Hfact.
-    clear Hfact fact.
-    intros Hatoms. simpl in *.
-    apply Hdoms; clear Hdoms.
-    unfold sol_in_doms. intros x.
-    rewrite tighten_doms_equiv.
-    remember (domains_from_atomics atoms) as doms.
-    revert x. fold (sol_in_doms sol doms). apply sol_in_doms_if_valid with (atoms := atoms).
-    + intros x a Hin. apply Hatoms, Hin.
-    + apply domains_from_atomics_correct, Heqdoms.
-  }
   destruct i_consequent as [(x & consq)|] eqn:Hconsq.
   - inversion Hatomics'; subst; clear Hatomics'.
-    exists ((x, negate_atomic consq) :: i_premises fact).
+    exists ((x, negate_atomic consq) :: i_premises fact). 
+    destruct fact as [premises [[x' consq'] | ]].
+    2: { discriminate Hconsq. }
+    simpl in *; inversion Hconsq; subst x' consq'; clear Hconsq.
     split.
-    + clear Hfalse. 
-      destruct fact as [premises [[x' consq'] | ]].
-      2: { discriminate Hconsq. }
-      simpl in *; inversion Hconsq; subst x' consq'; clear Hconsq. 
-      rewrite inference_valid_neg_rhs.
+    + remember ((x, negate_atomic consq) :: premises) as atoms; clear.
+      intros x. rewrite tighten_doms_equiv.
+      apply domains_from_atomics_correct.
       reflexivity.
-    + exact Hfalse.
+    + rewrite inference_valid_neg_rhs.
+      reflexivity.
   - exists (i_premises fact).
     inversion Hatomics'; subst.
+    destruct fact as [premises [xconsq | ]]; simpl in *; try discriminate. 
     split.
-    + destruct fact as [premises [xconsq | ]]; simpl in *; try discriminate. reflexivity.
-    + exact Hfalse.
+    + clear.
+      intros x. rewrite tighten_doms_equiv.
+      apply domains_from_atomics_correct.
+      reflexivity.
+    + reflexivity.
+Qed.
+
+(** This lemma is primarily useful for inference checkers. *)
+Lemma infer_domains_correct fact doms xconsq :
+  forall sol, 
+    infer_domains fact = Some (doms, xconsq)
+      ->
+    ~ sol_in_doms sol doms 
+      <->
+    inference_valid sol fact.
+Proof.
+  intros sol.
+  intros Hinfer.
+  apply infer_domains_valid_as_nogood with (sol := sol) in Hinfer.
+  destruct Hinfer as (atoms & Hvalid & Hinf_valid_atoms).
+  rewrite <- Hinf_valid_atoms; clear Hinf_valid_atoms.
+  unfold inference_valid; simpl.
+  now rewrite <- valid_domains_sol_in_doms_iff_valid_atoms with (atoms := atoms).
+Qed.
+
+Lemma equiv_domains (sol : string -> Z) :
+  forall doms doms',
+  smap.Equivb Domain.eqb doms doms'
+    ->
+  sol_in_doms sol doms
+    <->
+  sol_in_doms sol doms'.
+Proof.
+  intros doms doms'.
+  intros Hequiv.
+  unfold smap.Equivb in Hequiv.
+  destruct Hequiv as [Heqdoms Heqmaps].
+  unfold smap.Eqdom in Heqdoms.
+  assert (forall x, dom_equiv (doms d-> x) (doms' d-> x)) as Hdom_equiv.
+  {
+    assert (forall x, smap.MapsTo x (doms d-> x) doms <-> smap.MapsTo x (doms' d-> x) doms').
+    {
+      clear Heqmaps.
+      intros x.
+      specialize (Heqdoms x).
+      setoid_rewrite smap_prps.in_find in Heqdoms.
+      unfold dom_from_domains.
+      setoid_rewrite <- smap.find_spec.
+      destruct (smap.find x doms) eqn:Hfind; destruct (smap.find x doms') eqn:Hfind'; simpl; try easy.
+      - exfalso.      
+        assert (Some d <> None) by easy.
+        now rewrite Heqdoms in H.
+      - exfalso.
+        assert (Some d <> None) by easy.
+        now rewrite <- Heqdoms in H.
+    }
+    intros x.
+    destruct (doms_maps_or_not_included doms x) as [Hmaps | [Hinitial Hnin]].
+    2: { 
+      rewrite Hinitial. 
+      destruct (doms_maps_or_not_included doms' x) as [Hmaps' | [Hinitial' Hnin']].
+      - rewrite <- H in Hmaps'.
+        rewrite <- smap_in_spec in Hmaps'.
+        specialize (Hnin (doms d-> x)). 
+        contradiction.
+      - rewrite Hinitial'.
+        reflexivity.
+    }
+    pose proof Hmaps as Hmaps'.
+    rewrite H in Hmaps'.
+    specialize (Heqmaps x (doms d-> x) (doms' d-> x) Hmaps Hmaps').
+    unfold Raw.Cmp in Heqmaps.
+    apply Is_true_eq_left in Heqmaps.
+    apply Domain.eqb_eq.
+    exact Heqmaps.
+  }
+  split; intros H.
+  - intros x. 
+    rewrite <- Hdom_equiv.
+    apply H.
+  - intros x.
+    rewrite Hdom_equiv.
+    apply H.
+Qed.
+
+(* TODO: currently eqb assumes the holes are exactly the same, but infer_domains does not remove redundant holes. To fix this, Domain.eqb should be changed to be more like an 'equivb', i.e. it should only look for equality of the holes within the bounds. Note: infer_domains DOES already tighten the bounds themselves, so there equality is totally fine. *)
+Definition equiv (lhs : Inference) (rhs : Inference) :=
+  match (infer_domains lhs), (infer_domains rhs) with
+  | Some (lhs_doms, _), Some (rhs_doms, _) =>
+      smap.equal Domain.eqb lhs_doms rhs_doms
+  | _, _ => false
+  end.
+
+Lemma equiv_implies_equisat : forall lhs rhs,
+  Is_true (equiv lhs rhs) ->
+  (forall sol, inference_valid sol lhs <-> inference_valid sol rhs).
+Proof.
+  intros lhs rhs Hequiv sol.
+  unfold equiv in Hequiv.
+  destruct (infer_domains lhs) as [[dom_lhs str_lhs] | ] eqn:Elhs ;
+  destruct (infer_domains rhs) as [[dom_rhs str_rhs] | ] eqn:Erhs ;
+  try contradiction.
+  apply Is_true_eq_true in Hequiv.
+  apply smap_prps.equal_2 in Hequiv.
+  apply equiv_domains with (sol := sol )in Hequiv.
+  rewrite <- infer_domains_correct with (doms := dom_lhs).
+  rewrite <- infer_domains_correct with (doms := dom_rhs).
+  - rewrite Hequiv. reflexivity.
+  - apply Erhs.
+  - apply Elhs.
 Qed.
