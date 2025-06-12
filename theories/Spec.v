@@ -99,14 +99,16 @@ Module ConstraintDefinitions.
   (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
 
-  Fixpoint evaluate_linear (x : list (Z * Var)) (sol : string -> Z) : Z :=
-    match x with
-    | nil => 0
-    | cons (coef, v) xs => coef * (evaluate v sol) + (evaluate_linear xs sol)
+  Definition evaluate_term (sol : Assignment) (term : Z * Var) : Z :=
+    match term with
+    | (coef, var) => coef * (evaluate var sol)
     end.
 
+  Definition evaluate_linear (sol : Assignment) (terms : list (Z * Var)) : Z :=
+    fold_left (fun acc term => acc + evaluate_term sol term) terms Z.zero.
+
   Definition Linear (c : LinearConstraint) (a : string -> Z) : Prop :=
-    evaluate_linear (c.(l_terms)) a <= c.(l_bound).
+    evaluate_linear a (c.(l_terms)) <= c.(l_bound).
 
   Definition is_active_at (sol : Assignment) (timepoint : Z) (activity : Activity) : bool :=
     let start_time := evaluate activity.(activity_start) sol in
