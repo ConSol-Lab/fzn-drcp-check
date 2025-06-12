@@ -59,25 +59,37 @@ End ProofFacts.
 Module ConstraintDefinitions.
   Open Scope Z_scope.
 
+  Inductive Var :=
+  | var_name (ident : string)
+  | const (value : Z)
+  .
+
+  Definition Assignment := string -> Z.
+
+  Definition evaluate (var : Var) (sol : Assignment) : Z :=
+    match var with
+    | var_name ident => sol ident
+    | const value => value
+    end.
+
   Record LinearConstraint :=
     {
-      l_terms : list (Z * string);
+      l_terms : list (Z * Var);
       l_bound : Z;
     }.
 
-  Record ActivityDefine := mkActDef
-                             {
-                               def_x : string;
-                               def_p : N;
-                               def_u : N;
-                             }.
+  Record Activity := mkActDef {
+    activity_start : Var;
+    activity_duration : N;
+    activity_usage : N;
+  }.
 
   Record CumulativeConstraint :=
     {
       capacity: N;
-      activities: list ActivityDefine;
-      valid_p_times : forall a, In a activities -> (a.(def_p) >= 1)%N;
-      acts_nodup : NoDup (map def_x activities)
+      activities: list Activity;
+      valid_p_times : forall a, In a activities -> (a.(activity_duration) >= 1)%N;
+      acts_nodup : NoDup (map activity_start activities)
     }.
 
   Inductive Constraint :=
@@ -87,68 +99,29 @@ Module ConstraintDefinitions.
   (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
 
-  Fixpoint evaluate_linear (x : list (Z * string)) (sol : string -> Z) : Z :=
+  Fixpoint evaluate_linear (x : list (Z * Var)) (sol : string -> Z) : Z :=
     match x with
     | nil => 0
-    | cons (coef, v) xs => coef * (sol v) + (evaluate_linear xs sol)
+    | cons (coef, v) xs => coef * (evaluate v sol) + (evaluate_linear xs sol)
     end.
 
   Definition Linear (c : LinearConstraint) (a : string -> Z) : Prop :=
     evaluate_linear (c.(l_terms)) a <= c.(l_bound).
 
-  Record Activity := mkAct {
-                         a_name : string;
-                         start : Z;
-                         p_time : N;
-                         usage : N;
-                       }.
+  Definition is_active_at (sol : Assignment) (timepoint : Z) (activity : Activity) : bool :=
+    let start_time := evaluate activity.(activity_start) sol in
+    let duration := Z.of_N activity.(activity_duration) in
+    let end_time := Z.add start_time duration in
+    Z.leb start_time timepoint && Z.ltb timepoint end_time.
 
-  Definition activity_from_a_def (a : string -> Z) (act : ActivityDefine) : Activity :=
-    match act with
-    | mkActDef x p u =>
-        mkAct x (a x) p u
-    end.
+  Definition usage_at_timepoint (sol : Assignment) (timepoint : Z) (activities : list Activity) : N :=
+    let active_activities := filter (is_active_at sol timepoint) activities in
+    let usages := List.map activity_usage activities in
+    fold_left N.add usages N.zero.
 
-  Definition activity_list_inner (l : list ActivityDefine) (a : string -> Z) : list Activity :=
-    map (activity_from_a_def a) l
-  .
-
-  Definition activity_list (c : CumulativeConstraint) (a : string -> Z) : list Activity :=
-    activity_list_inner c.(activities) a
-  .
-
-  Definition is_active_at (start_time : Z) (p_time : N) (t : Z) : bool :=
-    let end_time := (start_time + (Z.of_N p_time)) in
-    (start_time <=? t) && (t <? end_time).
-
-  Definition activities_at_t (l : list Activity) (t : Z) : list Activity :=
-    filter (fun a => is_active_at a.(start) a.(p_time) t) l
-  .
-
-  Open Scope N_scope.
-  Fixpoint n_sum_rec (l : list N) (current : N) : N :=
-    match l with
-    | nil => current
-    | n :: l' => n_sum_rec l' (current + n)
-    end.
-
-  Definition n_sum (l : list N) : N :=
-    n_sum_rec l N0.
-
-  Definition xn_sum (l : list (string * N)) : N :=
-    n_sum (map snd l).
-
-
-  Definition act_to_xn (a : Activity) : (string * N) :=
-    (a.(a_name), a.(usage)).
-
-  Definition usage_sum (l : list Activity) : N :=
-    xn_sum (map act_to_xn l).
-
-  Definition Cumulative (constraint : CumulativeConstraint) (a : string -> Z) : Prop :=
-    let activities := activity_list constraint a in
+  Definition Cumulative (constraint : CumulativeConstraint) (sol : Assignment) : Prop :=
     forall t,
-      usage_sum (activities_at_t activities t) <= constraint.(capacity).
+      N.le (usage_at_timepoint sol t constraint.(activities)) constraint.(capacity).
 
   Open Scope Z_scope.
   Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
