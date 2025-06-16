@@ -1,6 +1,6 @@
 Require Import Checker.Atomic.
 Require Checker.Linear.
-Require Checker.Cumulative.
+(*Require Checker.Cumulative.*)
 Require Checker.Deduction.
 Require Checker.AllDifferent.
 Require Import Checker.Nogood.
