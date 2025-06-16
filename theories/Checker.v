@@ -36,14 +36,25 @@ Record HydratedProofStage := {
   hs_conclusion_index : N
 }.
 
+Definition validate_domain (csp_domains : smap.t IntSet) (fact : ProofFact) :=
+  match i_consequent fact, i_premises fact with
+  | Some (ident, atom), [] => 
+      match atom with
+      | _ => false
+      end
+  | _, _ => false
+  end.
+
 (* TODO: see the comment above Deduction.equiv, currently some equivalent inferences might still return false. *)
-Definition validate_inference (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) :=
+Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
   | fact_equiv =>
       match hint with
       | [fact_c ref_fact] => Deduction.equiv fact ref_fact
       | _ => false
       end
+  | dom =>
+      validate_domain csp_domains fact
       (*| cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
