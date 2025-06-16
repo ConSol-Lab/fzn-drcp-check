@@ -1,9 +1,7 @@
-Require Import Checker.Atomic.
 Require Checker.Linear.
 (*Require Checker.Cumulative.*)
 Require Checker.Deduction.
 Require Checker.AllDifferent.
-Require Import Checker.Nogood.
 Require Import ZArith.
 Require Import Bool.
 Require Import List.
