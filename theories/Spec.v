@@ -94,7 +94,7 @@ Module ConstraintDefinitions.
 
   Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint)
-  | cumulative_c (constraint : CumulativeConstraint)
+      (* | cumulative_c (constraint : CumulativeConstraint) *)
   | fact_c (constraint : ProofFacts.ProofFact)
   (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
@@ -104,11 +104,17 @@ Module ConstraintDefinitions.
     | (coef, var) => coef * (evaluate var sol)
     end.
 
-  Definition evaluate_linear (sol : Assignment) (terms : list (Z * Var)) : Z :=
-    fold_left (fun acc term => acc + evaluate_term sol term) terms Z.zero.
+  (*Definition evaluate_linear (sol : Assignment) (terms : list (Z * Var)) : Z :=
+     fold_left (fun acc term => acc + evaluate_term sol term) terms Z.zero.*)
+
+  Fixpoint evaluate_linear (x : list (Z * Var)) (sol : string -> Z) : Z :=
+    match x with
+    | nil => 0
+    | cons term xs => (evaluate_term sol term) + (evaluate_linear xs sol)
+    end.
 
   Definition Linear (c : LinearConstraint) (a : string -> Z) : Prop :=
-    evaluate_linear a (c.(l_terms)) <= c.(l_bound).
+    evaluate_linear (c.(l_terms)) a <= c.(l_bound).
 
   Definition is_active_at (sol : Assignment) (timepoint : Z) (activity : Activity) : bool :=
     let start_time := evaluate activity.(activity_start) sol in
@@ -129,7 +135,7 @@ Module ConstraintDefinitions.
   Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
     match c with
     | linear_leq c => Linear c sol
-    | cumulative_c c => Cumulative c sol
+        (* | cumulative_c c => Cumulative c sol *)
     | fact_c c => ProofFacts.fact_valid sol c
     end.
 
@@ -144,7 +150,7 @@ Module Proofs.
   | fact_equiv
   | linear
   (* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
-  | cumulative
+      (* | cumulative *)
   (* | alldifferent *)
   .
 

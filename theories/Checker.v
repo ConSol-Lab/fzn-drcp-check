@@ -1,6 +1,6 @@
 Require Import Checker.Deduction.
-Require Import Checker.Cumulative.
-Require Import Checker.CumulativeCheck.
+(* Require Import Checker.Cumulative. *)
+(* Require Import Checker.CumulativeCheck. *)
 Require Import Checker.ConstraintProblem.
 Import Utility.Maps.
 Require Import Bool.
@@ -44,11 +44,11 @@ Definition validate_inference (fact : ProofFact) (hint : list Constraint) (rule 
       | [fact_c ref_fact] => Deduction.equiv fact ref_fact
       | _ => false
       end
-  | cumulative =>
+      (*| cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
       | _ => false
-      end
+         end*)
   | linear =>
       match hint with
       | [linear_leq c] => Linear.linear_checker fact c
@@ -103,11 +103,11 @@ Proof.
     specialize (Hsat (linear_leq constraint)).
     apply Hsat.
     simpl. left. reflexivity.
-  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    (*- destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply checker_cumulative with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
-    simpl. left. reflexivity.
+       simpl. left. reflexivity.*)
   (* - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy. *)
   (*   specialize (Hsat (alldifferent_c constraint)). *)
   (*   apply Is_true_eq_left. *)

@@ -11,6 +11,7 @@ Require Import List.
 Require Import String.
 Require Import Lia.
 Import Utility.Maps.
+Import Utility.ListEx.
 Open Scope Z_scope.
 Import ListNotations.
 
@@ -34,18 +35,23 @@ Definition term_lower_bound (term : Z * Var) (doms : Domains) : option Z :=
   | (coef, const value) => Some (coef * value)
   end.
 
-Definition accumulate_terms (doms: Domains) (maybe_acc : option Z) (term : Z * Var) : option Z :=
-  match maybe_acc with
-  | Some accumulator =>
-    match term_lower_bound term doms with
-    | Some value => Some (accumulator + value)
-    | None => None
-    end
+Definition accumulate_terms (doms: Domains) (accumulator : Z) (term : Z * Var) : option Z :=
+  match term_lower_bound term doms with
+  | Some value => Some (accumulator + value)
   | None => None
   end.
 
+(*Definition compute_linear_lower_bound (terms : list (Z * Var)) (doms : Domains) : option Z := 
+   fold_left_error (accumulate_terms doms) terms Z.zero.*)
+
 Fixpoint compute_linear_lower_bound (terms : list (Z * Var)) (doms : Domains) : option Z := 
-  fold_left (accumulate_terms doms) terms (Some Z.zero).
+  match terms with
+  | [] => Some Z.zero
+  | cons term tail => match term_lower_bound term doms, compute_linear_lower_bound tail doms with
+                      | Some value, Some acc => Some (value + acc)
+                      | _, _ => None
+                      end
+  end.
 
 Definition linear_checker (fact : ProofFact) (c : LinearConstraint) :=
   match Deduction.infer_domains fact with
@@ -86,40 +92,46 @@ Lemma term_bound_validity : forall
   term_lower_bound term doms = Some bound ->
   bound <= evaluate_term sol term.
 Proof.
-Admitted.
+  intros terms doms sol bound Hvalid Hlb.
+  destruct terms as [coef var].
+  destruct var ; simpl ; inversion Hlb ; try lia.
+  destruct (smap.find ident doms) as [dom|] eqn:Edom ; inversion H0.
+  unfold sol_in_doms in Hvalid.
+  specialize (Hvalid ident).
+  unfold dom_from_domains in Hvalid.
+  rewrite Edom in Hvalid.
+  simpl in Hvalid.
+  apply dom_bound_validity with (dom:=dom) ; assumption.
+Qed.
 
 Lemma bound_validity : forall
   (terms : list (Z * Var)) (doms : Domains)
   (sol : Assignment)
   (bound : Z),
   sol_in_doms sol doms -> compute_linear_lower_bound terms doms = Some bound ->
-  bound <= evaluate_linear sol terms.
+  bound <= evaluate_linear terms sol.
 Proof.
-  (*  
   intros terms doms sol bound Hvalid.
   generalize dependent bound.
   Opaque term_lower_bound.
   induction terms ; simpl ; intros bound Elb ; inversion Elb ; try easy.
   destruct a as [coef var].
-  destruct (smap.find var doms) as [dom|] eqn:Efind ; inversion Elb.
-  destruct (term_lower_bound coef var dom) as [term_bound|] eqn:Eterm_bound ;
-      inversion Elb.
-  assert (Htail_bound: term_bound <= coef * sol var). {
-    unfold DomainVar.sol_in_doms in Hvalid.
-    apply term_bound_validity with (var := var) (dom := dom).
-    - specialize (Hvalid var). unfold dom_from_domains in Hvalid. rewrite Efind in Hvalid. apply Hvalid.
-    - assumption.
-  }
-  destruct (lower_bound terms doms) as [tail_bound|] eqn:Etail_bound ;
-      inversion Etail_bound ; inversion Elb.
-  assert (Hbound: tail_bound <= evaluate_linear terms sol). {
-    apply IHterms.
-    reflexivity.
-  }
-  lia.
-     Qed.*)
+  destruct (term_lower_bound (coef, var) doms) as [term_bound|] eqn:Eterm_bound.
+    - destruct (compute_linear_lower_bound terms doms) as [tail_bound|] eqn:Etail ; inversion Elb.
+      specialize (IHterms tail_bound).
+      assert (Htrivial: Some tail_bound = Some tail_bound). {
+        reflexivity.
+      }
+      specialize (IHterms Htrivial).
+      specialize (term_bound_validity (coef, var) doms sol term_bound Hvalid Eterm_bound) as Hterm_bound.
+      lia.
 
-Admitted.
+    - unfold compute_linear_lower_bound in Elb.
+      simpl in Elb.
+      unfold accumulate_terms in Elb.
+      inversion Elb.
+
+Qed.
 
 Theorem linear_checker_soundness : forall
   (fact : ProofFact) (sol : Assignment) (c : LinearConstraint),
@@ -138,6 +150,6 @@ Proof.
   destruct (compute_linear_lower_bound lin_terms doms) as [lb|] eqn:Elb ; try contradiction.
   apply Is_true_eq_true, Z.gtb_gt, Z.gt_lt in Hbound.
   intros Hvalid.
-  enough (lb <= evaluate_linear sol lin_terms) by lia.
+  enough (lb <= evaluate_linear lin_terms sol) by lia.
   apply bound_validity with (doms := doms) ; assumption.
 Qed.
