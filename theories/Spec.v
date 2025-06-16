@@ -4,6 +4,7 @@ Require Import String.
 Require Import List.
 Require Checker.Utility.
 Import Checker.Utility.Maps.
+Import Checker.Utility.Sets.
 
 Module ProofFacts.
   Open Scope Z_scope.
@@ -139,15 +140,36 @@ Module ConstraintDefinitions.
     | fact_c c => ProofFacts.fact_valid sol c
     end.
 
-  Definition ConstraintProblem := nmap.t Constraint.
+  Inductive IntSet := 
+    | interval (lower_bound : Z) (upper_bound : Z)
+    | sparse_set (vals : sint.t)
+    .
+
+  Definition in_int_set (set : IntSet) (val : Z) : Prop :=
+    match set with
+    | interval lower_bound upper_bound => lower_bound <= val /\ val <= upper_bound
+    | sparse_set values => sint.In val values
+    end.
+
+  Record ConstraintProblem := mkConstraintProblem {
+    constraints : nmap.t Constraint;
+    domains : smap.t IntSet;
+  }.
+
+  Definition satisfies_constraints (cs : nmap.t Constraint) (sol : string -> Z) :=
+    forall index c, nmap.MapsTo index c cs -> satisfies_constraint c sol.
+
+  Definition satisfies_domains (sets : smap.t IntSet) (sol : string -> Z) :=
+    forall var_name vals, smap.MapsTo var_name vals sets -> in_int_set vals (sol var_name).
 
   Definition satisfies_problem (csp : ConstraintProblem) (sol : string -> Z) :=
-    forall index c, nmap.MapsTo index c csp -> satisfies_constraint c sol.
+    satisfies_constraints (constraints csp) sol /\ satisfies_domains (domains csp) sol.
 End ConstraintDefinitions.
 
 Module Proofs.
   Inductive InferenceRule :=
   | fact_equiv
+  | dom
   | linear
   (* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
       (* | cumulative *)
