@@ -51,6 +51,7 @@ let test_parse input expected =
 let%test "parse single constant" =
     let source = {|
         int: p = 3;
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.empty;
@@ -62,6 +63,7 @@ let%test "parse single constant" =
 let%test "parse single variable with interval domain" =
     let source = {|
         var 0..10: var1;
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) Coq_smap.empty;
@@ -76,6 +78,7 @@ let%test "comments are ignored" =
         % comment
         var 0..10: var1; % comment
         %comment
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) Coq_smap.empty;
@@ -88,6 +91,19 @@ let%test "comments are ignored" =
 let%test "variable with annotation" =
     let source = {|
         var 0..10: var1 :: output_var;
+        solve satisfy;
+    |} in
+    let expected = { 
+        domains = Coq_smap.add "var1" (interval 0 10) Coq_smap.empty;
+        constraints = Coq_nmap.empty;
+    } in
+
+    test_parse source expected
+
+let%test "variable with annotation and args" =
+    let source = {|
+        var 0..10: var1 :: some_annotation(arg1);
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) Coq_smap.empty;
@@ -101,6 +117,7 @@ let%test "parse multiple variables with interval domain" =
     let source = {|
         var 2..5: var2;
         var 0..10: var1;
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) 
@@ -113,6 +130,7 @@ let%test "parse multiple variables with interval domain" =
 let%test "parse constants array" =
     let source = {|
         array [1..3] of int: arr = [1, -2, 24];
+        solve satisfy;
     |} in
     let expected = { domains = Coq_smap.empty; constraints = Coq_nmap.empty } in
 
@@ -124,6 +142,7 @@ let%test "parse variable array" =
         var 2..5: var2;
         var -10..6: var3;
         array [1..3] of var int: arr = [var1, var2, var3];
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) 
@@ -141,6 +160,7 @@ let%test "parse variable array with annotation" =
         var 0..10: var3;
         array [1..2] of var int: arr1 :: output_array([1..8]) = [var1, var2];
         array [1..1] of var int: arr2 :: some_annotation = [var3];
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) 
@@ -157,6 +177,7 @@ let%test "parse variable array with constants" =
         var 0..10: var2;
         var 0..10: var3;
         array [1..3] of var int: arr = [var1, var2, var3];
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) 
@@ -173,6 +194,7 @@ let%test "parse linear inequality with inline arguments" =
         var 0..10: var2;
         var 0..10: var3;
         constraint int_lin_le([1, -1, 2], [var1, var2, var3], 15);
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) 
@@ -195,6 +217,7 @@ let%test "parse linear inequality with lookup of array arguments" =
         var 0..10: var3;
         array [1..3] of var int: arr = [var1, var2, var3];
         constraint int_lin_le(w, arr, b);
+        solve satisfy;
     |} in
     let expected = { 
         domains = Coq_smap.add "var1" (interval 0 10) 
@@ -204,6 +227,39 @@ let%test "parse linear inequality with lookup of array arguments" =
             (Big_int_Z.big_int_of_int 1) 
             (Coq_linear_leq { l_terms = (Big_int_Z.big_int_of_int 1, Coq_var_name "var1") :: (Big_int_Z.big_int_of_int (-1), Coq_var_name "var2") :: (Big_int_Z.big_int_of_int 2, Coq_var_name "var3") :: []; l_bound = Big_int_Z.big_int_of_int 15 })
             Coq_nmap.empty;
+    } in
+
+    test_parse source expected
+
+let%test "parse linear inequality with lookup of array arguments and constants mixed with variables" =
+    let source = {|
+        int: b = 15;
+        array [1..3] of int: w = [1, -1, 2];
+        var 0..10: var3;
+        var 0..10: var1;
+        array [1..3] of var int: arr = [var1, 2, var3];
+        constraint int_lin_le(w, arr, b);
+        solve satisfy;
+    |} in
+    let expected = { 
+        domains = Coq_smap.add "var1" (interval 0 10) 
+                (Coq_smap.add "var3" (interval 0 10) Coq_smap.empty);
+        constraints = Coq_nmap.add 
+            (Big_int_Z.big_int_of_int 1) 
+            (Coq_linear_leq { l_terms = (Big_int_Z.big_int_of_int 1, Coq_var_name "var1") :: (Big_int_Z.big_int_of_int (-1), Coq_const (Big_int_Z.big_int_of_int 2)) :: (Big_int_Z.big_int_of_int 2, Coq_var_name "var3") :: []; l_bound = Big_int_Z.big_int_of_int 15 })
+            Coq_nmap.empty;
+    } in
+
+    test_parse source expected
+
+let%test "model has search heuristic" =
+    let source = {|
+        var 0..10: var1;
+        solve :: seq_search([int_search([1,1,X_INTRODUCED_79_,1,1,X_INTRODUCED_88_,1,1],input_order,indomain_max,complete),int_search([1,1,1,1,1,1,1,1],input_order,indomain_max,complete),int_search(X_INTRODUCED_120_,input_order,indomain_min,complete),int_search([objective],input_order,indomain_min,complete)]) minimize objective;
+    |} in
+    let expected = { 
+        domains = Coq_smap.add "var1" (interval 0 10) Coq_smap.empty;
+        constraints = Coq_nmap.empty;
     } in
 
     test_parse source expected

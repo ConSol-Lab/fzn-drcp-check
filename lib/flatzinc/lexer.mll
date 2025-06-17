@@ -30,6 +30,10 @@ rule read_token =
   | "of"     { OF }
   | "int"    { INT }
   | "constraint"    { CONSTRAINT }
+  | "solve"  { SOLVE }
+  | "satisfy" { SATISFY }
+  | "minimize" { MINIMIZE }
+  | "maximize" { MAXIMIZE }
   | "::"     { DOUBLE_COLON }
   | ":"      { COLON }
   | ";"      { SEMICOLON }
