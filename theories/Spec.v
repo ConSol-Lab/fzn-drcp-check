@@ -191,17 +191,14 @@ Module Proofs.
       s_conclusion_index : N
     }.
 
-  Definition CPProof := (list ProofStage)%type.
+  Record CPProof := {
+      proof_stages : list ProofStage ;
+      conclusion : ProofFacts.ProofFact
+    }.
 
   Import Coq.Lists.List.ListNotations.
-  Fixpoint conclusion (p : CPProof) :=
-    match p with
-    | [] => None
-    | [stage] => Some (stage.(s_conclusion))
-    | _ :: p' => conclusion p'
-    end.
 
-  Definition conclusion_holds
+  Definition fact_holds
     (csp : ConstraintDefinitions.ConstraintProblem)
     (fact : ProofFacts.ProofFact) :=
     forall (sol : string -> Z),
@@ -209,5 +206,5 @@ Module Proofs.
       ProofFacts.fact_valid sol fact.
 
   Definition checker_sound (checker_impl : ConstraintDefinitions.ConstraintProblem -> CPProof -> bool) : Prop :=
-    forall csp p fact, conclusion p = Some fact -> checker_impl csp p = true -> conclusion_holds csp fact.
+    forall csp p, checker_impl csp p = true -> fact_holds csp (p.(conclusion)).
 End Proofs.
