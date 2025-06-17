@@ -3,4 +3,4 @@
  (inline_tests)
  (libraries drcpcheck_flatzinc)
  (preprocess
-  (pps ppx_inline_test)))
+  (staged_pps ppx_import ppx_inline_test)))

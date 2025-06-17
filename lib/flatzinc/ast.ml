@@ -15,8 +15,8 @@ type constr_arg =
   | Array of const_or_ident list
 
 type constr = {
-  name: string;
-  args: constr_arg list;
+  constr_name: string;
+  constr_args: constr_arg list;
 }
 
 type ast = { 
@@ -30,14 +30,24 @@ type ast = {
   ast_constraints: constr list;
 }
 
-let to_constant (c_or_i : const_or_ident) : big_int = 
-  match c_or_i with
-  | Ident ident -> raise (InvalidArgumentsError (Printf.sprintf "Expected a constant, got an identifier '%s'." ident))
+let arg_to_constant (parsed_ast : ast) (arg : constr_arg) : big_int = 
+  match arg with
   | Constant c -> c
+  | Array _ -> raise (InvalidArgumentsError "Expected constant, got array literal.")
+  | Ident ident -> match Coq_smap.find ident parsed_ast.ast_constants with
+    | Some c -> c
+    | None -> raise (InvalidArgumentsError (Printf.sprintf "Undefined constant '%s'." ident))
+
+let to_constant (parsed_ast : ast) (c_or_i : const_or_ident) : big_int = 
+  match c_or_i with
+  | Constant c -> c
+  | Ident ident -> match Coq_smap.find ident parsed_ast.ast_constants with
+    | Some c -> c
+    | None -> raise (InvalidArgumentsError (Printf.sprintf "Undefined constant '%s'." ident))
 
 let constant_array (parsed_ast : ast) (arg : constr_arg) : big_int list =
   match arg with
-  | Array arr -> List.map to_constant arr
+  | Array arr -> List.map (to_constant parsed_ast) arr
   | Constant _ -> raise (InvalidArgumentsError "Expected constant array, got constant.")
   | Ident ident -> match Coq_smap.find ident parsed_ast.ast_constant_arrays with
                    | Some arr -> arr
@@ -56,16 +66,16 @@ let variable_array (parsed_ast : ast) (arg : constr_arg) : coq_Var list =
   | Constant _ -> raise (InvalidArgumentsError "Expected variable array, got constant.")
   | Ident ident -> match Coq_smap.find ident parsed_ast.ast_variable_arrays with
                    | Some arr -> List.map (to_variable parsed_ast) arr
-                   | None -> raise (InvalidArgumentsError (Printf.sprintf "Constant array '%s' does not exist." ident))
+                   | None -> raise (InvalidArgumentsError (Printf.sprintf "Variable array '%s' does not exist." ident))
 
 let create_linear parsed_ast args =
   match args with
-  | weights_arg :: vars_arg :: Constant bound :: [] -> Coq_linear_leq { l_terms = List.combine (constant_array parsed_ast weights_arg) (variable_array parsed_ast vars_arg); l_bound = bound; }
+  | weights_arg :: vars_arg :: bound_arg :: [] -> Coq_linear_leq { l_terms = List.combine (constant_array parsed_ast weights_arg) (variable_array parsed_ast vars_arg); l_bound = arg_to_constant parsed_ast bound_arg; }
   | _ -> raise (InvalidArgumentsError "int_lin_le")
 
 let create_constraint parsed_ast c =
-  match c.name with
-  | "int_lin_le" -> create_linear parsed_ast c.args
+  match c.constr_name with
+  | "int_lin_le" -> create_linear parsed_ast c.constr_args
   | unknown -> raise (UnknownConstraintError unknown)
 
 let accumulate_constraints parsed_ast (map, idx) c = 

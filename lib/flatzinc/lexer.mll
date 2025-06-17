@@ -29,6 +29,7 @@ rule read_token =
   | "array"  { ARRAY }
   | "of"     { OF }
   | "int"    { INT }
+  | "constraint"    { CONSTRAINT }
   | "::"     { DOUBLE_COLON }
   | ":"      { COLON }
   | ";"      { SEMICOLON }
