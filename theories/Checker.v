@@ -76,6 +76,52 @@ Proof.
       contradiction.
 Qed.
 
+Definition max_value (domain : IntSet) :=
+  match domain with
+  | interval lb ub => Some ub
+  | sparse_set vals => sint.max_elt vals
+  end.
+
+Lemma max_value_lt : forall (domain : IntSet) (max_val : Z) (el : Z),
+  in_int_set domain el ->
+  max_value domain = Some max_val ->
+  el <= max_val.
+Proof.
+  intros domain.
+  destruct domain ; simpl ; intros max_val el Hin Hmin.
+  - inversion Hmin.
+    rewrite <- H0.
+    destruct Hin.
+    assumption.
+  - apply sint.max_elt_spec2 with (y := el) in Hmin ; try assumption.
+    destruct (max_val ?= el) eqn:Ecmp; try contradiction.
+    + apply OrdersEx.Z_as_OT.compare_eq in Ecmp.
+      rewrite Ecmp.
+      easy.
+    + apply OrdersEx.Z_as_OT.compare_gt_iff in Ecmp.
+      apply OrdersEx.Z_as_OT.lt_le_incl.
+      assumption.
+Qed.
+
+Lemma max_value_exists : forall (domain : IntSet) (witness : Z),
+  in_int_set domain witness -> (exists (m : Z), max_value domain = Some m).
+Proof.
+  intros domain witness Hin.
+  unfold max_value.
+  destruct domain.
+  - exists upper_bound.
+    reflexivity.
+  - destruct (sint.max_elt vals) eqn:Emin.
+    + exists e.
+      reflexivity.
+    + exfalso.
+      simpl in Hin.
+      apply sint.max_elt_spec3 in Emin.
+      unfold sint.Empty, not in Emin.
+      specialize (Emin witness Hin).
+      contradiction.
+Qed.
+
 Definition validate_set (domain : IntSet) (atom : Atomic) :=
   match atom.(atm_cmp) with
   | greater_equal =>
@@ -83,7 +129,21 @@ Definition validate_set (domain : IntSet) (atom : Atomic) :=
       | Some min_val => min_val >=? atom.(atm_val)
       | None => true
       end
-  | _ => false
+  | less_equal =>
+      match max_value domain with
+      | Some max_val => max_val <=? atom.(atm_val)
+      | None => true
+      end
+  | equal =>
+      match min_value domain, max_value domain with
+      | Some min_val, Some max_val => (min_val =? atom.(atm_val)) && (max_val =? atom.(atm_val))
+      | _, _ => false
+      end
+  | not_equal =>
+      match domain with
+      | interval lb ub => (lb >? atom.(atm_val)) || (ub <? atom.(atm_val))
+      | sparse_set vals => negb (sint.mem atom.(atm_val) vals)
+      end
   end.
 
 Lemma validate_set_if_holds : forall (domain : IntSet) (atom : Atomic) (el : Z),
@@ -92,19 +152,55 @@ Lemma validate_set_if_holds : forall (domain : IntSet) (atom : Atomic) (el : Z),
   atomic_holds el atom.
 Proof.
   intros domain atom el Hin Hvalid.
-  specialize (min_value_exists domain el Hin) as Hmin.
-  destruct Hmin as [lb Emin].
   unfold atomic_holds.
   destruct atom as [cmp val].
+  specialize (max_value_exists domain el Hin) as Hmax.
+  destruct Hmax as [ub Emax].
+  specialize (min_value_exists domain el Hin) as Hmin.
+  destruct Hmin as [lb Emin].
   destruct cmp ;
   simpl in Hvalid ; unfold validate_set in Hvalid ;
   inversion Hvalid ; simpl in Hvalid ;
   simpl.
+  - apply OrdersEx.Z_as_OT.le_trans with (m := ub).
+    + apply max_value_lt with (domain := domain) ; assumption.
+    + rewrite Emax in Hvalid.
+      apply Z.leb_le in Hvalid.
+      assumption.
   - apply Zge_trans with (m := lb).
     + apply min_value_lt with (domain := domain) ; assumption.
     + rewrite Emin in Hvalid.
       apply Z.geb_ge in Hvalid.
       assumption.
+  - rewrite Emax, Emin in Hvalid.
+    apply andb_prop in Hvalid.
+    destruct Hvalid as [El Eu].
+    rewrite Z.eqb_eq in El.
+    rewrite Z.eqb_eq in Eu.
+    apply max_value_lt with (domain := domain) (el := el) in Emax ; try assumption.
+    apply min_value_lt with (domain := domain) (el := el) in Emin ; try assumption.
+    rewrite El in Emin.
+    rewrite Eu in Emax.
+    apply Z.ge_le in Emin.
+    apply Z.le_antisymm ; assumption.
+  - unfold in_int_set in Hin.
+    destruct domain ; inversion Emax ; inversion Emin.
+    + apply orb_prop in Hvalid.
+      destruct Hvalid as [Hvalid|Hvalid].
+      * apply Z.gtb_gt in Hvalid.
+        destruct Hin as [Hlb _].
+        symmetry.
+        apply Z.gt_lt in Hvalid.
+        apply OrdersEx.Z_as_OT.lt_neq, Z.lt_le_trans with (m := lower_bound) ; assumption.
+      * apply Z.ltb_lt in Hvalid.
+        destruct Hin as [_ Hub].
+        apply OrdersEx.Z_as_OT.lt_neq, Z.le_lt_trans with (m := upper_bound) ; assumption.
+    + apply negb_true_iff in Hvalid.
+      unfold not.
+      intros Heq.
+      rewrite <- Heq in Hvalid.
+      apply sint_prps.FM.not_mem_iff in Hvalid.
+      contradiction.
 Qed.
 
 
