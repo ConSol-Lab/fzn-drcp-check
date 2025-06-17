@@ -105,8 +105,8 @@ Qed.
 Theorem linear_checker_soundness : forall
   (fact : ProofFact) (sol : string -> Z) (c : LinearConstraint),
   Linear c sol ->
-  Is_true (linear_checker fact c)
-  -> fact_valid sol fact.
+  linear_checker fact c = true ->
+  fact_valid sol fact.
 Proof.
   intros fact sol c.
   unfold linear_checker.
@@ -114,10 +114,10 @@ Proof.
   unfold Linear.
   simpl.
   intros Hsat Hbound.
-  destruct (infer_domains fact) as [[doms rhs_var]|] eqn:Edoms ; try contradiction.
+  destruct (infer_domains fact) as [[doms rhs_var]|] eqn:Edoms ; inversion Hbound.
   apply infer_domains_correct with (doms := doms) (xconsq := rhs_var) ; try apply Edoms.
-  destruct (lower_bound lin_terms doms) as [lb|] eqn:Elb ; try contradiction.
-  apply Is_true_eq_true, Z.gtb_gt, Z.gt_lt in Hbound.
+  destruct (lower_bound lin_terms doms) as [lb|] eqn:Elb ; inversion Hbound.
+  apply Z.gtb_gt, Z.gt_lt in Hbound.
   intros Hvalid.
   enough (lb <= evaluate_linear lin_terms sol) by lia.
   apply bound_validity with (doms := doms) ; assumption.

@@ -86,7 +86,7 @@ Compute validate_inference
 Lemma validate_inference_soundness :
   forall (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
   (forall (c : Constraint), In c hint -> satisfies_constraint c sol) ->
-  Is_true (validate_inference fact hint rule) -> 
+  validate_inference fact hint rule = true ->
   fact_valid sol fact.
 Proof.
   intros fact hint rule sol Hsat Hvalid.
@@ -150,7 +150,7 @@ Definition used_constraints (stage : HydratedProofStage) :=
 
 Lemma valid_proof_stage_implies_conclusion : forall
   (stage : HydratedProofStage) (sol : string -> Z),
-  Is_true (validate_proof_stage stage) ->
+  validate_proof_stage stage = true ->
   (forall (c : Constraint),
     In c (used_constraints stage) -> satisfies_constraint c sol
   ) ->
@@ -158,29 +158,26 @@ Lemma valid_proof_stage_implies_conclusion : forall
 Proof.
   intros stage sol Hvalid Estage_conclusion Hcons_sat.
   unfold validate_proof_stage in Hvalid.
-  apply andb_prop_elim in Hvalid.
+  apply andb_prop in Hvalid.
   unfold validate_inference_within_stage in Hvalid.
   destruct Hvalid as [Hinf_valid Hnogood_valid].
   unfold validate_nogood in Hnogood_valid.
   destruct stage.(hs_conclusion).(i_consequent) eqn:Econs in Hnogood_valid ;
-  try contradiction.
+  inversion Hnogood_valid.
   rewrite Econs.
-  apply Is_true_eq_true in Hinf_valid.
   rewrite forallb_forall in Hinf_valid.
   apply check_deduct_correct with
     (assignment := sol)
     (premises := stage.(hs_conclusion).(i_premises))
-    (steps := stage.(hs_chain)).
-  - exact Hcons_sat.
-  - intros inf Hin_inf.
-    specialize (Estage_conclusion (fact_c inf)).
-    simpl in Estage_conclusion.
-    apply Estage_conclusion.
-    unfold used_constraints.
-    apply in_or_app.
-    right.
-    apply in_map, Hin_inf.
-  - apply Is_true_eq_true, Hnogood_valid.
+    (steps := stage.(hs_chain)) ; try assumption.
+  intros inf Hin_inf.
+  specialize (Estage_conclusion (fact_c inf)).
+  simpl in Estage_conclusion.
+  apply Estage_conclusion.
+  unfold used_constraints.
+  apply in_or_app.
+  right.
+  apply in_map, Hin_inf.
 Qed.
 
 Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
@@ -287,7 +284,7 @@ Fixpoint validate (csp : ConstraintProblem) (p : CPProof) :=
 
 Theorem step_soundness : forall
   (csp : ConstraintProblem) (p : CPProof) (stage : ProofStage),
-    Is_true (validate csp (stage :: p)) ->
+    validate csp (stage :: p) = true ->
     conclusion_holds csp (stage.(s_conclusion)).
 Proof.
   intros csp p stage Hvalid.
@@ -295,7 +292,7 @@ Proof.
   (* Show that the proof checker on the hydrated stage returns true *)
   remember (hydrate csp stage) as h_stage.
   destruct (validate_proof_stage h_stage) eqn:Evalid ;
-  try contradiction.
+  inversion Hvalid.
   clear Hvalid.
   (* Destruct all parts of the stage definition *)
   destruct stage as [inferences chain conclusion conclusion_index].
@@ -308,6 +305,7 @@ Proof.
   intros sol Hsat.
   assert (Hrewrite: conclusion = (hs_conclusion h_stage)). {
     rewrite Heqh_stage.
+    simpl.
     reflexivity.
   }
   rewrite Hrewrite.
@@ -359,9 +357,8 @@ Proof.
            correctness of the inference checker. *)
         destruct Hin_inferences as [inf [Hin_inf Einf_fact]].
         unfold validate_proof_stage in Evalid.
-        apply Is_true_eq_left, andb_prop_elim in Evalid.
+        apply andb_prop in Evalid.
         destruct Evalid as [Hvalid_inferences _].
-        apply Is_true_eq_true in Hvalid_inferences.
         rewrite forallb_forall in Hvalid_inferences.
         simpl in Hvalid_inferences.
         unfold validate_inference_within_stage in Hvalid_inferences.
@@ -393,7 +390,6 @@ Proof.
              rewrite Hrewrite.
              clear Hrewrite.
              apply
-               Is_true_eq_left,
                Hvalid_inferences with (x := hinf),
                in_map_iff.
              exists inf.

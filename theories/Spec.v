@@ -209,5 +209,5 @@ Module Proofs.
       ProofFacts.fact_valid sol fact.
 
   Definition checker_sound (checker_impl : ConstraintDefinitions.ConstraintProblem -> CPProof -> bool) : Prop :=
-    forall csp p fact, conclusion p = Some fact -> Is_true (checker_impl csp p) -> conclusion_holds csp fact.
+    forall csp p fact, conclusion p = Some fact -> checker_impl csp p = true -> conclusion_holds csp fact.
 End Proofs.

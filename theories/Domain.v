@@ -143,7 +143,7 @@ Definition eqb (lhs : Domain) (rhs : Domain) :=
   in
   same_lb && same_ub && same_holes.
 
-Lemma eqb_eq : forall lhs rhs, Is_true (eqb lhs rhs) -> dom_equiv lhs rhs.
+Lemma eqb_eq : forall lhs rhs, eqb lhs rhs = true -> dom_equiv lhs rhs.
 Proof.
   intros lhs rhs.
   destruct lhs.
@@ -151,13 +151,13 @@ Proof.
   unfold eqb.
   simpl.
   intros.
-  apply andb_prop_elim in H.
+  apply andb_prop in H.
   destruct H as [H Eholes].
-  apply andb_prop_elim in H.
+  apply andb_prop in H.
   destruct H as [Elb Eub].
-  apply Is_true_eq_true, Zext.eqb_eq in Elb.
-  apply Is_true_eq_true, Zext.eqb_eq in Eub.
-  apply Is_true_eq_true, sint_prps.Dec.F.equal_2 in Eholes.
+  apply Zext.eqb_eq in Elb.
+  apply Zext.eqb_eq in Eub.
+  apply sint_prps.Dec.F.equal_2 in Eholes.
   rewrite Elb, Eub.
   unfold dom_equiv, is_in_dom.
   intros.
