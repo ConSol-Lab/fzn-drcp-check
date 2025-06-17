@@ -1,5 +1,3 @@
 (executable
- (public_name drcp_checker_cli)
  (name main)
- (package fzn_drcp_check)
- (libraries fzn_drcp_check fzn_drcp_check_parsing cmdliner))
+ (libraries drcpcheck_core drcpcheck_flatzinc cmdliner))

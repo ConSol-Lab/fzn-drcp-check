@@ -1,0 +1,6 @@
+(library
+ (name test_drcpcheck_flatzinc)
+ (inline_tests)
+ (libraries drcpcheck_flatzinc)
+ (preprocess
+  (pps ppx_inline_test)))

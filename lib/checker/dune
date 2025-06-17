@@ -1,7 +1,0 @@
-(coq.extraction
-  (prelude extraction)
-  (extracted_modules checker)
-  (theories MMaps Checker))
-
-(library
- (name fzn_drcp_check))

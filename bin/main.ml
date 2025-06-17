@@ -1,4 +1,21 @@
-open Fzn_drcp_check.Checker
+let usage = "drcpcheck <flatzinc>"
+
+let input_file = ref ""
+
+let assign_args filename = input_file := filename
+
+let () = 
+    Arg.parse [] assign_args usage;
+    if !input_file != "" then
+        let channel = In_channel.open_text !input_file in
+        let lexbuf = Lexing.from_channel channel in
+        let _ = Drcpcheck_flatzinc.Parse.parse lexbuf (Some !input_file) in  
+            print_endline "Parsed successfully!"
+    else
+        print_endline "Provide a flatzinc model."
+
+
+(* open Drcpcheck_core.Checker
 
 let str_to_char_list s = List.init (String.length s) (String.get s)
 
@@ -110,7 +127,7 @@ let () =
   Printf.printf "Example 1: %b\n" r1;
   Printf.printf "Example 2: %b\n" r2;
   Printf.printf "Example 3: %b\n" r3;
-  Printf.printf "Example 4: %b\n" r4;
+  Printf.printf "Example 4: %b\n" r4; *)
 
 (* open Cmdliner
 open Fzn_drcp_check
