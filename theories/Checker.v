@@ -3,6 +3,7 @@ Require Import Checker.Deduction.
 (*Require Import Checker.CumulativeCheck.*)
 Require Import Checker.ConstraintProblem.
 Import Utility.Maps.
+Import Utility.Sets.
 Require Import Bool.
 Require Import List.
 Require Import Coq.Strings.String.
@@ -14,7 +15,6 @@ Import Spec.Proofs.
 Import Spec.ProofFacts.
 Import Coq.Lists.List.ListNotations.
 Open Scope Z_scope.
-
 
 Definition step_fact (step : Step) :=
   match step with
@@ -36,14 +36,215 @@ Record HydratedProofStage := {
   hs_conclusion_index : N
 }.
 
+Definition min_value (domain : IntSet) :=
+  match domain with
+  | interval lb ub => Some lb
+  | sparse_set vals => sint.min_elt vals
+  end.
+
+Lemma min_value_lt : forall (domain : IntSet) (min_val : Z) (el : Z),
+  in_int_set domain el ->
+  min_value domain = Some min_val ->
+  el >= min_val.
+Proof.
+  intros domain.
+  destruct domain ; simpl ; intros min_val el Hin Hmin.
+  - inversion Hmin.
+    rewrite <- H0.
+    destruct Hin.
+    apply Z.ge_le_iff.
+    assumption.
+  - apply sint.min_elt_spec2 with (y := el) in Hmin ; try assumption.
+Qed.
+
+Lemma min_value_exists : forall (domain : IntSet) (witness : Z),
+  in_int_set domain witness -> (exists (m : Z), min_value domain = Some m).
+Proof.
+  intros domain witness Hin.
+  unfold min_value.
+  destruct domain.
+  - exists lower_bound.
+    reflexivity.
+  - destruct (sint.min_elt vals) eqn:Emin.
+    + exists e.
+      reflexivity.
+    + exfalso.
+      simpl in Hin.
+      apply sint.min_elt_spec3 in Emin.
+      unfold sint.Empty, not in Emin.
+      specialize (Emin witness Hin).
+      contradiction.
+Qed.
+
+Definition max_value (domain : IntSet) :=
+  match domain with
+  | interval lb ub => Some ub
+  | sparse_set vals => sint.max_elt vals
+  end.
+
+Lemma max_value_lt : forall (domain : IntSet) (max_val : Z) (el : Z),
+  in_int_set domain el ->
+  max_value domain = Some max_val ->
+  el <= max_val.
+Proof.
+  intros domain.
+  destruct domain ; simpl ; intros max_val el Hin Hmin.
+  - inversion Hmin.
+    rewrite <- H0.
+    destruct Hin.
+    assumption.
+  - apply sint.max_elt_spec2 with (y := el) in Hmin ; try assumption.
+    destruct (max_val ?= el) eqn:Ecmp; try contradiction.
+    + apply OrdersEx.Z_as_OT.compare_eq in Ecmp.
+      rewrite Ecmp.
+      easy.
+    + apply OrdersEx.Z_as_OT.compare_gt_iff in Ecmp.
+      apply OrdersEx.Z_as_OT.lt_le_incl.
+      assumption.
+Qed.
+
+Lemma max_value_exists : forall (domain : IntSet) (witness : Z),
+  in_int_set domain witness -> (exists (m : Z), max_value domain = Some m).
+Proof.
+  intros domain witness Hin.
+  unfold max_value.
+  destruct domain.
+  - exists upper_bound.
+    reflexivity.
+  - destruct (sint.max_elt vals) eqn:Emin.
+    + exists e.
+      reflexivity.
+    + exfalso.
+      simpl in Hin.
+      apply sint.max_elt_spec3 in Emin.
+      unfold sint.Empty, not in Emin.
+      specialize (Emin witness Hin).
+      contradiction.
+Qed.
+
+Definition validate_set (domain : IntSet) (atom : Atomic) :=
+  match atom.(atm_cmp) with
+  | greater_equal =>
+      match min_value domain with
+      | Some min_val => min_val >=? atom.(atm_val)
+      | None => true
+      end
+  | less_equal =>
+      match max_value domain with
+      | Some max_val => max_val <=? atom.(atm_val)
+      | None => true
+      end
+  | equal =>
+      match min_value domain, max_value domain with
+      | Some min_val, Some max_val => (min_val =? atom.(atm_val)) && (max_val =? atom.(atm_val))
+      | _, _ => false
+      end
+  | not_equal =>
+      match domain with
+      | interval lb ub => (lb >? atom.(atm_val)) || (ub <? atom.(atm_val))
+      | sparse_set vals => negb (sint.mem atom.(atm_val) vals)
+      end
+  end.
+
+Lemma validate_set_if_holds : forall (domain : IntSet) (atom : Atomic) (el : Z),
+  in_int_set domain el ->
+  validate_set domain atom = true ->
+  atomic_holds el atom.
+Proof.
+  intros domain atom el Hin Hvalid.
+  unfold atomic_holds.
+  destruct atom as [cmp val].
+  specialize (max_value_exists domain el Hin) as Hmax.
+  destruct Hmax as [ub Emax].
+  specialize (min_value_exists domain el Hin) as Hmin.
+  destruct Hmin as [lb Emin].
+  destruct cmp ;
+  simpl in Hvalid ; unfold validate_set in Hvalid ;
+  inversion Hvalid ; simpl in Hvalid ;
+  simpl.
+  - apply OrdersEx.Z_as_OT.le_trans with (m := ub).
+    + apply max_value_lt with (domain := domain) ; assumption.
+    + rewrite Emax in Hvalid.
+      apply Z.leb_le in Hvalid.
+      assumption.
+  - apply Zge_trans with (m := lb).
+    + apply min_value_lt with (domain := domain) ; assumption.
+    + rewrite Emin in Hvalid.
+      apply Z.geb_ge in Hvalid.
+      assumption.
+  - rewrite Emax, Emin in Hvalid.
+    apply andb_prop in Hvalid.
+    destruct Hvalid as [El Eu].
+    rewrite Z.eqb_eq in El.
+    rewrite Z.eqb_eq in Eu.
+    apply max_value_lt with (domain := domain) (el := el) in Emax ; try assumption.
+    apply min_value_lt with (domain := domain) (el := el) in Emin ; try assumption.
+    rewrite El in Emin.
+    rewrite Eu in Emax.
+    apply Z.ge_le in Emin.
+    apply Z.le_antisymm ; assumption.
+  - unfold in_int_set in Hin.
+    destruct domain ; inversion Emax ; inversion Emin.
+    + apply orb_prop in Hvalid.
+      destruct Hvalid as [Hvalid|Hvalid].
+      * apply Z.gtb_gt in Hvalid.
+        destruct Hin as [Hlb _].
+        symmetry.
+        apply Z.gt_lt in Hvalid.
+        apply OrdersEx.Z_as_OT.lt_neq, Z.lt_le_trans with (m := lower_bound) ; assumption.
+      * apply Z.ltb_lt in Hvalid.
+        destruct Hin as [_ Hub].
+        apply OrdersEx.Z_as_OT.lt_neq, Z.le_lt_trans with (m := upper_bound) ; assumption.
+    + apply negb_true_iff in Hvalid.
+      unfold not.
+      intros Heq.
+      rewrite <- Heq in Hvalid.
+      apply sint_prps.FM.not_mem_iff in Hvalid.
+      contradiction.
+Qed.
+
+
+Definition validate_domain (csp_domains : smap.t IntSet) (fact : ProofFact) :=
+  match i_consequent fact, i_premises fact with
+  | Some (ident, atom), [] =>
+      match smap.find ident csp_domains with
+      | Some domain => validate_set domain atom
+      | None => false
+      end
+  | _, _ => false
+  end.
+
+Lemma validate_if_holds : forall (csp_domains : smap.t IntSet) (fact : ProofFact) (sol : string -> Z),
+  validate_domain csp_domains fact = true ->
+  satisfies_domains csp_domains sol ->
+  fact_valid sol fact.
+Proof.
+  intros csp_domains fact.
+  generalize dependent csp_domains.
+  destruct fact as [premises conseq].
+  unfold fact_valid, validate_domain.
+  simpl.
+  intros csp_domains sol Hvalid Hsat Hvalid_atoms.
+  destruct conseq as [(ident, atom)|] ; inversion Hvalid.
+  destruct premises as [|F] ; inversion Hvalid.
+  destruct (smap.find ident csp_domains) as [dom|] eqn:Emap; inversion Hvalid.
+  unfold bound_atomic_holds.
+  apply validate_set_if_holds with (domain := dom) ; try assumption.
+  unfold satisfies_domains in Hsat.
+  specialize (Hsat ident dom).
+  apply Hsat, smap_prps.find_2, Emap.
+Qed.
+
 (* TODO: see the comment above Deduction.equiv, currently some equivalent inferences might still return false. *)
-Definition validate_inference (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) :=
+Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) :=
   match rule with
   | fact_equiv =>
       match hint with
       | [fact_c ref_fact] => Deduction.equiv fact ref_fact
       | _ => false
       end
+  | dom =>
+      validate_domain csp_domains fact
       (*| cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
@@ -84,12 +285,13 @@ Compute validate_inference
  *)
 
 Lemma validate_inference_soundness :
-  forall (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
+  forall (doms : smap.t IntSet) (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
   (forall (c : Constraint), In c hint -> satisfies_constraint c sol) ->
-  validate_inference fact hint rule = true ->
+  satisfies_domains doms sol ->
+  validate_inference doms fact hint rule = true ->
   fact_valid sol fact.
 Proof.
-  intros fact hint rule sol Hsat Hvalid.
+  intros doms fact hint rule sol Hsat Hdoms Hvalid.
   unfold validate_inference in Hvalid.
   destruct rule; simpl in Hvalid.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
@@ -98,18 +300,18 @@ Proof.
     specialize (Hsat (fact_c constraint)).
     apply Hsat.
     simpl. left. reflexivity.
+  - apply validate_if_holds with (csp_domains := doms) ; assumption.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    apply Is_true_eq_left in Hvalid.
     apply Linear.linear_checker_soundness with (c := constraint); try assumption.
     specialize (Hsat (linear_leq constraint)).
     apply Hsat.
     simpl. left. reflexivity.
-    apply Is_true_eq_left in Hvalid.
-    assumption.
-  (*- destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+    (*- destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply checker_cumulative with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
-     simpl. left. reflexivity.*)
+       simpl. left. reflexivity.*)
   (* - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy. *)
   (*   specialize (Hsat (alldifferent_c constraint)). *)
   (*   apply Is_true_eq_left. *)
@@ -127,14 +329,14 @@ Definition validate_nogood (fact : ProofFact) (chain : list ProofFact) :=
 
 
 
-Definition validate_inference_within_stage (step : HydratedInference) :=
-  validate_inference step.(hinf_fact) step.(hinf_hint) step.(hinf_rule).
+Definition validate_inference_within_stage (doms : smap.t IntSet) (step : HydratedInference) :=
+  validate_inference doms step.(hinf_fact) step.(hinf_hint) step.(hinf_rule).
 
 
-Definition validate_proof_stage (stage : HydratedProofStage) :=
+Definition validate_proof_stage (doms : smap.t IntSet) (stage : HydratedProofStage) :=
   (* Validate every inference independently *)
   let inferences_ok := forallb 
-    validate_inference_within_stage
+    (validate_inference_within_stage doms)
     stage.(hs_inferences)
   in
   (* Check that the conclusion is a valid deduction *)
@@ -150,36 +352,43 @@ Definition used_constraints (stage : HydratedProofStage) :=
   hints ++ inferences.
 
 
+
 Lemma valid_proof_stage_implies_conclusion : forall
-  (stage : HydratedProofStage) (sol : string -> Z),
-  validate_proof_stage stage = true ->
+  (doms : smap.t IntSet) (stage : HydratedProofStage) (sol : string -> Z),
+  Is_true (validate_proof_stage doms stage) ->
   (forall (c : Constraint),
     In c (used_constraints stage) -> satisfies_constraint c sol
   ) ->
+  satisfies_domains doms sol ->
   fact_valid sol (stage.(hs_conclusion)).
 Proof.
-  intros stage sol Hvalid Estage_conclusion Hcons_sat.
+  intros doms stage sol Hvalid Hcons_sat Hdoms.
   unfold validate_proof_stage in Hvalid.
-  apply andb_prop in Hvalid.
+  apply andb_prop_elim in Hvalid.
   unfold validate_inference_within_stage in Hvalid.
   destruct Hvalid as [Hinf_valid Hnogood_valid].
   unfold validate_nogood in Hnogood_valid.
   destruct stage.(hs_conclusion).(i_consequent) eqn:Econs in Hnogood_valid ;
-  inversion Hnogood_valid.
-  rewrite Econs.
+  try contradiction.
+  apply Is_true_eq_true in Hinf_valid.
   rewrite forallb_forall in Hinf_valid.
+  unfold fact_valid.
+  rewrite Econs.
+  intros Hvalid_atoms.
   apply check_deduct_correct with
     (assignment := sol)
     (premises := stage.(hs_conclusion).(i_premises))
-    (steps := stage.(hs_chain)) ; try assumption.
-  intros inf Hin_inf.
-  specialize (Estage_conclusion (fact_c inf)).
-  simpl in Estage_conclusion.
-  apply Estage_conclusion.
-  unfold used_constraints.
-  apply in_or_app.
-  right.
-  apply in_map, Hin_inf.
+    (steps := stage.(hs_chain)).
+  - exact Hvalid_atoms.
+  - intros inf Hin_inf.
+    specialize (Hcons_sat (fact_c inf)).
+    simpl in Hcons_sat.
+    apply Hcons_sat.
+    unfold used_constraints.
+    apply in_or_app.
+    right.
+    apply in_map, Hin_inf.
+  - apply Is_true_eq_true, Hnogood_valid.
 Qed.
 
 Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
@@ -276,7 +485,7 @@ Fixpoint validate_stages (csp : ConstraintProblem) (p : list ProofStage) :=
         (stage.(s_conclusion))
         csp
       in
-      if validate_proof_stage (hydrate csp stage)
+      if validate_proof_stage (csp.(domains)) (hydrate csp stage)
       then validate_stages csp' p'
       else None
   end.
@@ -292,8 +501,7 @@ Proof.
   destruct Hvalid as [csp' Hvalid].
   (* Show that the proof checker on the hydrated stage returns true *)
   remember (hydrate csp stage) as h_stage.
-  destruct (validate_proof_stage h_stage) eqn:Evalid ;
-  inversion Hvalid.
+  destruct (validate_proof_stage csp.(domains) h_stage) eqn:Evalid ; try inversion Hvalid.
   clear Hvalid.
   (* Destruct all parts of the stage definition *)
   destruct stage as [inferences chain conclusion conclusion_index].
@@ -311,7 +519,7 @@ Proof.
   }
   rewrite Hrewrite.
   clear Hrewrite.
-  apply valid_proof_stage_implies_conclusion.
+  apply valid_proof_stage_implies_conclusion with (doms := csp.(domains)).
   - (* Rewrite into the proof checker validity *)
     unfold hydrate in Heqh_stage.
     simpl in Heqh_stage.
@@ -368,7 +576,8 @@ Proof.
         remember (hydrate_inference csp inf) as hinf.
         apply validate_inference_soundness with
           (hint := (hinf_hint hinf)) 
-          (rule := (hinf_rule hinf)).
+          (rule := (hinf_rule hinf))
+          (doms := csp.(domains)).
           -- (* Check that the hydrated hints are in the CSP *)
              intros c' Hin_hint.
              rewrite Heqhinf in Hin_hint.
@@ -381,6 +590,10 @@ Proof.
              rewrite Hin_c' in Elookup'.
              apply sat_csp_implies_sat_lookup with (csp := csp) (index := index') ;
              try easy.
+          -- (* Check that the solution satisfies the CSP domains *)
+             unfold satisfies_problem in Hsat.
+             destruct Hsat as [_ Hdoms].
+             assumption.
           -- (* Check that the inference checker returns true *)
              assert (Hrewrite: fact = (hinf_fact hinf)). {
                rewrite Heqhinf.
@@ -395,6 +608,9 @@ Proof.
                in_map_iff.
              exists inf.
              split ; easy.
+  - unfold satisfies_problem in Hsat.
+    destruct Hsat as [_ Hdoms].
+    assumption.
 Qed.
 
 
@@ -407,7 +623,7 @@ Definition compare_with_fact (rhs : ProofFact) (lhs : Constraint) :=
 
 Definition validate (csp : ConstraintProblem) (p : CPProof) :=
   match validate_stages csp (p.(proof_stages)) with
-  | Some csp' => nmap.exists_ (fun k => compare_with_fact (conclusion p)) csp'
+  | Some csp' => nmap.exists_ (fun k => compare_with_fact (conclusion p)) csp'.(constraints)
   | None => false
   end.
 
@@ -432,7 +648,8 @@ Proof.
       apply equiv_implies_equisat with (sol := sol) in Hequiv.
       apply Hequiv.
       unfold satisfies_problem in Hsat.
-      specialize (Hsat index (fact_c constraint) Hmaps).
+      destruct Hsat as [Hsat_constr Hsat_doms].
+      specialize (Hsat_constr index (fact_c constraint) Hmaps).
       easy.
     + unfold Morphisms.Proper, Morphisms.respectful.
       intros ix iy Ei cx cy Ec.
@@ -465,7 +682,7 @@ Proof.
     simpl in Hvalid.
     unfold validate.
     simpl.
-    destruct (validate_proof_stage (hydrate csp stage)) eqn:Estage ; inversion Hvalid.
+    destruct (validate_proof_stage csp.(domains) (hydrate csp stage)) eqn:Estage ; inversion Hvalid.
     rewrite Heqcsp'.
     reflexivity.
 Qed.
