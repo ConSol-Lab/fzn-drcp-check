@@ -354,7 +354,6 @@ Proof.
     rewrite H in Hmaps'.
     specialize (Heqmaps x (doms d-> x) (doms' d-> x) Hmaps Hmaps').
     unfold Raw.Cmp in Heqmaps.
-    apply Is_true_eq_left in Heqmaps.
     apply Domain.eqb_eq.
     exact Heqmaps.
   }
@@ -376,15 +375,14 @@ Definition equiv (lhs : ProofFact) (rhs : ProofFact) :=
   end.
 
 Lemma equiv_implies_equisat : forall lhs rhs,
-  Is_true (equiv lhs rhs) ->
+  equiv lhs rhs = true ->
   (forall sol, fact_valid sol lhs <-> fact_valid sol rhs).
 Proof.
   intros lhs rhs Hequiv sol.
   unfold equiv in Hequiv.
   destruct (infer_domains lhs) as [[dom_lhs str_lhs] | ] eqn:Elhs ;
   destruct (infer_domains rhs) as [[dom_rhs str_rhs] | ] eqn:Erhs ;
-  try contradiction.
-  apply Is_true_eq_true in Hequiv.
+  inversion Hequiv.
   apply smap_prps.equal_2 in Hequiv.
   apply equiv_domains with (sol := sol )in Hequiv.
   rewrite <- infer_domains_correct with (doms := dom_lhs).

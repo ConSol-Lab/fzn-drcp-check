@@ -1,6 +1,6 @@
 Require Import Checker.Deduction.
-(* Require Import Checker.Cumulative. *)
-(* Require Import Checker.CumulativeCheck. *)
+(*Require Import Checker.Cumulative.*)
+(*Require Import Checker.CumulativeCheck.*)
 Require Import Checker.ConstraintProblem.
 Import Utility.Maps.
 Import Utility.Sets.
@@ -477,9 +477,9 @@ Definition hydrate (csp : ConstraintProblem) (stage : ProofStage) : HydratedProo
   .
 
 
-Fixpoint validate (csp : ConstraintProblem) (p : CPProof) :=
+Fixpoint validate_stages (csp : ConstraintProblem) (p : list ProofStage) :=
   match p with
-  | nil => true
+  | nil => Some csp
   | stage :: p' =>
       let csp' := ConstraintProblem.add
         (stage.(s_conclusion_index))
@@ -487,24 +487,22 @@ Fixpoint validate (csp : ConstraintProblem) (p : CPProof) :=
         csp
       in
       if validate_proof_stage (csp.(domains)) (hydrate csp stage)
-      then validate csp' p'
-      else false
+      then validate_stages csp' p'
+      else None
   end.
 
 
-
-
 Theorem step_soundness : forall
-  (csp : ConstraintProblem) (p : CPProof) (stage : ProofStage),
-    Is_true (validate csp (stage :: p)) ->
-    conclusion_holds csp (stage.(s_conclusion)).
+  (csp : ConstraintProblem) (p : list ProofStage) (stage : ProofStage),
+    (exists csp', validate_stages csp (stage :: p) = Some csp') ->
+    fact_holds csp (stage.(s_conclusion)).
 Proof.
   intros csp p stage Hvalid.
   simpl in Hvalid.
+  destruct Hvalid as [csp' Hvalid].
   (* Show that the proof checker on the hydrated stage returns true *)
   remember (hydrate csp stage) as h_stage.
-  destruct (validate_proof_stage csp.(domains) h_stage) eqn:Evalid ;
-  try contradiction.
+  destruct (validate_proof_stage csp.(domains) h_stage) eqn:Evalid ; try inversion Hvalid.
   clear Hvalid.
   (* Destruct all parts of the stage definition *)
   destruct stage as [inferences chain conclusion conclusion_index].
@@ -513,10 +511,11 @@ Proof.
   unfold hydrate in Evalid.
   simpl in Evalid.
   (* Appeal to the proof stage checker soundness *)
-  unfold conclusion_holds.
+  unfold fact_holds.
   intros sol Hsat.
   assert (Hrewrite: conclusion = (hs_conclusion h_stage)). {
     rewrite Heqh_stage.
+    simpl.
     reflexivity.
   }
   rewrite Hrewrite.
@@ -568,9 +567,8 @@ Proof.
            correctness of the inference checker. *)
         destruct Hin_inferences as [inf [Hin_inf Einf_fact]].
         unfold validate_proof_stage in Evalid.
-        apply Is_true_eq_left, andb_prop_elim in Evalid.
+        apply andb_prop in Evalid.
         destruct Evalid as [Hvalid_inferences _].
-        apply Is_true_eq_true in Hvalid_inferences.
         rewrite forallb_forall in Hvalid_inferences.
         simpl in Hvalid_inferences.
         unfold validate_inference_within_stage in Hvalid_inferences.
@@ -617,42 +615,75 @@ Proof.
 Qed.
 
 
+Definition compare_with_fact (rhs : ProofFact) (lhs : Constraint) :=
+  match lhs with
+  | fact_c lhs => equiv lhs rhs
+  | _ => false
+  end.
+
+
+Definition validate (csp : ConstraintProblem) (p : CPProof) :=
+  match validate_stages csp (p.(proof_stages)) with
+  | Some csp' => nmap.exists_ (fun k => compare_with_fact (conclusion p)) csp'.(constraints)
+  | None => false
+  end.
+
+
 Theorem soundness : checker_sound validate.
 Proof.
   unfold checker_sound.
-  intros csp p fact Hconcl Hvalid.
+  intros csp p Hvalid.
   generalize dependent csp.
-  (* Induction by proof length; base case p = nil is vacuously true. *)
-  induction p as [|stage] ; try discriminate.
-  intros csp Hvalid.
-  destruct p eqn:Ep.
-  (* The proof has a single stage; use stage checker soundness directly
-     after appropriately unpacking all variables *)
-  {
-    inversion Hconcl as [Hconcl'].
-    apply step_soundness with (p := nil).
-    exact Hvalid.
-  }
+  destruct p as [stages conclusion].
+  simpl.
+  (* Induction by the sequence of stages *)
+  induction stages as [|stage].
+  (* Base case is a simple lookup in the original CSP *)
+  - unfold validate.
+    simpl.
+    intros csp Hexists sol Hsat.
+    apply nmap_prps.exists_iff in Hexists.
+    + destruct Hexists as [index [fact_cons [Hmaps Hequiv]]].
+      unfold compare_with_fact in Hequiv.
+      destruct fact_cons ; inversion Hequiv.
+      apply equiv_implies_equisat with (sol := sol) in Hequiv.
+      apply Hequiv.
+      unfold satisfies_problem in Hsat.
+      destruct Hsat as [Hsat_constr Hsat_doms].
+      specialize (Hsat_constr index (fact_c constraint) Hmaps).
+      easy.
+    + unfold Morphisms.Proper, Morphisms.respectful.
+      intros ix iy Ei cx cy Ec.
+      rewrite Ec.
+      reflexivity.
   (* Use the induction hypothesis for the remainder of the proof and
      the mutated CSP problem instance *)
-  assert (Hholds: conclusion_holds csp (stage.(s_conclusion))). {
-    apply step_soundness with (p := p0 :: l).
-    exact Hvalid.
-  }
-  unfold conclusion_holds.
-  apply entailed_addition with
-    (fact := stage.(s_conclusion))
-    (index := stage.(s_conclusion_index)) ;
+  - intros csp Hvalid.
+    assert (Hholds: fact_holds csp (stage.(s_conclusion))). {
+      apply step_soundness with (p := stages).
+      unfold validate in Hvalid.
+      Opaque validate_stages.
+      simpl in Hvalid.
+      Transparent validate_stages.
+      destruct (
+          validate_stages csp (stage :: stages)
+        ) as [csp'|] eqn:Evalid ; inversion Hvalid.
+      exists csp'.
+      reflexivity.
+    }
+    unfold fact_holds.
+    apply entailed_addition with
+      (fact := stage.(s_conclusion))
+      (index := stage.(s_conclusion_index)) ;
     try exact Hholds.
-  remember (add (stage.(s_conclusion_index)) (stage.(s_conclusion)) csp) as csp'.
-  unfold conclusion_holds in IHp.
-  apply IHp with (csp := csp').
-  + (* Proof conclusion stays the same, as it is not empty. *)
-    easy.
-  + (* Checker reports true on the upcoming proof prefix
-       after mutating the CSP *)
-    remember (p0 :: l) as q.
+    remember (add (stage.(s_conclusion_index)) (stage.(s_conclusion)) csp) as csp'.
+    apply IHstages with (csp := csp').
+    (* Proof conclusion stays the same, as it is not empty. *)
     unfold validate in Hvalid.
-    rewrite <- Heqcsp' in Hvalid.
-    destruct (validate_proof_stage (csp.(domains)) (hydrate csp stage)) ; try easy.
+    simpl in Hvalid.
+    unfold validate.
+    simpl.
+    destruct (validate_proof_stage csp.(domains) (hydrate csp stage)) eqn:Estage ; inversion Hvalid.
+    rewrite Heqcsp'.
+    reflexivity.
 Qed.

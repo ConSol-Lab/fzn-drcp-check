@@ -866,12 +866,11 @@ Qed.
 Lemma checker_cumulative :
   forall fact sol constr,
   Cumulative constr sol
-  -> Is_true (cumulative_checker fact constr)
+  -> cumulative_checker fact constr = true
   -> fact_valid sol fact.
 Proof.
   intros fact sol constr.
   intros H1 H2.
-  apply Is_true_eq_true in H2.
   apply checker_cumulative_eq_true with (constr := constr);
   assumption.
 Qed.
