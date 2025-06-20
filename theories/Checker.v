@@ -296,7 +296,6 @@ Proof.
   destruct rule; simpl in Hvalid.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply Deduction.equiv_implies_equisat with (lhs := fact) (rhs := constraint).
-    apply Is_true_eq_left.
     exact Hvalid.
     specialize (Hsat (fact_c constraint)).
     apply Hsat.
