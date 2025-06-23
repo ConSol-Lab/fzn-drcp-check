@@ -12,4 +12,5 @@ Extraction Blacklist List String Nat.
 Set Extraction Output Directory ".".
 
 Extraction "checker" 
-  Spec.ConstraintDefinitions.ConstraintProblem.
+  Spec.ConstraintDefinitions.ConstraintProblem
+  Spec.Proofs.CPProof.

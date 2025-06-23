@@ -1,0 +1,6 @@
+(library
+ (name test_drcpcheck_drcp)
+ (inline_tests)
+ (libraries drcpcheck_drcp)
+ (preprocess
+  (staged_pps ppx_import ppx_inline_test)))
