@@ -1,68 +1,179 @@
-open Drcpcheck_core.Checker.ConstraintDefinitions
-open Drcpcheck_core.Checker.Maps
-open Drcpcheck_core.Parse
+open Drcpcheck_core.Checker.Proofs
+open Drcpcheck_core.Checker.ProofFacts
+open Drcpcheck_drcp.Parse
+open Big_int_Z
 
-let interval lb ub =
-  Coq_interval (Big_int_Z.big_int_of_int lb, Big_int_Z.big_int_of_int ub)
+let implication premises consequent =
+  { i_premises = premises; i_consequent = Some consequent }
 
-let parse_str s = parse (Lexing.from_string s) None
+let nogood premises = { i_premises = premises; i_consequent = None }
 
-let show_intset dom =
-  match dom with
-  | Coq_interval (lb, ub) ->
-      Printf.sprintf "%s..%s"
-        (Big_int_Z.string_of_big_int lb)
-        (Big_int_Z.string_of_big_int ub)
-  | Coq_sparse_set _ -> Printf.sprintf "sparse_set"
+let atom name atm_cmp atm_val =
+  (name, { atm_cmp; atm_val = big_int_of_int atm_val })
 
-let ( << ) f g x = f (g x)
+let inference id premises consequent generated_by label =
+  {
+    iinf_index = big_int_of_int id;
+    iinf_fact = { i_premises = premises; i_consequent = consequent };
+    iinf_rule = label;
+    iinf_hint = List.map big_int_of_int generated_by;
+  }
 
-let show_var var =
-  match var with
-  | Coq_var_name name -> name
-  | Coq_const value -> Big_int_Z.string_of_big_int value
-
-let show_constr constr =
-  match constr with
-  | Coq_linear_leq cons ->
-      let weights =
-        String.concat ", "
-          (List.map (Big_int_Z.string_of_big_int << fst) cons.l_terms)
+let show_atomic = function
+  | name, atomic ->
+      let cmp =
+        match atomic.atm_cmp with
+        | Coq_greater_equal -> ">="
+        | Coq_less_equal -> "<="
+        | Coq_equal -> "=="
+        | Coq_not_equal -> "!="
       in
-      let vars = String.concat ", " (List.map (show_var << snd) cons.l_terms) in
-      let bound = Big_int_Z.string_of_big_int cons.l_bound in
-      Printf.sprintf "constraint int_lin_le([%s], [%s], %s);" weights vars bound
-  | _ -> "constraint unknown"
+      let value = string_of_big_int atomic.atm_val in
+      Printf.sprintf "[%s %s %s]" name cmp value
 
-let show_csp csp =
-  let vars =
-    Coq_smap.fold
-      (fun name dom acc ->
-        Printf.sprintf "%svar %s: %s;\n" acc (show_intset dom) name)
-      csp.domains ""
+let show_inference inference =
+  let id = string_of_big_int inference.iinf_index in
+  let premises =
+    String.concat " " (List.map show_atomic inference.iinf_fact.i_premises)
   in
-  let cons =
-    Coq_nmap.fold
-      (fun _ cons acc -> Printf.sprintf "%s%s\n" acc (show_constr cons))
-      csp.constraints ""
+  let consequent =
+    match inference.iinf_fact.i_consequent with
+    | Some atomic -> Printf.sprintf "0 %s" (show_atomic atomic)
+    | None -> ""
   in
+  let generated_by =
+    Printf.sprintf "c:%s" (string_of_big_int (List.hd inference.iinf_hint))
+  in
+  let label =
+    Printf.sprintf "l:%s"
+      (match inference.iinf_rule with
+      | Coq_linear -> "linear_bounds"
+      | Coq_fact_equiv -> "nogood"
+      | Coq_dom -> "dom")
+  in
+  Printf.sprintf "i %s %s %s %s %s" id premises consequent generated_by label
 
-  vars ^ cons
+let show_proof_stage stage : string =
+  let inferences =
+    String.concat "\n" (List.map show_inference stage.s_inferences)
+  in
+  let conclusion_id = string_of_big_int stage.s_conclusion_index in
+  let conclusion_premises =
+    String.concat " " (List.map show_atomic stage.s_conclusion.i_premises)
+  in
+  let sequence = String.concat " " (List.map string_of_big_int stage.s_chain) in
+  Printf.sprintf "%s\nn %s %s 0 %s" inferences conclusion_id conclusion_premises
+    sequence
+
+let show_proof proof =
+  let steps =
+    String.concat "\n" (List.map show_proof_stage proof.proof_stages)
+  in
+  let conclusion_premises =
+    String.concat " " (List.map show_atomic proof.conclusion.i_premises)
+  in
+  let consequent =
+    match proof.conclusion.i_consequent with
+    | Some atomic -> Printf.sprintf "0 %s" (show_atomic atomic)
+    | None -> "0 False"
+  in
+  let conclusion = Printf.sprintf "c %s %s" conclusion_premises consequent in
+  steps ^ "\n" ^ conclusion
 
 let test_parse input expected =
-  let parsed = parse_str input in
-  (*let _ =*)
-  (*  if parsed = expected then ()*)
-  (*  else*)
-  (*in*)
+  let parsed = parse_proof input in
+  if parsed = expected then true
+  else
+    let _ =
+      Printf.printf
+        "==========\nEXPECTED:\n%s\n----------\nPARSED:\n%s\n==========\n"
+        (show_proof expected) (show_proof parsed)
+    in
+    false
 
-  parsed = expected
-
-let%test "parse single constant" =
+let%test "parse an empty nogood" =
   let source = {|
-        int: p = 3;
-        solve satisfy;
+    n 1 0
+    c UNSAT
     |} in
-  let expected = { domains = Coq_smap.empty; constraints = Coq_nmap.empty } in
+  let expected =
+    {
+      proof_stages =
+        [
+          {
+            s_conclusion = nogood [];
+            s_inferences = [];
+            s_chain = [];
+            s_conclusion_index = big_int_of_int 1;
+          };
+        ];
+      conclusion = { i_premises = []; i_consequent = None };
+    }
+  in
+
+  test_parse source expected
+
+let%test "parse a unit nogood" =
+  let source = {|
+    a 1 [x1 >= 1]
+    n 1 -1 0
+    c UNSAT
+    |} in
+  let expected =
+    {
+      proof_stages =
+        [
+          {
+            s_conclusion = nogood [ atom "x1" Coq_less_equal 0 ];
+            s_inferences = [];
+            s_chain = [];
+            s_conclusion_index = big_int_of_int 1;
+          };
+        ];
+      conclusion = { i_premises = []; i_consequent = None };
+    }
+  in
+
+  test_parse source expected
+
+let%test "parse a proof stage" =
+  let source =
+    {|
+    a 1 [x1 >= 1]
+    a 2 [x2 <= 2]
+    a 3 [x3 >= 1]
+    i 7 1 2 3 0 c:6 l:linear_bounds
+    i 8 1 2 0 3 c:5 l:linear_bounds
+    n 9 1 0 5 6
+    c UNSAT
+    |}
+  in
+  let expected =
+    {
+      proof_stages =
+        [
+          {
+            s_inferences =
+              [
+                inference 7
+                  [
+                    atom "x1" Coq_greater_equal 1;
+                    atom "x2" Coq_less_equal 2;
+                    atom "x3" Coq_greater_equal 1;
+                  ]
+                  None [ 6 ] Coq_linear;
+                inference 8
+                  [ atom "x1" Coq_greater_equal 1; atom "x2" Coq_less_equal 2 ]
+                  (Some (atom "x3" Coq_greater_equal 1))
+                  [ 5 ] Coq_linear;
+              ];
+            s_conclusion = nogood [ atom "x1" Coq_greater_equal 1 ];
+            s_chain = [ big_int_of_int 5; big_int_of_int 6 ];
+            s_conclusion_index = big_int_of_int 9;
+          };
+        ];
+      conclusion = { i_premises = []; i_consequent = None };
+    }
+  in
 
   test_parse source expected

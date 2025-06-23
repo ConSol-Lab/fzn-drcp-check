@@ -1,0 +1,245 @@
+open Drcpcheck_core.Checker.ProofFacts
+open Drcpcheck_core.Checker.Proofs
+open Angstrom
+open Big_int_Z
+
+type atom_definition = { id : int; atomic : coq_BoundAtomic }
+
+type inference = {
+  constraint_id : big_int;
+  premises : int list;
+  consequent : int option;
+  generated_by : big_int;
+  label : coq_InferenceRule;
+}
+
+type deduction = {
+  constraint_id : big_int;
+  premises : int list;
+  sequence : big_int list;
+}
+
+type step =
+  | Inference of inference
+  | Deduction of deduction
+  | AtomDefinition of atom_definition
+
+let ws =
+  skip_while (function ' ' | '\t' -> true | _ -> false) <?> "whitespace"
+
+let ws_with_new_line =
+  skip_while (function ' ' | '\t' -> true | '\n' -> true | _ -> false)
+  <?> "whitespace separator with newline"
+
+let ws_sep =
+  take_while1 (function ' ' | '\t' -> true | _ -> false)
+  <?> "whitespace separator"
+
+let eol = ws *> char '\n' <* ws_with_new_line
+
+(* Parses Ocaml integers *)
+let is_digit = function '0' .. '9' -> true | _ -> false
+let is_non_zero_digit = function '1' .. '9' -> true | _ -> false
+
+let atomic_code =
+  let sign =
+    peek_char >>= function
+    | Some '-' -> advance 1 >>| fun () -> "-"
+    | Some '+' -> advance 1 >>| fun () -> "+"
+    | Some c when is_non_zero_digit c -> return "+"
+    | _ -> fail "Sign or non-zero digit expected"
+  in
+  sign >>= fun sign ->
+  satisfy is_non_zero_digit >>= fun first_digit ->
+  take_while is_digit >>= fun whole ->
+  return (int_of_string (sign ^ String.make 1 first_digit ^ whole))
+  <?> "atomic/constraint id"
+
+(* Parser for a variable name. *)
+let is_letter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+
+let ident =
+  satisfy (fun c -> is_letter c || c = '_') >>= fun first ->
+  take_while (fun c -> is_letter c || is_digit c || c = '_') >>= fun rest ->
+  return (String.make 1 first ^ rest) <?> "variable identifier"
+
+(* Parser for big-integers. *)
+let big_integer =
+  let sign =
+    peek_char >>= function
+    | Some '-' -> advance 1 >>| fun () -> "-"
+    | Some '+' -> advance 1 >>| fun () -> "+"
+    | Some c when is_digit c -> return "+"
+    | _ -> fail "Sign or digit expected"
+  in
+  sign >>= fun sign ->
+  take_while1 is_digit >>= fun whole ->
+  return (big_int_of_string (sign ^ whole)) <?> "big integer"
+
+let cmp =
+  choice
+    [
+      (string ">=" >>| function _ -> Coq_greater_equal);
+      (string "<=" >>| function _ -> Coq_less_equal);
+      (string "==" >>| function _ -> Coq_equal);
+      (string "!=" >>| function _ -> Coq_not_equal);
+    ]
+  <?> "comparator"
+
+let atom =
+  char '['
+  *> lift3
+       (fun var_name comparator value ->
+         (var_name, { atm_cmp = comparator; atm_val = value }))
+       ident
+       (ws_sep *> cmp <* ws_sep)
+       big_integer
+  <* char ']' <?> "atomic"
+
+let atom_definition =
+  char 'a' *> ws_sep
+  *> lift2
+       (fun atom_id atomic -> { id = atom_id; atomic })
+       atomic_code (ws_sep *> atom)
+  <* eol
+
+let inference_rule =
+  choice
+    [
+      (string "linear_bounds" >>| function _ -> Coq_linear);
+      (string "nogood" >>| function _ -> Coq_fact_equiv);
+      (string "dom" >>| function _ -> Coq_dom);
+    ]
+
+let premises = many (atomic_code <* ws_sep) <* char '0'
+
+let inference_line =
+  char 'i' *> ws_sep *> (big_integer <* ws_sep) >>= fun constraint_id ->
+  premises >>= fun premises ->
+  option None (ws_sep *> atomic_code >>| fun id -> Some id)
+  >>= fun consequent ->
+  ws_sep *> string "c:" *> big_integer >>= fun generated_by ->
+  ws_sep *> string "l:" *> inference_rule >>= fun label ->
+  return { constraint_id; premises; consequent; generated_by; label } <* eol
+
+let deduction_line =
+  char 'n' *> ws_sep
+  *> lift3
+       (fun id premises sequence -> { constraint_id = id; premises; sequence })
+       (big_integer <* ws_sep) premises
+       (many (ws_sep *> big_integer))
+  <* eol
+
+let proof_line =
+  ws_with_new_line *> peek_char_fail >>= function
+  | 'a' -> atom_definition >>| fun def -> AtomDefinition def
+  | 'i' -> inference_line >>| fun inf -> Inference inf
+  | 'n' -> deduction_line >>| fun deduction -> Deduction deduction
+  | _ -> fail "Unknown proof line"
+
+type conclusion = Unsat
+
+let conclusion_line = string "c UNSAT" <* ws_with_new_line >>| fun _ -> Unsat
+
+let proof =
+  many proof_line >>= fun steps ->
+  conclusion_line >>= fun conclusion -> return (steps, conclusion)
+
+module IntMap = Map.Make (Int)
+
+exception DoublyDefinedAtomicError
+exception UndefinedAtomic of int
+
+let negate_atomic = function
+  | name, atomic -> (
+      match atomic.atm_cmp with
+      | Coq_less_equal ->
+          ( name,
+            {
+              atm_cmp = Coq_greater_equal;
+              atm_val = succ_big_int atomic.atm_val;
+            } )
+      | Coq_greater_equal ->
+          ( name,
+            { atm_cmp = Coq_less_equal; atm_val = pred_big_int atomic.atm_val }
+          )
+      | Coq_equal ->
+          (name, { atm_cmp = Coq_not_equal; atm_val = atomic.atm_val })
+      | Coq_not_equal ->
+          (name, { atm_cmp = Coq_equal; atm_val = atomic.atm_val }))
+
+let resolve_atomic_id atomics id =
+  let positive = IntMap.find_opt id atomics in
+  let negative = Option.map negate_atomic (IntMap.find_opt (-id) atomics) in
+  match (positive, negative) with
+  | Some a1, Some a2 -> if a1 == a2 then a1 else raise DoublyDefinedAtomicError
+  | Some a1, None -> a1
+  | None, Some a1 -> a1
+  | None, None -> raise (UndefinedAtomic id)
+
+let resolve_atomic_ids atomics ids = List.map (resolve_atomic_id atomics) ids
+
+let convert_inference (atomics : coq_BoundAtomic IntMap.t)
+    (inference : inference) : coq_IndexedInference =
+  {
+    iinf_index = inference.constraint_id;
+    iinf_fact =
+      {
+        i_premises = resolve_atomic_ids atomics inference.premises;
+        i_consequent =
+          Option.map (resolve_atomic_id atomics) inference.consequent;
+      };
+    iinf_hint = [ inference.generated_by ];
+    iinf_rule = inference.label;
+  }
+
+exception IncompleteProofError
+
+let rec convert_proof_stage (steps : step list)
+    (atomics : coq_BoundAtomic IntMap.t) (acc : coq_IndexedInference list) :
+    coq_BoundAtomic IntMap.t * coq_ProofStage * step list =
+  match steps with
+  | [] -> raise IncompleteProofError
+  | AtomDefinition def :: tail ->
+      convert_proof_stage tail (IntMap.add def.id def.atomic atomics) acc
+  | Inference inf :: tail ->
+      convert_proof_stage tail atomics (acc @ [ convert_inference atomics inf ])
+  | Deduction deduction :: tail ->
+      ( atomics,
+        {
+          s_inferences = acc;
+          s_conclusion =
+            {
+              i_premises = resolve_atomic_ids atomics deduction.premises;
+              i_consequent = None;
+            };
+          s_chain = deduction.sequence;
+          s_conclusion_index = deduction.constraint_id;
+        },
+        tail )
+
+let rec convert_steps_to_proof (steps : step list)
+    (atomics : coq_BoundAtomic IntMap.t) (acc : coq_CPProof) : coq_CPProof =
+  match steps with
+  | [] -> acc
+  | head :: tail -> (
+      match convert_proof_stage (head :: tail) atomics [] with
+      | new_atomics, stage, rest ->
+          convert_steps_to_proof rest new_atomics
+            {
+              proof_stages = acc.proof_stages @ [ stage ];
+              conclusion = acc.conclusion;
+            })
+
+exception ParseError of string
+
+let parse_proof (source : string) : coq_CPProof =
+  match parse_string ~consume:All proof source with
+  | Ok (steps, conclusion) ->
+      let conclusion =
+        match conclusion with
+        | Unsat -> { i_premises = []; i_consequent = None }
+      in
+      convert_steps_to_proof steps IntMap.empty
+        { proof_stages = []; conclusion }
+  | Error e -> raise (ParseError e)

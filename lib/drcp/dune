@@ -1,8 +1,8 @@
-(ocamllex lexer)
-
-(menhir
- (modules parser))
+;; (ocamllex lexer)
+;; 
+;; (menhir
+;;  (modules parser))
 
 (library
  (name drcpcheck_drcp)
- (libraries drcpcheck_core))
+ (libraries drcpcheck_core angstrom))
