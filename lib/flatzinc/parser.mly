@@ -74,7 +74,7 @@ int_domain: dom = int_interval { Coq_interval ((fst dom), (snd dom)) };
 int_interval: lb = INT_LITERAL; DOUBLE_PERIOD; ub = INT_LITERAL { (lb, ub) };
 
 constraints: cs = list(constr) { cs };
-constr: CONSTRAINT; name = IDENT; args = delimited(OPEN_PAREN, constraint_args, CLOSE_PAREN); SEMICOLON { { constr_name = name; constr_args = args } };
+constr: CONSTRAINT; name = IDENT; args = delimited(OPEN_PAREN, constraint_args, CLOSE_PAREN); annotation_list; SEMICOLON { { constr_name = name; constr_args = args } };
 constraint_args: args = separated_list(COMMA, constraint_arg); { args }
 constraint_arg: 
     | name = IDENT { Ident name }

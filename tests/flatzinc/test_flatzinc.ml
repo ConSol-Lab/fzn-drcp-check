@@ -289,6 +289,41 @@ let%test "parse linear inequality with inline arguments" =
 
   test_parse source expected
 
+let%test "parse linear inequality with annotations" =
+  let source =
+    {|
+        var 0..10: var1;
+        var 0..10: var2;
+        var 0..10: var3;
+        constraint int_lin_le([1, -1, 2], [var1, var2, var3], 15) :: defines_var(var1);
+        solve satisfy;
+    |}
+  in
+  let expected =
+    {
+      domains =
+        Coq_smap.add "var1" (interval 0 10)
+          (Coq_smap.add "var2" (interval 0 10)
+             (Coq_smap.add "var3" (interval 0 10) Coq_smap.empty));
+      constraints =
+        Coq_nmap.add
+          (Big_int_Z.big_int_of_int 1)
+          (Coq_linear_leq
+             {
+               l_terms =
+                 [
+                   (Big_int_Z.big_int_of_int 1, Coq_var_name "var1");
+                   (Big_int_Z.big_int_of_int (-1), Coq_var_name "var2");
+                   (Big_int_Z.big_int_of_int 2, Coq_var_name "var3");
+                 ];
+               l_bound = Big_int_Z.big_int_of_int 15;
+             })
+          Coq_nmap.empty;
+    }
+  in
+
+  test_parse source expected
+
 let%test "parse linear inequality with lookup of array arguments" =
   let source =
     {|
