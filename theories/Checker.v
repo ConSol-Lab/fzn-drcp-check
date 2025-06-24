@@ -253,6 +253,7 @@ Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (
   | linear =>
       match hint with
       | [linear_leq c] => Linear.linear_checker fact c
+      | [linear_eq c] => Linear.linear_eq_checker fact c
       | _ => false
       end
   end.
@@ -302,11 +303,15 @@ Proof.
     simpl. left. reflexivity.
   - apply validate_if_holds with (csp_domains := doms) ; assumption.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    apply Is_true_eq_left in Hvalid.
-    apply Linear.linear_checker_soundness with (c := constraint); try assumption.
-    specialize (Hsat (linear_leq constraint)).
-    apply Hsat.
-    simpl. left. reflexivity.
+    + apply Is_true_eq_left in Hvalid.
+      apply Linear.linear_checker_soundness with (c := constraint); try assumption.
+      specialize (Hsat (linear_leq constraint)).
+      apply Hsat.
+      simpl. left. reflexivity.
+    + apply Linear.linear_eq_checker_soundness with (c := constraint); try assumption.
+      specialize (Hsat (linear_eq constraint)).
+      apply Hsat.
+      simpl. left. reflexivity.
     (*- destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply checker_cumulative with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).

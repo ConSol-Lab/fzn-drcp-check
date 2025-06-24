@@ -84,19 +84,19 @@ let variable_array (parsed_ast : ast) (arg : constr_arg) : coq_Var list =
 let create_linear parsed_ast args =
   match args with
   | [ weights_arg; vars_arg; bound_arg ] ->
-      Coq_linear_leq
-        {
-          l_terms =
-            List.combine
-              (constant_array parsed_ast weights_arg)
-              (variable_array parsed_ast vars_arg);
-          l_bound = arg_to_constant parsed_ast bound_arg;
-        }
+      {
+        l_terms =
+          List.combine
+            (constant_array parsed_ast weights_arg)
+            (variable_array parsed_ast vars_arg);
+        l_bound = arg_to_constant parsed_ast bound_arg;
+      }
   | _ -> raise (InvalidArgumentsError "int_lin_le")
 
 let create_constraint parsed_ast c =
   match c.constr_name with
-  | "int_lin_le" -> create_linear parsed_ast c.constr_args
+  | "int_lin_le" -> Coq_linear_leq (create_linear parsed_ast c.constr_args)
+  | "int_lin_eq" -> Coq_linear_eq (create_linear parsed_ast c.constr_args)
   | unknown -> raise (UnknownConstraintError unknown)
 
 let accumulate_constraints parsed_ast (map, idx) c =
