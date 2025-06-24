@@ -95,6 +95,7 @@ Module ConstraintDefinitions.
 
   Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint)
+  | linear_eq (constraint : LinearConstraint)
       (* | cumulative_c (constraint : CumulativeConstraint) *)
   | fact_c (constraint : ProofFacts.ProofFact)
   (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
@@ -117,6 +118,9 @@ Module ConstraintDefinitions.
   Definition Linear (c : LinearConstraint) (a : string -> Z) : Prop :=
     evaluate_linear (c.(l_terms)) a <= c.(l_bound).
 
+  Definition LinearEq (c : LinearConstraint) (a : string -> Z) : Prop :=
+    evaluate_linear (c.(l_terms)) a = c.(l_bound).
+
   Definition is_active_at (sol : Assignment) (timepoint : Z) (activity : Activity) : bool :=
     let start_time := evaluate activity.(activity_start) sol in
     let duration := Z.of_N activity.(activity_duration) in
@@ -136,6 +140,7 @@ Module ConstraintDefinitions.
   Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
     match c with
     | linear_leq c => Linear c sol
+    | linear_eq c => LinearEq c sol
         (* | cumulative_c c => Cumulative c sol *)
     | fact_c c => ProofFacts.fact_valid sol c
     end.

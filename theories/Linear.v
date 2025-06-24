@@ -153,3 +153,59 @@ Proof.
   enough (lb <= evaluate_linear lin_terms sol) by lia.
   apply bound_validity with (doms := doms) ; assumption.
 Qed.
+
+
+Definition negate (c : LinearConstraint) :=
+  {|
+    l_terms := map (fun x : (Z * Var) => let (coef, var) := x in (-coef, var)) (l_terms c);
+    l_bound := -(l_bound c)
+  |}.
+
+Lemma equality_via_negate : forall (c : LinearConstraint) (sol : string -> Z),
+  LinearEq c sol -> Linear c sol /\ Linear (negate c) sol.
+Proof.
+  unfold LinearEq, Linear.
+  intros c sol Heq.
+  split ; apply Z.eq_le_incl ; try assumption.
+  unfold negate.
+  simpl.
+  remember (l_terms c) as terms.
+  remember (l_bound c) as bound.
+  clear Heqterms Heqbound c.
+  generalize dependent bound.
+  induction terms ; simpl ; intros bound Heq.
+  - rewrite <- Heq.
+    reflexivity.
+  - destruct a.
+    remember (evaluate_linear terms sol) as tail_bound.
+    rewrite Heqtail_bound in IHterms.
+    symmetry in Heqtail_bound.
+    specialize (IHterms tail_bound Heqtail_bound).
+    rewrite IHterms.
+    unfold evaluate_term.
+    unfold evaluate_term in Heq.
+    lia.
+Qed.
+
+Definition linear_eq_checker (fact : ProofFact) (c : LinearConstraint) :=
+  orb (linear_checker fact c) (linear_checker fact (negate c)).
+
+Theorem linear_eq_checker_soundness : forall
+  (fact : ProofFact) (sol : string -> Z) (c : LinearConstraint),
+  LinearEq c sol ->
+  linear_eq_checker fact c = true ->
+  fact_valid sol fact.
+Proof.
+  intros fact sol c Heq Hvalid.
+  apply equality_via_negate in Heq.
+  destruct Heq as [Hbound Hneg].
+  unfold linear_eq_checker in Hvalid.
+  apply orb_prop in Hvalid.
+  destruct Hvalid as [Hvalid_bound | Hvalid_neg].
+  - apply linear_checker_soundness with (c := c) ; try assumption.
+    apply Is_true_eq_left in Hvalid_bound.
+    assumption.
+  - apply linear_checker_soundness with (c := negate c) ; try assumption.
+    apply Is_true_eq_left in Hvalid_neg.
+    assumption.
+Qed.
