@@ -5,8 +5,9 @@ Require Import Coq.NArith.NArith.
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.Lists.List.
 Require Import Checker.AllDifferent.
-Require Import Checker.Atomic.
-Require Import Checker.Nogood.
+Require Import Spec.
+Import Spec.ProofFacts.
+Import Spec.ConstraintDefinitions.
 
 Definition alldifferent_checker (inference : list Atomic) (constraint : AllDifferentConstraint) : bool :=
   match inference with

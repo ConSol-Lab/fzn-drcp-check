@@ -4,6 +4,8 @@ Require Coq.Lists.List.
 Require Checker.Utility.
 Require Coq.Sorting.Permutation.
 Require Import Checker.Cumulative.
+Require Import Checker.Spec.
+Import Spec.ConstraintDefinitions.
 Require Lia.
 
 Module XNSum.

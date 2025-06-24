@@ -14,6 +14,8 @@ Import Utility.SortedEx.
 Require Import Checker.Zext.
 Require Import Program.Basics.
 Require Import Sorting.Sorted.
+Require Checker.Spec.
+Import Spec.ProofFacts.
 
 Open Scope Z_scope.
 
@@ -24,17 +26,6 @@ Open Scope Z_scope.
 (** * Atomics *)
 Section Atomics.
 (** An atomic, short for atomic constraint, is a constraint on some value using the >=, <=, = and != operators. *)
-
-Inductive AtomicComparator :=
-  | less_equal
-  | greater_equal
-  | equal
-  | not_equal.
-
-Record Atomic := mkAtm {
-    atm_cmp : AtomicComparator;
-    atm_val : Z
-}.
 
 (** Utility functions for defining particular atomic types easily. *)
 Definition mk_atm_le (c : Z) :=
@@ -55,15 +46,6 @@ Definition decide_atomic (x : Z) (a : Atomic) :=
   | greater_equal => x >=? a.(atm_val)
   | equal => x =? a.(atm_val)
   | not_equal => negb (x =? a.(atm_val))
-  end.
-
-(** This definition provides the semantics of an atomic constraint. Again, `y` is some value, but think of it as the value of some variable. *)
-Definition atomic_holds (y : Z) (a : Atomic) :=
-  match a.(atm_cmp) with
-  | less_equal => y <= a.(atm_val)
-  | greater_equal => y >= a.(atm_val)
-  | equal => y = a.(atm_val)
-  | not_equal => y <> a.(atm_val)
   end.
 
 Lemma decide_atomic_prop : forall (x : Z) (a : Atomic),
@@ -161,7 +143,7 @@ Definition eqb (lhs : Domain) (rhs : Domain) :=
   in
   same_lb && same_ub && same_holes.
 
-Lemma eqb_eq : forall lhs rhs, Is_true (eqb lhs rhs) -> dom_equiv lhs rhs.
+Lemma eqb_eq : forall lhs rhs, eqb lhs rhs = true -> dom_equiv lhs rhs.
 Proof.
   intros lhs rhs.
   destruct lhs.
@@ -169,13 +151,13 @@ Proof.
   unfold eqb.
   simpl.
   intros.
-  apply andb_prop_elim in H.
+  apply andb_prop in H.
   destruct H as [H Eholes].
-  apply andb_prop_elim in H.
+  apply andb_prop in H.
   destruct H as [Elb Eub].
-  apply Is_true_eq_true, Zext.eqb_eq in Elb.
-  apply Is_true_eq_true, Zext.eqb_eq in Eub.
-  apply Is_true_eq_true, sint_prps.Dec.F.equal_2 in Eholes.
+  apply Zext.eqb_eq in Elb.
+  apply Zext.eqb_eq in Eub.
+  apply sint_prps.Dec.F.equal_2 in Eholes.
   rewrite Elb, Eub.
   unfold dom_equiv, is_in_dom.
   intros.

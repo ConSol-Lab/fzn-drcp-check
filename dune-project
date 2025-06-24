@@ -1,27 +1,10 @@
-(lang dune 3.16)
-(using coq 0.8)
+(lang dune 3.18)
+(using coq 0.10)
 (using menhir 3.0)
-
-(name fzn_drcp_check)
-
-(generate_opam_files true)
 
 (source
  (github ConSol-Lab/fzn-drcp-check))
 
 (authors "Maarten Flippo" "Konstantin Sidorov")
 
-(maintainers "Maarten Flippo" "Konstantin Sidorov")
-
 (license MIT)
-
-(package
- (name fzn_drcp_check)
- (depends ocaml dune))
-
-(package
- (name fzn_drcp_check_parsing)
- (depends ocaml dune))
-
-
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

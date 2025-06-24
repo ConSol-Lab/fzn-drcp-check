@@ -1,0 +1,13 @@
+(coq.extraction
+ (prelude extraction)
+ (extracted_modules checker)
+ (theories MMaps Checker))
+
+(env
+ (dev
+  (flags
+   (:standard -warn-error -A))))
+
+(library
+ (name drcpcheck_core)
+ (libraries zarith))
