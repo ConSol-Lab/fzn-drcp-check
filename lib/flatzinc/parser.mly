@@ -61,7 +61,11 @@ constant_arrays: vals = list(constant_array) { to_coq_map Coq_smap.empty Coq_sma
 constant_array: ARRAY; OPEN_BRACKET; int_interval; CLOSE_BRACKET; OF; INT; COLON; name = IDENT; EQUALS; value = int_literal_array; SEMICOLON { (name, value) };
 
 variables: vars = list(variable) { to_coq_map Coq_smap.empty Coq_smap.add vars };
-variable: VAR; dom = int_domain; COLON; name = IDENT; annotation_list; SEMICOLON { (name, dom) }
+variable: 
+    | VAR; dom = int_domain; COLON; name = IDENT; annotation_list; SEMICOLON { (name, dom) }
+    | VAR; dom = int_domain; COLON; name = IDENT; annotation_list; EQUALS; assigned = INT_LITERAL; SEMICOLON
+        { if dom = Coq_interval (assigned, assigned) then (name, dom) else failwith "Assignment operator only supported on variables with singleton domains." }
+    ;
 
 var_arrays: arrays = list(var_array) { to_coq_map Coq_smap.empty Coq_smap.add arrays };
 var_array: ARRAY; OPEN_BRACKET; int_interval; CLOSE_BRACKET; OF; VAR; INT; COLON; name = IDENT; annotation_list; EQUALS; OPEN_BRACKET; array = separated_list(COMMA, constr_or_ident); CLOSE_BRACKET; SEMICOLON { (name, array) };
