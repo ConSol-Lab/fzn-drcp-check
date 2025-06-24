@@ -177,3 +177,34 @@ let%test "parse a proof stage" =
   in
 
   test_parse source expected
+
+let%test "parse initial domain inferences without constraint hint" =
+  let source =
+    {|
+    a 1 [x1 >= 1]
+    i 1 0 1 l:initial_domain
+    i 2 0 -1 l:initial_domain
+    n 3 0 1 2
+    c UNSAT
+    |}
+  in
+  let expected =
+    {
+      proof_stages =
+        [
+          {
+            s_inferences =
+              [
+                inference 1 [] (Some (atom "x1" Coq_greater_equal 1)) [] Coq_dom;
+                inference 2 [] (Some (atom "x1" Coq_less_equal 0)) [] Coq_dom;
+              ];
+            s_conclusion = nogood [];
+            s_chain = [ big_int_of_int 1; big_int_of_int 2 ];
+            s_conclusion_index = big_int_of_int 3;
+          };
+        ];
+      conclusion = { i_premises = []; i_consequent = None };
+    }
+  in
+
+  test_parse source expected
