@@ -16,6 +16,39 @@ Import Spec.ProofFacts.
 Import Coq.Lists.List.ListNotations.
 Open Scope Z_scope.
 
+Inductive InferenceRule :=
+| fact_equiv
+| dom
+| linear
+(* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
+    (* | cumulative *)
+(* | alldifferent *)
+.
+
+Inductive Step :=
+| inference (fact : ProofFacts.ProofFact) (hint : list N) (rule : InferenceRule)
+| nogood (fact : ProofFacts.ProofFact) (chain : list N).
+
+Record IndexedInference := {
+    iinf_index : N ;
+    iinf_fact : ProofFacts.ProofFact ;
+    iinf_hint : list N ;
+    iinf_rule : InferenceRule
+  }.
+
+Record ProofStage := {
+    s_inferences : list IndexedInference ;
+    s_chain : list N ;
+    s_conclusion : ProofFacts.ProofFact ;
+    s_conclusion_index : N
+  }.
+
+Inductive CheckerErrorType :=
+  | invalid_inference (id : N)
+  | invalid_deduction (id : N).
+
+Definition CheckerError := CheckResult CheckerErrorType.
+
 Definition step_fact (step : Step) :=
   match step with
   | inference fact _ _ => fact
@@ -337,17 +370,25 @@ Definition validate_nogood (fact : ProofFact) (chain : list ProofFact) :=
 Definition validate_inference_within_stage (doms : smap.t IntSet) (step : HydratedInference) :=
   validate_inference doms step.(hinf_fact) step.(hinf_hint) step.(hinf_rule).
 
+Inductive StageResult :=
+  | valid
+  | invalid (e : CheckerErrorType).
 
-Definition validate_proof_stage (doms : smap.t IntSet) (stage : HydratedProofStage) :=
-  (* Validate every inference independently *)
-  let inferences_ok := forallb 
-    (validate_inference_within_stage doms)
-    stage.(hs_inferences)
-  in
-  (* Check that the conclusion is a valid deduction *)
-  let conclusion_ok := validate_nogood stage.(hs_conclusion) stage.(hs_chain) in
-  andb inferences_ok conclusion_ok.
-  
+Fixpoint validate_inferences (doms : smap.t IntSet) (inferences : list HydratedInference) : StageResult :=
+  match inferences with
+  | nil => valid
+  | inf :: tail => if validate_inference_within_stage doms inf 
+                   then validate_inferences doms tail
+                   else invalid (invalid_inference inf.(hinf_index))
+  end.
+
+Definition validate_proof_stage (doms : smap.t IntSet) (stage : HydratedProofStage) :  StageResult :=
+  match validate_inferences doms stage.(hs_inferences) with
+  | valid => if validate_nogood stage.(hs_conclusion) stage.(hs_chain)
+             then valid
+             else invalid (invalid_deduction stage.(hs_conclusion_index))
+  | invalid e => invalid e 
+  end.
 
 Definition used_constraints (stage : HydratedProofStage) :=
   let hints := flat_map hinf_hint stage.(hs_inferences)
@@ -360,7 +401,7 @@ Definition used_constraints (stage : HydratedProofStage) :=
 
 Lemma valid_proof_stage_implies_conclusion : forall
   (doms : smap.t IntSet) (stage : HydratedProofStage) (sol : string -> Z),
-  Is_true (validate_proof_stage doms stage) ->
+  validate_proof_stage doms stage = valid ->
   (forall (c : Constraint),
     In c (used_constraints stage) -> satisfies_constraint c sol
   ) ->
@@ -480,17 +521,22 @@ Definition hydrate (csp : ConstraintProblem) (stage : ProofStage) : HydratedProo
   |}
   .
 
+Inductive CheckStagesResult :=
+  | valid (csp : ConstraintProblem)
+  | invalid (error : CheckerErrorType).
 
-Fixpoint validate_stages (csp : ConstraintProblem) (p : list ProofStage) :=
+Fixpoint validate_stages (csp : ConstraintProblem) (p : list ProofStage) : CheckStagesResult :=
   match p with
-  | nil => Some csp
+  | nil => valid csp
   | stage :: p' =>
       let csp' := ConstraintProblem.add
         (stage.(s_conclusion_index))
         (stage.(s_conclusion))
         csp
       in
-      if validate_proof_stage (csp.(domains)) (hydrate csp stage)
+      match validate_proof_stage (csp.(domains)) (hydrate csp stage) with
+      | 
+      if 
       then validate_stages csp' p'
       else None
   end.
@@ -626,14 +672,15 @@ Definition compare_with_fact (rhs : ProofFact) (lhs : Constraint) :=
   end.
 
 
-Definition validate (csp : ConstraintProblem) (p : CPProof) :=
-  match validate_stages csp (p.(proof_stages)) with
-  | Some csp' => nmap.exists_ (fun k => compare_with_fact (conclusion p)) csp'.(constraints)
-  | None => false
+
+Definition validate (csp : ConstraintProblem) (conclusion: ProofFact) (proof_stages : list ProofStage) : CheckerRerror :=
+  match validate_stages csp proof_stages with
+  | Some csp' => nmap.exists_ (fun k => compare_with_fact conclusion) csp'.(constraints)
+  | error e => error e
   end.
 
 
-Theorem soundness : checker_sound validate.
+Theorem soundness : checker_sound (list ProofStage) validate.
 Proof.
   unfold checker_sound.
   intros csp p Hvalid.

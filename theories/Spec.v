@@ -172,40 +172,6 @@ Module ConstraintDefinitions.
 End ConstraintDefinitions.
 
 Module Proofs.
-  Inductive InferenceRule :=
-  | fact_equiv
-  | dom
-  | linear
-  (* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
-      (* | cumulative *)
-  (* | alldifferent *)
-  .
-
-  Inductive Step :=
-  | inference (fact : ProofFacts.ProofFact) (hint : list N) (rule : InferenceRule)
-  | nogood (fact : ProofFacts.ProofFact) (chain : list N).
-
-  Record IndexedInference := {
-      iinf_index : N ;
-      iinf_fact : ProofFacts.ProofFact ;
-      iinf_hint : list N ;
-      iinf_rule : InferenceRule
-    }.
-
-  Record ProofStage := {
-      s_inferences : list IndexedInference ;
-      s_chain : list N ;
-      s_conclusion : ProofFacts.ProofFact ;
-      s_conclusion_index : N
-    }.
-
-  Record CPProof := {
-      proof_stages : list ProofStage ;
-      conclusion : ProofFacts.ProofFact
-    }.
-
-  Import Coq.Lists.List.ListNotations.
-
   Definition fact_holds
     (csp : ConstraintDefinitions.ConstraintProblem)
     (fact : ProofFacts.ProofFact) :=
@@ -213,6 +179,13 @@ Module Proofs.
       ConstraintDefinitions.satisfies_problem csp sol ->
       ProofFacts.fact_valid sol fact.
 
-  Definition checker_sound (checker_impl : ConstraintDefinitions.ConstraintProblem -> CPProof -> bool) : Prop :=
-    forall csp p, checker_impl csp p = true -> fact_holds csp (p.(conclusion)).
+  Inductive CheckResult (Error : Type) :=
+    | valid
+    | invalid (error : Error).
+
+  Definition ProofChecker (Proof : Type) (Error : Type) := 
+    ConstraintDefinitions.ConstraintProblem -> ProofFacts.ProofFact -> Proof -> CheckResult Error.
+
+  Definition checker_sound (Proof : Type) (Error : Type) (checker : ProofChecker Proof Error) : Prop :=
+    forall csp proof fact, checker csp fact proof = (valid Error) -> fact_holds csp fact.
 End Proofs.
