@@ -1,3 +1,7 @@
+open Big_int_Z
+open Drcpcheck_core.Checker
+open Drcpcheck_core.Checker.ProofFacts
+
 let usage = "drcpcheck <flatzinc> <drcp>"
 
 (* Input files *)
@@ -27,10 +31,56 @@ let read_proof drcp_file =
 
 let run_checker flatzinc_file drcp_file =
   let csp = read_constraint_problem flatzinc_file in
-  let proof = read_proof drcp_file in
-  if Drcpcheck_core.Checker.validate csp proof then
-    print_endline "Proof is valid!"
-  else print_endline "Validation failed!"
+  let proof, conclusion = read_proof drcp_file in
+  match validate csp conclusion proof with
+  | Proofs.Coq_valid -> print_endline "Proof is valid!"
+  | Proofs.Coq_invalid Deduction_implies_not_false ->
+      print_endline
+        "One of the deduction steps does not imply false. This should not be \
+         able to happen!"
+  | Proofs.Coq_invalid (Invalid_inference step_id) ->
+      Printf.printf "Inference %s is unsound\n" (string_of_big_int step_id)
+  | Proofs.Coq_invalid (Invalid_deduction (step_id, None)) ->
+      Printf.printf "Deduction %s has inconsistent premises\n"
+        (string_of_big_int step_id)
+  | Proofs.Coq_invalid (Invalid_deduction (step_id, Some inferences)) ->
+      let show_atomic = function
+        | name, atomic ->
+            let cmp =
+              match atomic.atm_cmp with
+              | Coq_greater_equal -> ">="
+              | Coq_less_equal -> "<="
+              | Coq_equal -> "=="
+              | Coq_not_equal -> "!="
+            in
+            let value = string_of_big_int atomic.atm_val in
+            Printf.sprintf "[%s %s %s]" name cmp value
+      in
+
+      let premises fact =
+        String.concat " " (List.map show_atomic fact.i_premises)
+      in
+      let consequent fact =
+        match fact.i_consequent with
+        | Some atomic -> show_atomic atomic
+        | None -> "False"
+      in
+      let print_fact fact =
+        Printf.sprintf "%s => %s" (premises fact) (consequent fact)
+      in
+      Printf.printf
+        "Deduction %s did not derive a contradiction. The following %d \
+         inferences could not be used:\n"
+        (string_of_big_int step_id)
+        (List.length inferences);
+
+      List.iter
+        (fun inf ->
+          Printf.printf "  - %s\n    Missing premises: %s\n"
+            (print_fact inf.fact)
+            (String.concat ", " (List.map show_atomic inf.missing_premises)))
+        inferences
+  | Proofs.Coq_invalid Invalid_conclusion -> print_endline "Invalid conclusion."
 
 let () =
   Arg.parse [] assign_args usage;

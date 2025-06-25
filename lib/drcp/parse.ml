@@ -1,5 +1,5 @@
 open Drcpcheck_core.Checker.ProofFacts
-open Drcpcheck_core.Checker.Proofs
+open Drcpcheck_core.Checker
 open Angstrom
 open Big_int_Z
 
@@ -10,7 +10,7 @@ type inference = {
   premises : int list;
   consequent : int option;
   generated_by : big_int list;
-  label : coq_InferenceRule;
+  label : inferenceRule;
 }
 
 type deduction = {
@@ -106,9 +106,9 @@ let atom_definition =
 let inference_rule =
   choice
     [
-      string "linear_bounds" *> return Coq_linear;
-      string "nogood" *> return Coq_fact_equiv;
-      string "initial_domain" *> return Coq_dom;
+      string "linear_bounds" *> return Linear;
+      string "nogood" *> return Fact_equiv;
+      string "initial_domain" *> return Dom;
     ]
   <?> "inference rule"
 
@@ -190,7 +190,7 @@ let resolve_atomic_id atomics id =
 let resolve_atomic_ids atomics ids = List.map (resolve_atomic_id atomics) ids
 
 let convert_inference (atomics : coq_BoundAtomic IntMap.t)
-    (inference : inference) : coq_IndexedInference =
+    (inference : inference) : indexedInference =
   {
     iinf_index = inference.constraint_id;
     iinf_fact =
@@ -206,8 +206,8 @@ let convert_inference (atomics : coq_BoundAtomic IntMap.t)
 exception IncompleteProofError
 
 let rec convert_proof_stage (steps : step list)
-    (atomics : coq_BoundAtomic IntMap.t) (acc : coq_IndexedInference list) :
-    coq_BoundAtomic IntMap.t * coq_ProofStage * step list =
+    (atomics : coq_BoundAtomic IntMap.t) (acc : indexedInference list) :
+    coq_BoundAtomic IntMap.t * proofStage * step list =
   match steps with
   | [] -> raise IncompleteProofError
   | AtomDefinition def :: tail ->
@@ -229,27 +229,23 @@ let rec convert_proof_stage (steps : step list)
         tail )
 
 let rec convert_steps_to_proof (steps : step list)
-    (atomics : coq_BoundAtomic IntMap.t) (acc : coq_CPProof) : coq_CPProof =
+    (atomics : coq_BoundAtomic IntMap.t) (acc : proofStage list) :
+    proofStage list =
   match steps with
   | [] -> acc
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
       | new_atomics, stage, rest ->
-          convert_steps_to_proof rest new_atomics
-            {
-              proof_stages = acc.proof_stages @ [ stage ];
-              conclusion = acc.conclusion;
-            })
+          convert_steps_to_proof rest new_atomics (acc @ [ stage ]))
 
 exception ParseError of string
 
-let parse_proof (source : string) : coq_CPProof =
+let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with
   | Ok (steps, conclusion) ->
       let conclusion =
         match conclusion with
         | Unsat -> { i_premises = []; i_consequent = None }
       in
-      convert_steps_to_proof steps IntMap.empty
-        { proof_stages = []; conclusion }
+      (convert_steps_to_proof steps IntMap.empty [], conclusion)
   | Error e -> raise (ParseError e)

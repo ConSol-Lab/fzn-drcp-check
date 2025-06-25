@@ -25,10 +25,6 @@ Inductive InferenceRule :=
 (* | alldifferent *)
 .
 
-Inductive Step :=
-| inference (fact : ProofFacts.ProofFact) (hint : list N) (rule : InferenceRule)
-| nogood (fact : ProofFacts.ProofFact) (chain : list N).
-
 Record IndexedInference := {
     iinf_index : N ;
     iinf_fact : ProofFacts.ProofFact ;
@@ -43,17 +39,14 @@ Record ProofStage := {
     s_conclusion_index : N
   }.
 
-Inductive CheckerErrorType :=
+Inductive CheckerErrorType : Type :=
   | invalid_inference (id : N)
-  | invalid_deduction (id : N).
+  (* If failed_inferences is None, the premises of the deduction are contradictory *)
+  | invalid_deduction (id : N) (failed_inferences : option (list FailedInference))
+  | deduction_implies_not_false
+  | invalid_conclusion.
 
 Definition CheckerError := CheckResult CheckerErrorType.
-
-Definition step_fact (step : Step) :=
-  match step with
-  | inference fact _ _ => fact
-  | nogood fact _ => fact
-  end.
 
 Record HydratedInference := {
   hinf_index : N ;
@@ -358,36 +351,49 @@ Proof.
   (*   simpl. left. reflexivity. *)
 Qed.
 
+Inductive StageResult :=
+  | valid_single_stage
+  | invalid_single_stage (e : CheckerErrorType).
 
-Definition validate_nogood (fact : ProofFact) (chain : list ProofFact) :=
+Definition validate_nogood (id : N) (fact : ProofFact) (chain : list ProofFact) : StageResult :=
   match (i_consequent fact) with
-  | None => check_deduct fact.(i_premises) chain
-  | Some _ => false
+  | None => match check_deduct fact.(i_premises) chain with
+            | deduced => valid_single_stage
+            | inconsistent_premises => invalid_single_stage (invalid_deduction id None)
+            | failed failed_inferences => invalid_single_stage (invalid_deduction id (Some failed_inferences))
+            end
+  | Some _ => invalid_single_stage deduction_implies_not_false
   end.
-
-
 
 Definition validate_inference_within_stage (doms : smap.t IntSet) (step : HydratedInference) :=
   validate_inference doms step.(hinf_fact) step.(hinf_hint) step.(hinf_rule).
 
-Inductive StageResult :=
-  | valid
-  | invalid (e : CheckerErrorType).
-
 Fixpoint validate_inferences (doms : smap.t IntSet) (inferences : list HydratedInference) : StageResult :=
   match inferences with
-  | nil => valid
+  | nil => valid_single_stage
   | inf :: tail => if validate_inference_within_stage doms inf 
                    then validate_inferences doms tail
-                   else invalid (invalid_inference inf.(hinf_index))
+                   else invalid_single_stage (invalid_inference inf.(hinf_index))
   end.
 
-Definition validate_proof_stage (doms : smap.t IntSet) (stage : HydratedProofStage) :  StageResult :=
+Lemma validate_inferences_forall : forall
+  (doms : smap.t IntSet) (inferences : list HydratedInference) ,
+  validate_inferences doms inferences = valid_single_stage -> Forall (fun inf => validate_inference_within_stage doms inf = true) inferences.
+Proof.
+  intros doms inferences Hvalid.
+  rewrite Forall_forall.
+  induction inferences ; simpl ; simpl in Hvalid ; try easy.
+  intros x Hin'.
+  destruct Hin' ; destruct (validate_inference_within_stage doms a) eqn:Estage ; try inversion Hvalid.
+  - rewrite <- H.
+    exact Estage.
+  - apply IHinferences ; assumption.
+Qed.
+
+Definition validate_proof_stage (doms : smap.t IntSet) (stage : HydratedProofStage) : StageResult :=
   match validate_inferences doms stage.(hs_inferences) with
-  | valid => if validate_nogood stage.(hs_conclusion) stage.(hs_chain)
-             then valid
-             else invalid (invalid_deduction stage.(hs_conclusion_index))
-  | invalid e => invalid e 
+  | valid_single_stage => validate_nogood stage.(hs_conclusion_index) stage.(hs_conclusion) stage.(hs_chain)
+  | invalid_single_stage e => invalid_single_stage e 
   end.
 
 Definition used_constraints (stage : HydratedProofStage) :=
@@ -398,10 +404,9 @@ Definition used_constraints (stage : HydratedProofStage) :=
   hints ++ inferences.
 
 
-
 Lemma valid_proof_stage_implies_conclusion : forall
   (doms : smap.t IntSet) (stage : HydratedProofStage) (sol : string -> Z),
-  validate_proof_stage doms stage = valid ->
+  validate_proof_stage doms stage = valid_single_stage ->
   (forall (c : Constraint),
     In c (used_constraints stage) -> satisfies_constraint c sol
   ) ->
@@ -410,31 +415,27 @@ Lemma valid_proof_stage_implies_conclusion : forall
 Proof.
   intros doms stage sol Hvalid Hcons_sat Hdoms.
   unfold validate_proof_stage in Hvalid.
-  apply andb_prop_elim in Hvalid.
-  unfold validate_inference_within_stage in Hvalid.
-  destruct Hvalid as [Hinf_valid Hnogood_valid].
+  destruct (validate_inferences doms (hs_inferences stage)) eqn:Hinf_valid ; try inversion Hvalid.
+  destruct (validate_nogood (hs_conclusion_index stage) (hs_conclusion stage) (hs_chain stage)) eqn:Hnogood_valid ; try inversion Hvalid.
   unfold validate_nogood in Hnogood_valid.
-  destruct stage.(hs_conclusion).(i_consequent) eqn:Econs in Hnogood_valid ;
-  try contradiction.
-  apply Is_true_eq_true in Hinf_valid.
-  rewrite forallb_forall in Hinf_valid.
+  destruct stage.(hs_conclusion).(i_consequent) eqn:Econs in Hnogood_valid ; try inversion Hnogood_valid.
   unfold fact_valid.
   rewrite Econs.
   intros Hvalid_atoms.
   apply check_deduct_correct with
     (assignment := sol)
     (premises := stage.(hs_conclusion).(i_premises))
-    (steps := stage.(hs_chain)).
-  - exact Hvalid_atoms.
-  - intros inf Hin_inf.
-    specialize (Hcons_sat (fact_c inf)).
-    simpl in Hcons_sat.
-    apply Hcons_sat.
-    unfold used_constraints.
-    apply in_or_app.
-    right.
-    apply in_map, Hin_inf.
-  - apply Is_true_eq_true, Hnogood_valid.
+    (steps := stage.(hs_chain)) ; try assumption.
+  intros inf Hin_inf.
+  specialize (Hcons_sat (fact_c inf)).
+  simpl in Hcons_sat.
+  apply Hcons_sat.
+  unfold used_constraints.
+  apply in_or_app.
+  right.
+  apply in_map, Hin_inf.
+  destruct (check_deduct (i_premises _) (hs_chain stage)) ; try inversion Hnogood_valid.
+  reflexivity.
 Qed.
 
 Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
@@ -522,12 +523,12 @@ Definition hydrate (csp : ConstraintProblem) (stage : ProofStage) : HydratedProo
   .
 
 Inductive CheckStagesResult :=
-  | valid (csp : ConstraintProblem)
-  | invalid (error : CheckerErrorType).
+  | valid_stage (csp : ConstraintProblem)
+  | invalid_stage (error : CheckerErrorType).
 
 Fixpoint validate_stages (csp : ConstraintProblem) (p : list ProofStage) : CheckStagesResult :=
   match p with
-  | nil => valid csp
+  | nil => valid_stage csp
   | stage :: p' =>
       let csp' := ConstraintProblem.add
         (stage.(s_conclusion_index))
@@ -535,16 +536,14 @@ Fixpoint validate_stages (csp : ConstraintProblem) (p : list ProofStage) : Check
         csp
       in
       match validate_proof_stage (csp.(domains)) (hydrate csp stage) with
-      | 
-      if 
-      then validate_stages csp' p'
-      else None
+      | valid_single_stage => validate_stages csp' p'
+      | invalid_single_stage e => invalid_stage e
+      end
   end.
-
 
 Theorem step_soundness : forall
   (csp : ConstraintProblem) (p : list ProofStage) (stage : ProofStage),
-    (exists csp', validate_stages csp (stage :: p) = Some csp') ->
+    (exists csp', validate_stages csp (stage :: p) = valid_stage csp') ->
     fact_holds csp (stage.(s_conclusion)).
 Proof.
   intros csp p stage Hvalid.
@@ -617,10 +616,9 @@ Proof.
            correctness of the inference checker. *)
         destruct Hin_inferences as [inf [Hin_inf Einf_fact]].
         unfold validate_proof_stage in Evalid.
-        apply andb_prop in Evalid.
-        destruct Evalid as [Hvalid_inferences _].
-        rewrite forallb_forall in Hvalid_inferences.
-        simpl in Hvalid_inferences.
+        simpl in Evalid.
+        destruct (validate_inferences (domains csp) (map (hydrate_inference csp) inferences)) eqn:Hvalid_inferences ; try inversion Evalid.
+        apply validate_inferences_forall in Hvalid_inferences.
         unfold validate_inference_within_stage in Hvalid_inferences.
         rewrite <- Efact_c.
         simpl.
@@ -654,6 +652,7 @@ Proof.
              }
              rewrite Hrewrite.
              clear Hrewrite.
+             rewrite Forall_forall in Hvalid_inferences.
              apply
                Hvalid_inferences with (x := hinf),
                in_map_iff.
@@ -673,26 +672,28 @@ Definition compare_with_fact (rhs : ProofFact) (lhs : Constraint) :=
 
 
 
-Definition validate (csp : ConstraintProblem) (conclusion: ProofFact) (proof_stages : list ProofStage) : CheckerRerror :=
+Definition validate (csp : ConstraintProblem) (conclusion: ProofFact) (proof_stages : list ProofStage) : CheckerError :=
   match validate_stages csp proof_stages with
-  | Some csp' => nmap.exists_ (fun k => compare_with_fact conclusion) csp'.(constraints)
-  | error e => error e
+  | valid_stage csp' => if nmap.exists_ (fun k => compare_with_fact conclusion) csp'.(constraints)
+                        then valid CheckerErrorType
+                        else invalid CheckerErrorType invalid_conclusion
+  | invalid_stage e => invalid CheckerErrorType e
   end.
 
 
-Theorem soundness : checker_sound (list ProofStage) validate.
+Theorem soundness : checker_sound (list ProofStage) CheckerErrorType validate.
 Proof.
   unfold checker_sound.
-  intros csp p Hvalid.
+  intros csp stages conclusion Hvalid.
   generalize dependent csp.
-  destruct p as [stages conclusion].
   simpl.
   (* Induction by the sequence of stages *)
   induction stages as [|stage].
   (* Base case is a simple lookup in the original CSP *)
   - unfold validate.
     simpl.
-    intros csp Hexists sol Hsat.
+    intros csp Hexists' sol Hsat.
+    destruct (nmap.exists_ (fun _ : nmap.key => compare_with_fact conclusion) (constraints csp)) eqn:Hexists ; try inversion Hexists'.
     apply nmap_prps.exists_iff in Hexists.
     + destruct Hexists as [index [fact_cons [Hmaps Hequiv]]].
       unfold compare_with_fact in Hequiv.
@@ -735,6 +736,7 @@ Proof.
     unfold validate.
     simpl.
     destruct (validate_proof_stage csp.(domains) (hydrate csp stage)) eqn:Estage ; inversion Hvalid.
-    rewrite Heqcsp'.
-    reflexivity.
+    rewrite <- Heqcsp'.
+    destruct (validate_stages csp' stages) ; try reflexivity.
+    destruct (nmap.exists_ (fun _ : nmap.key => compare_with_fact conclusion) (constraints csp0)) ; reflexivity.
 Qed.

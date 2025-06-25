@@ -1,4 +1,4 @@
-open Drcpcheck_core.Checker.Proofs
+open Drcpcheck_core.Checker
 open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_drcp.Parse
 open Big_int_Z
@@ -47,9 +47,9 @@ let show_inference inference =
   let label =
     Printf.sprintf "l:%s"
       (match inference.iinf_rule with
-      | Coq_linear -> "linear_bounds"
-      | Coq_fact_equiv -> "nogood"
-      | Coq_dom -> "dom")
+      | Linear -> "linear_bounds"
+      | Fact_equiv -> "nogood"
+      | Dom -> "dom")
   in
   Printf.sprintf "i %s %s %s %s %s" id premises consequent generated_by label
 
@@ -65,15 +65,13 @@ let show_proof_stage stage : string =
   Printf.sprintf "%s\nn %s %s 0 %s" inferences conclusion_id conclusion_premises
     sequence
 
-let show_proof proof =
-  let steps =
-    String.concat "\n" (List.map show_proof_stage proof.proof_stages)
-  in
+let show_proof proof conclusion =
+  let steps = String.concat "\n" (List.map show_proof_stage proof) in
   let conclusion_premises =
-    String.concat " " (List.map show_atomic proof.conclusion.i_premises)
+    String.concat " " (List.map show_atomic conclusion.i_premises)
   in
   let consequent =
-    match proof.conclusion.i_consequent with
+    match conclusion.i_consequent with
     | Some atomic -> Printf.sprintf "0 %s" (show_atomic atomic)
     | None -> "0 False"
   in
@@ -84,10 +82,13 @@ let test_parse input expected =
   let parsed = parse_proof input in
   if parsed = expected then true
   else
+    let expected_proof, expected_conclusion = expected in
+    let parsed_proof, parsed_conclusion = parsed in
     let _ =
       Printf.printf
         "==========\nEXPECTED:\n%s\n----------\nPARSED:\n%s\n==========\n"
-        (show_proof expected) (show_proof parsed)
+        (show_proof expected_proof expected_conclusion)
+        (show_proof parsed_proof parsed_conclusion)
     in
     false
 
@@ -97,18 +98,15 @@ let%test "parse an empty nogood" =
     c UNSAT
     |} in
   let expected =
-    {
-      proof_stages =
-        [
-          {
-            s_conclusion = nogood [];
-            s_inferences = [];
-            s_chain = [];
-            s_conclusion_index = big_int_of_int 1;
-          };
-        ];
-      conclusion = { i_premises = []; i_consequent = None };
-    }
+    ( [
+        {
+          s_conclusion = nogood [];
+          s_inferences = [];
+          s_chain = [];
+          s_conclusion_index = big_int_of_int 1;
+        };
+      ],
+      { i_premises = []; i_consequent = None } )
   in
 
   test_parse source expected
@@ -120,18 +118,15 @@ let%test "parse a unit nogood" =
     c UNSAT
     |} in
   let expected =
-    {
-      proof_stages =
-        [
-          {
-            s_conclusion = nogood [ atom "x1" Coq_less_equal 0 ];
-            s_inferences = [];
-            s_chain = [];
-            s_conclusion_index = big_int_of_int 1;
-          };
-        ];
-      conclusion = { i_premises = []; i_consequent = None };
-    }
+    ( [
+        {
+          s_conclusion = nogood [ atom "x1" Coq_less_equal 0 ];
+          s_inferences = [];
+          s_chain = [];
+          s_conclusion_index = big_int_of_int 1;
+        };
+      ],
+      { i_premises = []; i_consequent = None } )
   in
 
   test_parse source expected
@@ -149,31 +144,28 @@ let%test "parse a proof stage" =
     |}
   in
   let expected =
-    {
-      proof_stages =
-        [
-          {
-            s_inferences =
-              [
-                inference 7
-                  [
-                    atom "x1" Coq_greater_equal 1;
-                    atom "x2" Coq_less_equal 2;
-                    atom "x3" Coq_greater_equal 1;
-                  ]
-                  None [ 6 ] Coq_linear;
-                inference 8
-                  [ atom "x1" Coq_greater_equal 1; atom "x2" Coq_less_equal 2 ]
-                  (Some (atom "x3" Coq_greater_equal 1))
-                  [ 5 ] Coq_linear;
-              ];
-            s_conclusion = nogood [ atom "x1" Coq_greater_equal 1 ];
-            s_chain = [ big_int_of_int 5; big_int_of_int 6 ];
-            s_conclusion_index = big_int_of_int 9;
-          };
-        ];
-      conclusion = { i_premises = []; i_consequent = None };
-    }
+    ( [
+        {
+          s_inferences =
+            [
+              inference 7
+                [
+                  atom "x1" Coq_greater_equal 1;
+                  atom "x2" Coq_less_equal 2;
+                  atom "x3" Coq_greater_equal 1;
+                ]
+                None [ 6 ] Linear;
+              inference 8
+                [ atom "x1" Coq_greater_equal 1; atom "x2" Coq_less_equal 2 ]
+                (Some (atom "x3" Coq_greater_equal 1))
+                [ 5 ] Linear;
+            ];
+          s_conclusion = nogood [ atom "x1" Coq_greater_equal 1 ];
+          s_chain = [ big_int_of_int 5; big_int_of_int 6 ];
+          s_conclusion_index = big_int_of_int 9;
+        };
+      ],
+      { i_premises = []; i_consequent = None } )
   in
 
   test_parse source expected
@@ -189,22 +181,19 @@ let%test "parse initial domain inferences without constraint hint" =
     |}
   in
   let expected =
-    {
-      proof_stages =
-        [
-          {
-            s_inferences =
-              [
-                inference 1 [] (Some (atom "x1" Coq_greater_equal 1)) [] Coq_dom;
-                inference 2 [] (Some (atom "x1" Coq_less_equal 0)) [] Coq_dom;
-              ];
-            s_conclusion = nogood [];
-            s_chain = [ big_int_of_int 1; big_int_of_int 2 ];
-            s_conclusion_index = big_int_of_int 3;
-          };
-        ];
-      conclusion = { i_premises = []; i_consequent = None };
-    }
+    ( [
+        {
+          s_inferences =
+            [
+              inference 1 [] (Some (atom "x1" Coq_greater_equal 1)) [] Dom;
+              inference 2 [] (Some (atom "x1" Coq_less_equal 0)) [] Dom;
+            ];
+          s_conclusion = nogood [];
+          s_chain = [ big_int_of_int 1; big_int_of_int 2 ];
+          s_conclusion_index = big_int_of_int 3;
+        };
+      ],
+      { i_premises = []; i_consequent = None } )
   in
 
   test_parse source expected

@@ -14,5 +14,5 @@ Set Extraction Output Directory ".".
 
 Extraction "checker" 
   Spec.ConstraintDefinitions.ConstraintProblem
-  Spec.Proofs.CPProof
+  Checker.InferenceRule
   Checker.validate.

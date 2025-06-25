@@ -42,39 +42,51 @@ Definition check_premise (domains : Domains) (premise : BoundAtomic) :=
 Inductive DeductStep :=
 | deduct_domains (domains : smap.t Domain)
 | deduct_valid
-| deduct_reject.
+| deduct_reject (missing_premises : list BoundAtomic).
 
 Definition step_inference (fact : ProofFact) (domains : Domains) :=
-  if forallb (check_premise domains) fact.(i_premises)
-    then
-      match fact.(i_consequent) with
-      | None => deduct_valid
-      | Some consequent =>
-        match doms_apply_tighten domains consequent with
-        | None => deduct_valid
-        | Some domains => deduct_domains domains
-        end
-      end
-    else deduct_reject.
+  let missing_premises := filter (fun x => negb (check_premise domains x)) fact.(i_premises) in
+  match missing_premises with
+  | nil => match fact.(i_consequent) with
+           | None => deduct_valid
+           | Some consequent =>
+             match doms_apply_tighten domains consequent with
+             | None => deduct_valid
+             | Some domains => deduct_domains domains
+             end
+           end
+  | _ => deduct_reject missing_premises
+  end.
 
-Fixpoint deduct_check_inferences (facts : list ProofFact) (domains : Domains) : bool :=
+Record FailedInference := {
+  fact : ProofFact;
+  missing_premises : list BoundAtomic;
+}.
+
+Inductive CheckDeductResult :=
+  | deduced
+  | inconsistent_premises
+  | failed (inferences : list FailedInference). 
+
+Fixpoint deduct_check_inferences (facts : list ProofFact) (domains : Domains) : CheckDeductResult :=
   match facts with
-  | nil => false
+  | nil => failed nil
   | fact :: facts' =>
     match step_inference fact domains with
     | deduct_domains domains' => deduct_check_inferences facts' domains'
-    | deduct_valid => true
-    | deduct_reject => false
+    | deduct_valid => deduced
+    (* TODO: This should not short-circuit. *)
+    | deduct_reject missing_premises => failed ({| fact := fact; missing_premises := missing_premises |} :: nil)
     end
   end.
 
-Definition check_deduct (premises : list BoundAtomic) (steps : list ProofFact) :=
+Definition check_deduct (premises : list BoundAtomic) (steps : list ProofFact) : CheckDeductResult :=
   let doms := domains_from_atomics premises in
   let doms_tight := tighten_doms doms in
     if check_domains_consistent doms
       then deduct_check_inferences steps doms_tight
       (* Inconsistent premises, which we do not expect *)
-      else false.
+      else inconsistent_premises.
 
 Lemma inference_valid_neg_rhs :
   forall sol premises consequent,
@@ -106,7 +118,8 @@ Qed.
 
 Lemma forall_premises :
   forall doms assignment atoms premises,
-  forallb (check_premise doms) premises = true
+  Forall (fun x : BoundAtomic => negb (check_premise doms x) = false)
+    premises
     ->
   valid_atoms assignment atoms
     ->
@@ -126,15 +139,31 @@ Proof.
     apply Hvalid.
     rewrite <- filter_pair_on_key_spec.
     apply Hin'.
-  - rewrite forallb_forall in Hforall.
+  - rewrite Forall_forall in Hforall.
     apply Hforall in Hin; clear Hforall.
     unfold check_premise in Hin.
     destruct smap.find eqn:Hfind; try discriminate Hin.
     rewrite smap.find_spec in Hfind.
     rewrite <- smap_in_spec in Hfind.
     apply dom_from_domains_if_in in Hfind; subst d.
+    rewrite negb_false_iff in Hin.
     assumption.
  Qed.
+
+Lemma filter_eq_nil : forall [A : Type] (f : A -> bool) (l : list  A),
+  filter f l = nil -> Forall (fun x => f x = false) l.
+Proof.
+  intros A f l Hfilter_nil.
+  apply Forall_forall.
+  induction l ; simpl ; try easy.
+  simpl in Hfilter_nil.
+  destruct (f a) eqn:Ea ; try inversion Hfilter_nil.
+  intros x H.
+  destruct H.
+  - rewrite <- H.
+    assumption.
+  - apply IHl ; assumption.
+Qed.
 
 (** This is the main inductive proof. Separating it out is important so that we can put domains_equiv_atoms as a hypothesis so that we have enough information in our induction hypothesis. *)
 Lemma deduct_check_inferences_correct :
@@ -145,15 +174,15 @@ Lemma deduct_check_inferences_correct :
       ->
     (forall fact, In fact steps -> fact_valid assignment fact)
       ->
-    deduct_check_inferences steps domains = true
+    deduct_check_inferences steps domains = deduced
       ->
     False.
 Proof.
   intros assignment.
   induction steps as [|step steps IH].
   { easy. }
-  intros doms atoms Hatoms Hequiv Hinfs.
-  simpl.
+  intros doms atoms Hatoms Hequiv Hinfs Hdeduct.
+  simpl in Hdeduct.
   assert (forall fact, In fact steps -> fact_valid assignment fact) as Hprev.
   { intros fact Hin. apply Hinfs. now right. }
   assert (fact_valid assignment step) as Hstep.
@@ -161,8 +190,8 @@ Proof.
   clear Hinfs.
   destruct step_inference as [doms' | |] eqn:Hinf.
   - unfold step_inference in Hinf.
-    destruct forallb eqn:Hforall in Hinf;
-    try discriminate Hinf.
+    destruct (filter _ (i_premises step)) eqn:Hforall ; try inversion Hinf.
+    apply filter_eq_nil in Hforall.
     unfold fact_valid in Hstep.
     destruct i_consequent as [conseq|];
     try discriminate Hinf.
@@ -183,9 +212,11 @@ Proof.
     try discriminate Hinf.
     inversion Hinf; subst doms_apply; clear Hinf.
     apply Happly_spec.
-  - intros _; clear IH.
+    assumption.
+  - clear IH.
     unfold step_inference in Hinf.
-    destruct forallb eqn:Hforall in Hinf;
+    destruct (filter _ (i_premises step)) eqn:Hforall ; try inversion Hinf.
+    apply filter_eq_nil in Hforall.
     try discriminate Hinf.
     unfold fact_valid in Hstep.
     destruct i_consequent as [conseq|].
@@ -213,7 +244,7 @@ Lemma check_deduct_correct :
       ->
     (forall inf, In inf steps -> fact_valid assignment inf)
       ->
-    check_deduct premises steps = true
+    check_deduct premises steps = deduced
       ->
     False.
 Proof.
