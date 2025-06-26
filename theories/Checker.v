@@ -266,7 +266,7 @@ Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (
   match rule with
   | fact_equiv =>
       match hint with
-      | [fact_c ref_fact] => Deduction.equiv fact ref_fact
+      | [fact_c ref_fact] => Deduction.fact_implies_fact ref_fact fact
       | _ => false
       end
   | dom =>
@@ -322,7 +322,7 @@ Proof.
   unfold validate_inference in Hvalid.
   destruct rule; simpl in Hvalid.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    apply Deduction.equiv_implies_equisat with (lhs := fact) (rhs := constraint).
+    apply Deduction.fact_implies_fact_entails with (stronger := constraint) (weaker := fact).
     exact Hvalid.
     specialize (Hsat (fact_c constraint)).
     apply Hsat.
