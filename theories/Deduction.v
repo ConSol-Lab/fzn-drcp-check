@@ -352,8 +352,8 @@ Proof.
   destruct Hsub as [Hlb Hub].
   rewrite Zext.Zext.leb_le in Hlb, Hub.
   split ; try split.
-  - admit.
-  - admit.
+  - transitivity (d_lb a) ; assumption.
+  - transitivity (d_ub a) ; assumption.
   - unfold not.
     intros Hholesb.
     destruct (Zext.Zext.leb (d_lb a) (Zext.zz x) && Zext.Zext.leb (Zext.zz x) (d_ub a)) eqn:Ebounds.
@@ -371,9 +371,24 @@ Proof.
       apply orb_prop in Ebounds.
       destruct Ebounds as [Elb | Eub].
       * rewrite negb_true_iff in Elb.
-        admit.
-      * admit.
-Admitted.
+        destruct (d_lb a) eqn:Ea ;
+        unfold Zext.Zext.le in Halb ;
+        simpl in Halb ;
+        unfold Zext.Zext.leb in Elb ;
+        simpl in Elb ;
+        try easy .
+        destruct (z ?= x) ;
+        easy.
+      * rewrite negb_true_iff in Eub.
+        destruct (d_ub a) eqn:Ea ;
+        unfold Zext.Zext.le in Haub ;
+        simpl in Haub ;
+        unfold Zext.Zext.leb in Eub ;
+        simpl in Eub ;
+        try easy .
+        destruct (x ?= z) eqn:Exz ;
+        easy.
+Qed.
 
 Lemma subset_domains (sol : string -> Z) :
   forall doms doms',
@@ -409,11 +424,25 @@ Proof.
     remember (sol x).
     clear Heqz sol x.
     apply subset_is_in_dom with (a := dx) ; assumption.
-  - admit.
-  - admit.
+  - exfalso.
+    apply smap_prps.find_2 in Ex.
+    apply smap_prps.not_in_find in Ey.
+    apply Ey, Heqvars.
+    unfold smap.In, smap.Raw.In.
+    exists d.
+    unfold smap.MapsTo in Ex.
+    assumption.
+  - exfalso.
+    apply smap_prps.find_2 in Ey.
+    apply smap_prps.not_in_find in Ex.
+    apply Ex, Heqvars.
+    unfold smap.In, smap.Raw.In.
+    exists d.
+    unfold smap.MapsTo in Ex.
+    assumption.
   - rewrite Heqd'x, <- Heqdx.
     assumption.
-Admitted.
+Qed.
 
 
 Lemma equiv_domains (sol : string -> Z) :
