@@ -197,3 +197,23 @@ let%test "parse initial domain inferences without constraint hint" =
   in
 
   test_parse source expected
+
+let%test "parse a dual bound proof" =
+  let source = {|
+    a 1 [x1 >= 1]
+    n 3 1 0
+    c -1
+  |} in
+  let expected =
+    ( [
+        {
+          s_inferences = [];
+          s_conclusion = nogood [ atom "x1" Coq_greater_equal 1 ];
+          s_chain = [];
+          s_conclusion_index = big_int_of_int 3;
+        };
+      ],
+      { i_premises = [ atom "x1" Coq_greater_equal 1 ]; i_consequent = None } )
+  in
+
+  test_parse source expected

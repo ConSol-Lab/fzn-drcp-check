@@ -147,9 +147,12 @@ let proof_line =
   | 'n' -> deduction_line >>| fun deduction -> Deduction deduction
   | _ -> fail "Unknown proof line"
 
-type conclusion = Unsat
+type conclusion = Unsat | DualBound of int
 
-let conclusion_line = string "c UNSAT" <* ws_with_new_line >>| fun _ -> Unsat
+let conclusion_line =
+  string "c UNSAT" *> return Unsat
+  <|> (string "c " *> atomic_code >>| fun code -> DualBound code)
+  <* ws_with_new_line
 
 let proof =
   many proof_line >>= fun steps ->
@@ -178,6 +181,8 @@ let negate_atomic = function
       | Coq_not_equal ->
           (name, { atm_cmp = Coq_equal; atm_val = atomic.atm_val }))
 
+type atomic_map = coq_BoundAtomic IntMap.t
+
 let resolve_atomic_id atomics id =
   let positive = IntMap.find_opt id atomics in
   let negative = Option.map negate_atomic (IntMap.find_opt (-id) atomics) in
@@ -189,8 +194,8 @@ let resolve_atomic_id atomics id =
 
 let resolve_atomic_ids atomics ids = List.map (resolve_atomic_id atomics) ids
 
-let convert_inference (atomics : coq_BoundAtomic IntMap.t)
-    (inference : inference) : indexedInference =
+let convert_inference (atomics : atomic_map) (inference : inference) :
+    indexedInference =
   {
     iinf_index = inference.constraint_id;
     iinf_fact =
@@ -205,8 +210,8 @@ let convert_inference (atomics : coq_BoundAtomic IntMap.t)
 
 exception IncompleteProofError
 
-let rec convert_proof_stage (steps : step list)
-    (atomics : coq_BoundAtomic IntMap.t) (acc : indexedInference list) :
+let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
+    (acc : indexedInference list) :
     coq_BoundAtomic IntMap.t * proofStage * step list =
   match steps with
   | [] -> raise IncompleteProofError
@@ -228,11 +233,10 @@ let rec convert_proof_stage (steps : step list)
         },
         tail )
 
-let rec convert_steps_to_proof (steps : step list)
-    (atomics : coq_BoundAtomic IntMap.t) (acc : proofStage list) :
-    proofStage list =
+let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
+    (acc : proofStage list) : proofStage list * atomic_map =
   match steps with
-  | [] -> acc
+  | [] -> (acc, atomics)
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
       | new_atomics, stage, rest ->
@@ -243,9 +247,15 @@ exception ParseError of string
 let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with
   | Ok (steps, conclusion) ->
-      let conclusion =
+      let proof, atomics = convert_steps_to_proof steps IntMap.empty [] in
+      let conclusion_fact =
         match conclusion with
         | Unsat -> { i_premises = []; i_consequent = None }
+        | DualBound code ->
+            {
+              i_premises = [ resolve_atomic_id atomics (-code) ];
+              i_consequent = None;
+            }
       in
-      (convert_steps_to_proof steps IntMap.empty [], conclusion)
+      (proof, conclusion_fact)
   | Error e -> raise (ParseError e)
