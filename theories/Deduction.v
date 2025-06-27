@@ -338,6 +338,113 @@ Proof.
   now rewrite <- valid_domains_sol_in_doms_iff_valid_atoms with (atoms := atoms).
 Qed.
 
+
+Lemma subset_is_in_dom : forall a b x,
+  is_subset a b = true -> is_in_dom x a -> is_in_dom x b.
+Proof.
+  unfold is_subset, is_in_dom.
+  intros a b x Hsub Ha.
+  destruct Ha as [Halb [Haub Hah]].
+  apply andb_prop in Hsub.
+  destruct Hsub as [Hsub Hholes].
+  apply sint.subset_spec in Hholes.
+  apply andb_prop in Hsub.
+  destruct Hsub as [Hlb Hub].
+  rewrite Zext.Zext.leb_le in Hlb, Hub.
+  split ; try split.
+  - transitivity (d_lb a) ; assumption.
+  - transitivity (d_ub a) ; assumption.
+  - unfold not.
+    intros Hholesb.
+    destruct (Zext.Zext.leb (d_lb a) (Zext.zz x) && Zext.Zext.leb (Zext.zz x) (d_ub a)) eqn:Ebounds.
+    + apply Hah.
+      apply sint_prps.in_subset with (s1 := (sint.filter
+       (fun h : sint.elt =>
+        Zext.Zext.leb (d_lb a) (Zext.zz h) &&
+        Zext.Zext.leb (Zext.zz h) (d_ub a)) (d_holes b))) ; try assumption.
+      apply sint_prps.FM.filter_3 ; try assumption.
+      unfold Morphisms.Proper, Morphisms.respectful.
+      intros.
+      rewrite H.
+      reflexivity.
+    + rewrite <- negb_true_iff, negb_andb in Ebounds.
+      apply orb_prop in Ebounds.
+      destruct Ebounds as [Elb | Eub].
+      * rewrite negb_true_iff in Elb.
+        destruct (d_lb a) eqn:Ea ;
+        unfold Zext.Zext.le in Halb ;
+        simpl in Halb ;
+        unfold Zext.Zext.leb in Elb ;
+        simpl in Elb ;
+        try easy .
+        destruct (z ?= x) ;
+        easy.
+      * rewrite negb_true_iff in Eub.
+        destruct (d_ub a) eqn:Ea ;
+        unfold Zext.Zext.le in Haub ;
+        simpl in Haub ;
+        unfold Zext.Zext.leb in Eub ;
+        simpl in Eub ;
+        try easy .
+        destruct (x ?= z) eqn:Exz ;
+        easy.
+Qed.
+
+Lemma subset_domains (sol : string -> Z) :
+  forall doms doms',
+  smap.Equivb Domain.is_subset doms doms'
+    ->
+  sol_in_doms sol doms
+    ->
+  sol_in_doms sol doms'.
+Proof.
+  intros doms doms' His_subset.
+  unfold smap.Equivb in His_subset.
+  destruct His_subset as [Heqvars Hsubset_domains].
+  unfold Raw.Cmp in Hsubset_domains.
+  unfold smap.Eqdom in Heqvars.
+  unfold sol_in_doms.
+  intros His_in_dom.
+  intros x.
+  specialize (His_in_dom x).
+  remember (doms d-> x) as dx.
+  remember (doms' d-> x) as d'x.
+  specialize (Hsubset_domains x dx d'x).
+  unfold dom_from_domains in Heqdx, Heqd'x.
+  destruct (smap.find x doms) eqn:Ex ;
+  destruct (smap.find x doms') eqn:Ey ;
+  specialize (Heqvars x) ;
+  simpl in Heqdx ;
+  simpl in Heqd'x.
+  - rewrite <- Heqdx in Ex.
+    rewrite <- Heqd'x in Ey.
+    apply smap_prps.find_2 in Ex, Ey.
+    specialize (Hsubset_domains Ex Ey).
+    clear Heqdx Heqd'x d d0 Ex Ey Heqvars.
+    remember (sol x).
+    clear Heqz sol x.
+    apply subset_is_in_dom with (a := dx) ; assumption.
+  - exfalso.
+    apply smap_prps.find_2 in Ex.
+    apply smap_prps.not_in_find in Ey.
+    apply Ey, Heqvars.
+    unfold smap.In, smap.Raw.In.
+    exists d.
+    unfold smap.MapsTo in Ex.
+    assumption.
+  - exfalso.
+    apply smap_prps.find_2 in Ey.
+    apply smap_prps.not_in_find in Ex.
+    apply Ex, Heqvars.
+    unfold smap.In, smap.Raw.In.
+    exists d.
+    unfold smap.MapsTo in Ex.
+    assumption.
+  - rewrite Heqd'x, <- Heqdx.
+    assumption.
+Qed.
+
+
 Lemma equiv_domains (sol : string -> Z) :
   forall doms doms',
   smap.Equivb Domain.eqb doms doms'
@@ -395,6 +502,30 @@ Proof.
   - intros x.
     rewrite Hdom_equiv.
     apply H.
+Qed.
+
+Definition fact_implies_fact (stronger : ProofFact) (weaker : ProofFact) : bool :=
+  match (infer_domains stronger), (infer_domains weaker) with
+  | Some (stronger_doms, _), Some (weaker_doms, _) =>
+      smap.equal Domain.is_subset weaker_doms stronger_doms
+  | _, _ => false
+  end.
+
+Lemma fact_implies_fact_entails : forall weaker stronger,
+  fact_implies_fact stronger weaker = true ->
+  (forall sol, fact_valid sol stronger -> fact_valid sol weaker).
+Proof.
+  intros weaker stronger Hequiv sol.
+  unfold fact_implies_fact in Hequiv.
+  destruct (infer_domains weaker) as [[dom_weaker str_weaker] | ] eqn:Eweaker ;
+  destruct (infer_domains stronger) as [[dom_stronger str_stronger] | ] eqn:Estronger ;
+  inversion Hequiv.
+  apply smap_prps.equal_2 in Hequiv.
+  rewrite <- infer_domains_correct with (doms := dom_stronger) ; try apply Estronger.
+  rewrite <- infer_domains_correct with (doms := dom_weaker) ; try apply Eweaker.
+  unfold not.
+  intros.
+  apply subset_domains with (sol := sol) in Hequiv ; easy.
 Qed.
 
 (* TODO: currently eqb assumes the holes are exactly the same, but infer_domains does not remove redundant holes. To fix this, Domain.eqb should be changed to be more like an 'equivb', i.e. it should only look for equality of the holes within the bounds. Note: infer_domains DOES already tighten the bounds themselves, so there equality is totally fine. *)

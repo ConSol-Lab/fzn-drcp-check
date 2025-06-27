@@ -134,6 +134,15 @@ Proof.
     rewrite H1. rewrite <- H2. reflexivity.
 Qed.
 
+Definition is_subset (lhs : Domain) (rhs : Domain) : bool :=
+  let lb_lhs_at_least_lb_rhs := (Zext.leb rhs.(d_lb) lhs.(d_lb)) in
+  let ub_lhs_at_most_ub_rhs := (Zext.leb lhs.(d_ub) rhs.(d_ub)) in
+  let shared_holes := sint.filter 
+      (fun h => andb (Zext.leb lhs.(d_lb) (zz h)) (Zext.leb (zz h) lhs.(d_ub))) 
+      rhs.(d_holes) in
+  let holes_subset := sint.subset shared_holes lhs.(d_holes) in
+  lb_lhs_at_least_lb_rhs && ub_lhs_at_most_ub_rhs && holes_subset.
+
 Definition eqb (lhs : Domain) (rhs : Domain) :=
   let same_lb := (Zext.eqb (lhs.(d_lb)) (rhs.(d_lb)))
   in
