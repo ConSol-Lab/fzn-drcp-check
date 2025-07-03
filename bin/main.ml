@@ -29,21 +29,18 @@ let read_proof drcp_file =
   close_in proof_handle;
   Drcpcheck_drcp.Parse.parse_proof source
 
-let run_checker flatzinc_file drcp_file =
-  let csp = read_constraint_problem flatzinc_file in
-  let proof, conclusion = read_proof drcp_file in
-  match validate csp conclusion proof with
-  | Proofs.Coq_valid -> print_endline "Proof is valid!"
-  | Proofs.Coq_invalid Deduction_implies_not_false ->
+let print_error e =
+  match e with
+  | Deduction_implies_not_false ->
       print_endline
         "One of the deduction steps does not imply false. This should not be \
          able to happen!"
-  | Proofs.Coq_invalid (Invalid_inference step_id) ->
+  | Invalid_inference step_id ->
       Printf.printf "Inference %s is unsound\n" (string_of_big_int step_id)
-  | Proofs.Coq_invalid (Invalid_deduction (step_id, None)) ->
+  | Invalid_deduction (step_id, None) ->
       Printf.printf "Deduction %s has inconsistent premises\n"
         (string_of_big_int step_id)
-  | Proofs.Coq_invalid (Invalid_deduction (step_id, Some inferences)) ->
+  | Invalid_deduction (step_id, Some inferences) ->
       let show_atomic = function
         | name, atomic ->
             let cmp =
@@ -80,7 +77,17 @@ let run_checker flatzinc_file drcp_file =
             (print_fact inf.fact)
             (String.concat ", " (List.map show_atomic inf.missing_premises)))
         inferences
-  | Proofs.Coq_invalid Invalid_conclusion -> print_endline "Invalid conclusion."
+  | Invalid_conclusion -> print_endline "Invalid conclusion."
+
+let run_checker flatzinc_file drcp_file =
+  let csp = read_constraint_problem flatzinc_file in
+  let proof, conclusion = read_proof drcp_file in
+  let result = validate csp conclusion proof in
+  match result with
+  | Proofs.Coq_valid -> print_endline "Proof is valid!"
+  | Proofs.Coq_invalid e ->
+      print_error e;
+      exit 1
 
 let () =
   Arg.parse [] assign_args usage;
