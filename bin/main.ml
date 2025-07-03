@@ -79,10 +79,22 @@ let print_error e =
         inferences
   | Invalid_conclusion -> print_endline "Invalid conclusion."
 
+let time label f x =
+  let t = Sys.time () in
+  let fx = f x in
+  Printf.printf "%s: %fs\n" label (Sys.time () -. t);
+  fx
+
+let time3 label f x y z =
+  let t = Sys.time () in
+  let fx = f x y z in
+  Printf.printf "%s: %fs\n" label (Sys.time () -. t);
+  fx
+
 let run_checker flatzinc_file drcp_file =
-  let csp = read_constraint_problem flatzinc_file in
-  let proof, conclusion = read_proof drcp_file in
-  let result = validate csp conclusion proof in
+  let csp = time "parse-flatzinc" read_constraint_problem flatzinc_file in
+  let proof, conclusion = time "parse-proof" read_proof drcp_file in
+  let result = time3 "validate" validate csp conclusion proof in
   match result with
   | Proofs.Coq_valid -> print_endline "Proof is valid!"
   | Proofs.Coq_invalid e ->
