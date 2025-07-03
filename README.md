@@ -2,6 +2,18 @@
 
 A formally verified checker for the FZN model format and DRCP proof format.
 
+## Dependencies
+
+The following OPAM packages should be installed:
+- `menhir`
+- `angstrom`
+- `ppx_import`
+- `ppx_inline_test`
+- `coq-mmaps`, for which you need to add a repository: 
+  ```
+  opam repo add coq-released https://coq.inria.fr/opam/released
+  ```
+
 ## Building
 
 To build the compiler, use the [dune](https://dune.build/) build tool. Building 
