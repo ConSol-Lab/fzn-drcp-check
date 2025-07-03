@@ -29,6 +29,7 @@ rule read_token =
   | "array"  { ARRAY }
   | "of"     { OF }
   | "int"    { INT }
+  | "bool"   { BOOL }
   | "constraint"    { CONSTRAINT }
   | "solve"  { SOLVE }
   | "satisfy" { SATISFY }

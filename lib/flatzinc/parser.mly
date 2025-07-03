@@ -12,6 +12,7 @@ let to_coq_map empty add pairs = List.fold_left (fun acc (key, value) -> add key
 %token ARRAY
 %token OF
 %token INT
+%token BOOL
 %token CONSTRAINT
 %token MINIMIZE
 %token MAXIMIZE
@@ -62,6 +63,7 @@ constant_array: ARRAY; OPEN_BRACKET; int_interval; CLOSE_BRACKET; OF; INT; COLON
 
 variables: vars = list(variable) { to_coq_map Coq_smap.empty Coq_smap.add vars };
 variable: 
+    | VAR; BOOL; COLON; name = IDENT; annotation_list; SEMICOLON { (name, Coq_interval (Big_int_Z.zero_big_int, Big_int_Z.zero_big_int)) }
     | VAR; dom = int_domain; COLON; name = IDENT; annotation_list; SEMICOLON { (name, dom) }
     | VAR; dom = int_domain; COLON; name = IDENT; annotation_list; EQUALS; assigned = INT_LITERAL; SEMICOLON
         { if dom = Coq_interval (assigned, assigned) then (name, dom) else failwith "Assignment operator only supported on variables with singleton domains." }

@@ -125,6 +125,20 @@ let%test "comments are ignored" =
 
   test_parse source expected
 
+let%test "parse bool variable as int with constant zero domain" =
+  let source = {|
+        var bool: var1;
+        solve satisfy;
+    |} in
+  let expected =
+    {
+      domains = Coq_smap.add "var1" (interval 0 0) Coq_smap.empty;
+      constraints = Coq_nmap.empty;
+    }
+  in
+
+  test_parse source expected
+
 let%test "variable with annotation" =
   let source =
     {|
