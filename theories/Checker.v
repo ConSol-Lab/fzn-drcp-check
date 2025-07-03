@@ -693,7 +693,7 @@ Proof.
   - unfold validate.
     simpl.
     intros csp Hexists' sol Hsat.
-    destruct (nmap.exists_ (fun _ : nmap.key => compare_with_fact conclusion) (constraints csp)) eqn:Hexists ; try inversion Hexists'.
+    destruct nmap.exists_ eqn:Hexists ; try inversion Hexists'.
     apply nmap_prps.exists_iff in Hexists.
     + destruct Hexists as [index [fact_cons [Hmaps Hequiv]]].
       unfold compare_with_fact in Hequiv.
@@ -738,5 +738,5 @@ Proof.
     destruct (validate_proof_stage csp.(domains) (hydrate csp stage)) eqn:Estage ; inversion Hvalid.
     rewrite <- Heqcsp'.
     destruct (validate_stages csp' stages) ; try reflexivity.
-    destruct (nmap.exists_ (fun _ : nmap.key => compare_with_fact conclusion) (constraints csp0)) ; reflexivity.
+    destruct nmap.exists_ ; reflexivity.
 Qed.
