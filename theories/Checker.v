@@ -20,7 +20,7 @@ Inductive InferenceRule :=
 | fact_equiv
 | dom
 | linear
-(* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
+| cumulative
     (* | cumulative *)
 (* | alldifferent *)
 .
@@ -271,11 +271,11 @@ Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (
       end
   | dom =>
       validate_domain csp_domains fact
-      (*| cumulative =>
+  | cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
       | _ => false
-         end*)
+      end
   | linear =>
       match hint with
       | [linear_leq c] => Linear.linear_checker fact c

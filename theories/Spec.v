@@ -96,7 +96,7 @@ Module ConstraintDefinitions.
   Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint)
   | linear_eq (constraint : LinearConstraint)
-      (* | cumulative_c (constraint : CumulativeConstraint) *)
+  | cumulative_c (constraint : CumulativeConstraint)
   | fact_c (constraint : ProofFacts.ProofFact)
   (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
@@ -130,7 +130,7 @@ Module ConstraintDefinitions.
   Definition usage_at_timepoint (sol : Assignment) (timepoint : Z) (activities : list Activity) : N :=
     let active_activities := filter (is_active_at sol timepoint) activities in
     let usages := List.map activity_usage activities in
-    fold_left N.add usages N.zero.
+    fold_left N.add usages N0.
 
   Definition Cumulative (constraint : CumulativeConstraint) (sol : Assignment) : Prop :=
     forall t,
@@ -141,7 +141,7 @@ Module ConstraintDefinitions.
     match c with
     | linear_leq c => Linear c sol
     | linear_eq c => LinearEq c sol
-        (* | cumulative_c c => Cumulative c sol *)
+    | cumulative_c c => Cumulative c sol
     | fact_c c => ProofFacts.fact_valid sol c
     end.
 

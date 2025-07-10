@@ -13,7 +13,7 @@ Import Utility.Sets.
 Import Utility.ListInd.
 Import Utility.ZRange.
 
-Fixpoint def_xs (l : list ActivityDefine) : sstr.t :=
+(* Fixpoint def_xs (l : list ActivityDefine) : sstr.t :=
   match l with
   | nil => sstr.empty
   | a :: l' => sstr.add (a.(def_x)) (def_xs l')
@@ -150,9 +150,22 @@ Proof.
   - apply Z.eq_dec.
   - apply String.string_dec.
 Qed.
-
+ *)
 
 Open Scope N_scope.
+
+Fixpoint n_sum_rec (l : list N) (current : N) : N :=
+  match l with
+  | nil => current
+  | n :: l' => n_sum_rec l' (current + n)
+  end.
+
+Definition n_sum (l : list N) : N :=
+  n_sum_rec l N0.
+
+Definition xn_sum (l : list (string * N)) : N :=
+  n_sum (map snd l).
+
 Lemma xn_eq_dec :
   forall x y : (string * N), {x = y}+{x <> y}.
 Proof.
@@ -163,7 +176,7 @@ Qed.
 
 Open Scope Z_scope.
 
-Definition a_def_from_activity (act : Activity) : ActivityDefine :=
+(* Definition a_def_from_activity (act : Activity) : ActivityDefine :=
   match act with
   | mkAct x start p u =>
     mkActDef x p u
@@ -207,13 +220,13 @@ Proof.
   - destruct H as [a_def [Hdef Hin]].
     now destruct a_def; inversion Hdef; subst.
 Qed.
-
-Definition starts (l : list Activity) :=
+ *)
+(* Definition starts (l : list Activity) :=
   map start l.
 
 Definition ends (l : list Activity) :=
   map (fun a => start a + (Z.of_N (p_time a)) - 1) l.
-
+ *)
 
 Definition max_l (l : list Z) :=
   fold_right Z.max (hd 0 l) l.
