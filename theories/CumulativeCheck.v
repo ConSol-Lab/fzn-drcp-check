@@ -7,13 +7,13 @@ Require Import Arith.PeanoNat.
 Require Import Bool.
 Require Import Lia.
 
-Require Import Checker.Cumulative.
 Require Checker.CumulativeUtil.
-Require Import Checker.Spec.
+Require Checker.Spec.
 Import Spec.ConstraintDefinitions.
 Import Spec.ProofFacts.
 Import CumulativeUtil.RunOfN.
-Import CumulativeUtil.XNSum.
+Import CumulativeUtil.NSum.
+Import CumulativeUtil.BuildCumul.
 
 Require Checker.Utility.
 Import Utility.Maps.
@@ -21,6 +21,7 @@ Import Utility.ListEx.
 Import Utility.Sets.
 Import Utility.ZRange.
 Import Utility.SubList.
+Import Utility ZMaxMinList.
 Require Import Checker.Domain.
 Require Import Checker.DomainVar.
 Require Import Checker.Zext.
@@ -96,81 +97,6 @@ Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : Pr
     end
   end.
 
-(* Record ActivityBound := mkBound {
-  b_x : string;
-  b_lb : Z;
-  b_ub : Z;
-  b_p_time : N;
-  b_usage : N;
-}. *)
-
-(* Definition constraint_to_param_map (c : CumulativeConstraint) : string -> option (N * N) :=
-  let params := map (fun elt =>
-    match elt with
-    | mkActDef x p u => (x, (p, u))
-    end) c.(activities) in
-  param_map params (N0, N0).
-
-Definition constraint_to_vars (c : CumulativeConstraint) : list string :=
-  map def_x c.(activities).
-
-Definition constraint_to_vs (c : CumulativeConstraint) : sstr.t :=
-  sstr.build (constraint_to_vars c).
-
-Definition domains_to_bounds (doms : Domains) (param_map : string -> option (N * N)) :=
-  smap.mapi (domain_to_bound param_map) doms.
-
-Definition unwrap_bindings {A B} (l : list (A * option B)) :=
-  flat_map_option snd l.
-
-Definition inferred_cumulative_bounds (constr : CumulativeConstraint) (fact : ProofFact) :=
-  let activity_vars := constraint_to_vs constr in
-  match infer_domains fact with
-  | None => (nil, None)
-  | Some (domains, prop_var) =>
-    let param_map := constraint_to_param_map constr in
-    let bounds_map := domains_to_bounds domains param_map in
-    let bounds := unwrap_bindings (smap.bindings bounds_map) in
-    match prop_var with
-    | None => (bounds, None) 
-    | Some prop_var =>
-      match smap.find prop_var bounds_map with
-      | Some (Some prop_bound) => (bounds, Some prop_bound)
-      | _ => (nil, None)
-      end
-    end
-  end.
- *)
-(* Definition bound_to_act (sol : string -> Z) (bound : ActivityBound) :=
-  mkAct (b_x bound) (sol (b_x bound)) (b_p_time bound) (b_usage bound).
-
-Lemma act_bound_p_ge_1 constr sol :
-  forall bound,
-  In (bound_to_act sol bound) (activity_list constr sol)
-    ->
-  (bound.(b_p_time) >= 1)%N.
-Proof.
-  intros bound Hin.
-  specialize constr.(valid_p_times) as Hp.
-  enough (p_time (bound_to_act sol bound) >= 1)%N.
-  { unfold bound_to_act in H.
-    destruct bound. simpl in *. assumption. }
-  remember (bound_to_act sol bound) as act;
-  clear Heqact bound.
-  apply a_def_in_if in Hin.
-  enough (def_p (a_def_from_activity act) >= 1)%N.
-  { unfold a_def_from_activity in H. 
-    destruct act. simpl in *. assumption. }
-  apply Hp.
-  exact Hin.
-Qed.
- *)
-
-
-
-Definition evaluate_act (act : Activity) (sol : Assignment) : ScheduledActivity :=
-  schedAct (evaluate act.(activity_start) sol) act.(activity_duration) act.(activity_usage).
-
 Inductive valid_bounds (sol : string -> Z) : list Activity -> list ActivityBound -> Prop :=
   | valid_bounds_nil : valid_bounds sol nil nil
   | valid_bounds_bound (act : Activity) (acts : list Activity) (bound : ActivityBound) (bounds: list ActivityBound) 
@@ -243,38 +169,6 @@ Lemma valid_bound_matching_activity :
     bound.(b_p_time) = act.(activity_duration).
 Proof.
   intros sol.
-  (* intros acts bounds bounds_l bounds_r bound.
-  intros Hvalid.
-  generalize dependent bounds.
-  generalize dependent bounds_r.
-  generalize dependent acts.
-  induction bounds_l as [|bound_l bounds_l IH].
-  - intros acts bounds_r bounds Hvalid. simpl. intros Hbounds. rewrite Hbounds in Hvalid.
-    apply valid_bounds_act_left in Hvalid.
-    destruct Hvalid as (acts_l & acts_r & act & Hacts & Hvalid & IH).
-    exists acts_l. exists act. exists acts_r.
-    repeat split; try easy.
-    apply valid_bounds_app_acts.
-    exact Hvalid.
-  - intros acts bounds_r bounds Hvalid Hbounds.
-    subst bounds; simpl in Hvalid.
-    apply valid_bounds_act_left in Hvalid.
-    destruct Hvalid as (acts_l & acts_r & act & Hacts & Hvalid & Hact).
-    specialize (IH acts bounds_r (bounds_l ++ bound :: bounds_r)).
-    assert (valid_bounds sol acts (bounds_l ++ bound :: bounds_r)) as Hvalid_acts.
-    {
-      rewrite Hacts. clear -Hvalid. 
-      apply valid_bounds_app_acts.
-      apply valid_bounds_nobound.
-      exact Hvalid. 
-    }
-    assert (bounds_l ++ bound :: bounds_r = bounds_l ++ bound :: bounds_r) as Hreq by reflexivity.
-    specialize (IH Hvalid_acts Hreq).
-    destruct IH as (acts_IH & act_IH & acts_r_IH &IHacts & IHvalid & IH).
-    exists (acts_IH). exists act_IH. exists acts_r_IH.
-    repeat split; try easy.
-      *)
-  
   induction acts as [|act acts IH].
   { intros. inversion H. subst bounds.
     symmetry in H2.
@@ -291,7 +185,6 @@ Proof.
     apply valid_bounds_app_acts.
     exact Hvalid. }
   intros Hbounds.
-
   inversion Hvalid.
   - subst act0 acts0. rename bound0 into bound'.
     rename bounds0 into bounds'.
@@ -303,20 +196,6 @@ Proof.
     rename Hvalid' into Hvalid_split.
     assert (bounds_l ++ bound :: bounds_r = bounds_l ++ bound :: bounds_r) as Hreq by reflexivity.
     specialize (IH (bounds_l ++ bound :: bounds_r) bounds_l bounds_r bound Hvalid_split Hreq).
-    (* rewrite Hbounds in 
-    specialize IH with (bound := bound).
-    induction bounds_l as [|bound_l bounds_l IHl].
-    { simpl. intros H.
-      inversion H; subst bound' bounds'; clear H.
-      exists nil; simpl.
-      exists act. exists acts.
-      now repeat split. }
-    clear Hstart Husage Hduration.
-      simpl; intros H.
-      inversion H; subst bound' bounds';
-      clear H.
-      assert (bounds_l ++ bound :: bounds_r = bounds_l ++ bound :: bounds_r) as Hreq by reflexivity.
-      specialize (IH (bounds_l ++ bound :: bounds_r) bounds_l bounds_r Hvalid' Hreq). *)
     destruct IH as (acts_IH & act_IH & acts_r_IH &IHacts & IHvalid & IH).
     exists (act :: acts_IH). exists act_IH. exists acts_r_IH.
     repeat split; try easy.
@@ -334,98 +213,14 @@ Proof.
       exact IHvalid.
 Qed.
 
-
-(*   
-      exists nil.
-    destruct (bound_eq_dec bound bound').
-    + subst bound'.
-   *)
-
-(* Lemma valid_bounds_alt sol :
-  forall acts bounds,
-    valid_bounds sol acts bounds
-      <->
-    sublist bounds ().
-   *)
 Definition valid_prop_bound (bound : option ActivityBound) (bounds : list ActivityBound) :=
   match bound with
   | Some bound => In bound bounds
   | None => True
   end.
 
-(* Definition unique_bounds (bounds : list ActivityBound) :=
-  NoDup (map b_x bounds).
- *)
-Definition default_bound := mkBound Z0 Z0 N0 N0.
+  Definition default_bound := mkBound Z0 Z0 N0 N0.
 
-(* Lemma inferred_cumulative_bounds_unique constr fact :
-  forall bounds prop_bound_opt,
-    inferred_cumulative_bounds constr fact = (bounds, prop_bound_opt)
-      ->
-    unique_bounds bounds.
-Proof.
-  intros bounds prop_bound_opt.
-  unfold inferred_cumulative_bounds.
-  intros H.
-  assert (bounds = nil \/ exists doms, bounds = unwrap_bindings (smap.bindings (domains_to_bounds doms (constraint_to_param_map constr)))) as Hbounds.
-  {
-    destruct infer_domains as [[doms prop_var]|] eqn:Hinfer.
-    - destruct prop_var.
-      + destruct smap.find as [found|].
-        * destruct found.
-          -- right.
-            exists doms. 
-            inversion H; reflexivity.
-          -- left. inversion H; reflexivity.
-        * left. inversion H; reflexivity.
-      + right. 
-        exists doms.
-        inversion H; reflexivity.
-    - left. inversion H; reflexivity.
-  }
-  clear -Hbounds.
-  destruct Hbounds as [Hbounds | (m & Hbounds)].
-  - subst. apply NoDup_nil.
-  - assert (forall x a, In (x, Some a) (smap.bindings (domains_to_bounds m (constraint_to_param_map constr))) -> (x = b_x a)) as Hinx.
-    {
-      clear. intros x a.
-      unfold domains_to_bounds.
-      rewrite smap.mapi_spec.
-      rewrite in_map_iff.
-      intros ([x' dom] & Hpair & Hin).
-      inversion Hpair; subst; clear Hpair.
-      rename H1 into Hto_bound.
-      unfold domain_to_bound in Hto_bound.
-      destruct dom as [lb ub holes]; simpl in Hto_bound.
-      destruct lb as [lb| |]; try easy; destruct ub as [ub| |]; try easy; simpl in Hto_bound.
-      destruct constraint_to_param_map as [[p u]|]; try discriminate.
-      destruct a; inversion Hto_bound.
-      reflexivity.
-    }
-    subst bounds.
-    unfold unwrap_bindings.
-    unfold unique_bounds.
-    rewrite flat_map_option_as_filter_map with (d := default_bound).
-    apply nodup_key with (a_k := fst).
-    + clear.
-      remember (smap.bindings
-        (domains_to_bounds m
-        (constraint_to_param_map constr))) as l.
-      assert (NoDup (map fst l)).
-      { subst l. apply nodup_bindings_keys. }
-      apply nodup_map_filter.
-      exact H.
-    + intros [x a_opt].
-      intros H.
-      rewrite filter_In in H.
-      destruct H as (Hin & Hfiltertrue).
-      unfold filter_f_option in Hfiltertrue.
-      unfold option_map_default.
-      destruct snd eqn:Hopt; try discriminate Hfiltertrue.
-      simpl in Hopt; subst a_opt.
-      simpl. apply Hinx in Hin. assumption. 
-Qed.
- *)
 Lemma inferred_cumulative_bounds_spec constr fact bounds prop_bound_opt :
   forall sol,
     bounds <> nil
@@ -533,22 +328,7 @@ Qed.
 Definition mandatory_active (lb : Z) (ub : Z) (p_time : N) (t : Z) :=
   (ub <=? t) && (t <? (lb + (Z.of_N p_time))).
 
-(* Lemma mandatory_active_is_active :
-  forall start lb ub p_time t,
-    lb <= start <= ub
-      ->
-    mandatory_active lb ub p_time t = true
-      ->
-    is_active_at start p_time t = true.
-Proof.
-  intros start lb ub p t.
-  intros Hstart.
-  unfold mandatory_active, is_active_at.
-  lia.
-Qed.
- *)
-
- Definition activity_mandatory (t : Z) (bound : ActivityBound) : option N :=
+Definition activity_mandatory (t : Z) (bound : ActivityBound) : option N :=
   if mandatory_active (b_lb bound) (b_ub bound) (b_p_time bound) t
     then Some (b_usage bound)
     else None
@@ -786,7 +566,6 @@ Proof.
       apply min_l_spec in Hlb.
       apply max_l_spec in Hub.
       simpl.
-      (* clear -Hbounds Hlb Hub. *)
       intros H; inversion H; subst; clear H.
       lia.
     + apply IH; assumption. 
@@ -829,10 +608,6 @@ Proof.
   + rewrite H. reflexivity.
 Qed.
 
-(* Lemma bounds_mandatory_add :
-  forall t bound bounds,
-    bounds_mandatory_usage_t (bound :: bounds) 
- *)
 Open Scope N_scope.
 Lemma bounds_mandatory_t_le_usage sol :
   forall activities bounds,
@@ -941,19 +716,7 @@ Proof.
   apply valid_bound_matching_activity with (bounds_l := bounds_l) (bounds_r := bounds_r) (bound := bound) in Hvalid.
   2: { assumption. }
   destruct Hvalid as (acts_l & act & acts_r & Hacts & Hvalid_ex & Hstart & Hbound_u & Hbound_p).
-  (* induction activities as [|act acts IH].
-  { inversion Hvalid. now subst bounds. } *)
-  (* apply in_split in Hinbounds.
-  de *)
-  (* assert (exists act, In act constr.(activities) /\ b_lb bound <= evaluate act.(activity_start) sol <= b_ub bound /\ bound.(b_p_time) = act.(activity_duration) /\ bound.(b_usage) = act.(activity_usage)) as H by admit.
-  destruct H as (act & Hact & Hstart & Hbound_p & Hbound_u). *)
   remember (evaluate (activity_start act) sol) as start.
-  (* remember (sol (b_x bound)) as start.
-  assert (b_lb bound <= start <= b_ub bound).
-  { specialize (Hvalid bound Hinbounds).
-    subst start. unfold bound_to_act in Hvalid.
-    destruct bound. simpl in *.
-    lia. }  *)
   exists (Z.to_nat (start - b_lb bound)).
   unfold profile_to_active_list.
   destruct Hprofile_valid as [Hprofile_len Hprofile_valid].
@@ -971,7 +734,6 @@ Proof.
   destruct (capacity constr <? bounds_mandatory_usage_t bounds t)%N eqn:Hcapbounds; try discriminate Hprofile_valid.
   inversion Hprofile_valid; subst t_usage; clear Hprofile_valid.
   unfold check_can_be_active.
-  (* subst start. *)
   destruct mandatory_active eqn:Hmand.
   { reflexivity. }
   rewrite <- not_true_iff_false in Hcapbounds.
@@ -983,9 +745,7 @@ Proof.
   enough (bounds_mandatory_usage_t bounds t + (b_usage bound) <= usage_at_timepoint sol t (activities constr))%N by lia.
   clear Hcumul H.
   rewrite Hbounds.
-  
   clear Hstart.
-  
   rewrite Hacts.
   unfold usage_at_timepoint, bounds_mandatory_usage_t, bounds_mandatory_t.
   rewrite n_fold_is_n_sum.
@@ -1006,8 +766,6 @@ Proof.
   rewrite <- filter_app.
   rewrite <- flat_map_option_as_filter_map.
   rewrite N.add_0_r.
-  (* setoid_rewrite N.add_comm at 2.
-  setoid_rewrite N.add_comm at 3. *)
   rewrite N.add_assoc at 1.
   rewrite <- n_sum_app.
   rewrite <- map_app.
@@ -1017,35 +775,6 @@ Proof.
   rewrite n_fold_is_n_sum in Hvalid_ex.
   lia.
 Qed.
-
-   
-(* 
-  unfold bounds_mandatory_usage_t, usage_sum.
-  apply xn_sum_add_le with (x := (b_x bound)).
-  + apply bounds_mandatory_t_sublist; assumption.
-  + clear -Hunique Hinbounds Hmand.
-    unfold bounds_mandatory_t.
-    rewrite in_flat_map_option.
-    unfold activity_mandatory.
-    intros (bound' & Hin' & Hdef').
-    destruct mandatory_active eqn:Hmand' in Hdef'; try discriminate.
-    inversion Hdef'; clear H1; rename H0 into Hx;
-    clear Hdef'.
-    apply nodup_map with (l := bounds) in Hx;
-    try assumption.
-    subst bound'. rewrite Hmand' in Hmand.
-    discriminate Hmand.
-  + rewrite in_map_iff.
-    specialize (Hvalid bound Hinbounds) as Hbound.
-    exists (bound_to_act sol bound).
-    split.
-    * reflexivity.
-    * unfold activities_at_t.
-      rewrite filter_In.
-      split; try apply Hbound.
-      unfold is_active_at, bound_to_act; simpl.
-      lia.
-Qed. *)
 
 Lemma resource_profile_valid constr sol bounds :
   Cumulative constr sol
@@ -1160,7 +889,6 @@ Proof.
   apply inferred_cumulative_bounds_spec with (constr := constr) (bounds := bounds) (prop_bound_opt := prop_bound_opt); try assumption.
   clear Hboundsnnil.
   intros Hvalid Hprop_bound.
-  (* reflect_rewrite (cumulative_decides constr sol) in Hcumul. *)
   assert ((exists bound, In bound bounds /\ cannot_schedule_activity (capacity constr) bounds bound = true) \/ resource_profile_full (capacity constr) bounds = true).
   {
     destruct prop_bound_opt as [prop_bound|].
