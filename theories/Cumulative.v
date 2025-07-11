@@ -132,16 +132,33 @@ Proof.
       }
     + simpl. apply IH.
 Qed.
+*)
 
-Definition build_cumulative (activities_in : list ActivityDefine) (cap : N) : CumulativeConstraint :=
+Open Scope N_scope.
+
+Definition activities_pos_duration (activities : list Activity) := filter (fun act => 1 <=? act.(activity_duration)) activities.
+
+Lemma activities_pos_duration_correct :
+  forall activities,
+    Forall (fun act => act.(activity_duration) >= 1)%N (activities_pos_duration activities).
+Proof.
+  intros activities.
+  rewrite Forall_forall; intros act.
+  unfold activities_pos_duration.
+  rewrite filter_In.
+  intros [_ Hpos].
+  rewrite N.leb_le in Hpos.
+  lia.
+Qed.
+
+Definition build_cumulative (activities : list Activity) (cap : N) : CumulativeConstraint :=
   {|
     capacity := cap ;
-    activities := def_to_vs activities_in sstr.empty;
-    valid_p_times := (proj2 (def_to_vs_checks_correct activities_in sstr.empty));
-    acts_nodup := (proj1 (def_to_vs_checks_correct activities_in sstr.empty))
+    activities := activities_pos_duration activities;
+    valid_durations := activities_pos_duration_correct activities;
   |}.
 
-Lemma activity_eq_dec :
+(* Lemma activity_eq_dec :
   forall x y : Activity, {x = y}+{x <> y}.
 Proof.
   intros x y. decide equality.
@@ -152,7 +169,6 @@ Proof.
 Qed.
  *)
 
-Open Scope N_scope.
 
 Fixpoint n_sum_rec (l : list N) (current : N) : N :=
   match l with
@@ -266,8 +282,7 @@ Proof.
       lia.
 Qed.
 
-
-
+Open Scope N_scope.
 (* From Coq 9.0 *)
 Lemma filter_false {A} l : filter (fun _ : A => false) l = nil.
 Proof. induction l; cbn [filter]; congruence. Qed.

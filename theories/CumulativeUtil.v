@@ -59,6 +59,18 @@ Module XNSum.
       + apply IHl in H.
         rewrite n_sum_add in *. lia.
   Qed.
+
+  Lemma n_fold_is_n_sum :
+    forall ns i,
+    fold_left N.add ns i = n_sum ns + i.
+  Proof.
+    induction ns.
+    - reflexivity.
+    - intros i. simpl. rewrite IHns.
+      unfold n_sum. simpl.
+      repeat rewrite n_sum_add.
+      lia.
+  Qed.
   
   Lemma xn_sum_perm :
     forall l l',

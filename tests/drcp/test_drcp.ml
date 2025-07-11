@@ -49,7 +49,8 @@ let show_inference inference =
       (match inference.iinf_rule with
       | Linear -> "linear_bounds"
       | Fact_equiv -> "nogood"
-      | Dom -> "dom")
+      | Dom -> "dom"
+      | Cumulative -> "cumulative" )
   in
   Printf.sprintf "i %s %s %s %s %s" id premises consequent generated_by label
 
