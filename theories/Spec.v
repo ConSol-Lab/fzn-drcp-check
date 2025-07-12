@@ -97,7 +97,6 @@ Module ConstraintDefinitions.
   | linear_eq (constraint : LinearConstraint)
   | cumulative_c (constraint : CumulativeConstraint)
   | fact_c (constraint : ProofFacts.ProofFact)
-  (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
 
   Definition evaluate_term (sol : Assignment) (term : Z * Var) : Z :=
