@@ -1211,3 +1211,15 @@ Qed.
 
 
 End TightenComplete.
+
+Section DomainUtil.
+
+  Definition lb_ub_from_dom (dom : Domain) : option (Z * Z) :=
+  match dom.(d_lb), dom.(d_ub) with
+  | zz lb, zz ub => Some (lb, ub)
+  | _, _ => None
+  end.
+
+
+
+End DomainUtil.
