@@ -43,12 +43,6 @@ Record ScheduledActivity := schedAct {
   sched_usage : N;
 }.
 
-Definition lb_ub_from_dom (dom : Domain) : option (Z * Z) :=
-  match dom.(d_lb), dom.(d_ub) with
-  | zz lb, zz ub => Some (lb, ub)
-  | _, _ => None
-  end.
-
 Definition lb_ub_from_act_dom (activity : Activity) (domains : smap.t Domain) : option (Z * Z) :=
   match (activity_start activity) with
   | const value => Some (value, value)    
