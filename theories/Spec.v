@@ -92,11 +92,17 @@ Module ConstraintDefinitions.
       valid_durations : Forall (fun a => a.(activity_duration) >= 1)%N activities;
     }.
 
+  Record AlldifferentConstraint :=
+    {
+      diff_variables: list Var;
+    }.
+
   Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint)
   | linear_eq (constraint : LinearConstraint)
   | cumulative_c (constraint : CumulativeConstraint)
   | fact_c (constraint : ProofFacts.ProofFact)
+  | alldifferent_c (constraint: AlldifferentConstraint)
   .
 
   Definition evaluate_term (sol : Assignment) (term : Z * Var) : Z :=
@@ -134,6 +140,13 @@ Module ConstraintDefinitions.
     forall t,
       ((usage_at_timepoint sol t constraint.(activities)) <= constraint.(capacity))%N.
 
+  Definition Alldifferent (constraint : AlldifferentConstraint) (sol : Assignment) : Prop :=
+    forall x y, 
+      In x constraint.(diff_variables) -> 
+      In y constraint.(diff_variables) -> 
+        evaluate x sol <> evaluate y sol
+  .
+
   Open Scope Z_scope.
   Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
     match c with
@@ -141,6 +154,7 @@ Module ConstraintDefinitions.
     | linear_eq c => LinearEq c sol
     | cumulative_c c => Cumulative c sol
     | fact_c c => ProofFacts.fact_valid sol c
+    | alldifferent_c c => Alldifferent c sol
     end.
 
   Inductive IntSet := 

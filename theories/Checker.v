@@ -1,6 +1,7 @@
 Require Import Checker.Deduction.
 Require Import Checker.CumulativeCheck.
 Require Import Checker.ConstraintProblem.
+Require Import Checker.AlldifferentCheck.
 Import Utility.Maps.
 Import Utility.Sets.
 Require Import Bool.
@@ -20,6 +21,7 @@ Inductive InferenceRule :=
 | dom
 | linear
 | cumulative
+| alldifferent
 .
 
 Record IndexedInference := {
@@ -279,6 +281,11 @@ Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (
       | [linear_eq c] => Linear.linear_eq_checker fact c
       | _ => false
       end
+  | alldifferent =>
+    match hint with
+    | [alldifferent_c c] => alldifferent_checker fact c
+    | _ => false
+    end
   end.
 
 
@@ -340,7 +347,12 @@ Proof.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
     simpl. left. reflexivity.
-Qed.
+  - destruct hint as [|c [|c0 l]] eqn:Ehint; try destruct c eqn:Hc; try easy.
+    apply checker_alldifferent with (constr := constraint); try exact Hvalid.
+    specialize (Hsat (alldifferent_c constraint)).
+    apply Hsat.
+    simpl. left. reflexivity. 
+  Qed.
 
 Inductive StageResult :=
   | valid_single_stage
