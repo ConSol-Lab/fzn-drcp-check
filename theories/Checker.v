@@ -20,8 +20,6 @@ Inductive InferenceRule :=
 | dom
 | linear
 | cumulative
-    (* | cumulative *)
-(* | alldifferent *)
 .
 
 Record IndexedInference := {
@@ -342,12 +340,6 @@ Proof.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
     simpl. left. reflexivity.
-  (* - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy. *)
-  (*   specialize (Hsat (alldifferent_c constraint)). *)
-  (*   apply Is_true_eq_left. *)
-  (*   apply alldifferent_checker_valid with (constr := constraint); apply Is_true_eq_true; try assumption. *)
-  (*   apply Hsat. *)
-  (*   simpl. left. reflexivity. *)
 Qed.
 
 Inductive StageResult :=

@@ -1,7 +1,5 @@
 Require Checker.Linear.
-(*Require Checker.Cumulative.*)
 Require Checker.Deduction.
-Require Checker.AllDifferent.
 Require Import ZArith.
 Require Import Bool.
 Require Import List.
