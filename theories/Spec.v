@@ -94,7 +94,8 @@ Module ConstraintDefinitions.
 
   Record AlldifferentConstraint :=
     {
-      diff_variables: list Var;
+      diff_variables : list Var;
+      diff_unique_vars : NoDup diff_variables 
     }.
 
   Inductive Constraint :=

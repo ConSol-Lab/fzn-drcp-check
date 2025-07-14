@@ -1284,6 +1284,34 @@ Module MakeUsual (X: UsualOrderedType) <: Sets with Module E := X.
       assert (e' = e <-> e = e') by (now split).
       rewrite H. reflexivity.
   Qed.
+
+  Lemma elements_nodup (s : t) :
+    List.NoDup (elements s).
+  Proof.
+    specialize (elements_spec2w s) as H.
+    remember (elements s) as l; clear Heql s.
+    induction l.
+    - apply NoDup_nil.
+    - inversion H; subst x l0.
+      rename H2 into Hnot_in.
+      rename H3 into Hnodup_l.
+      apply IHl in Hnodup_l.
+      apply NoDup_cons.
+      + intros Hin.
+        apply Hnot_in.
+        apply In_InA.
+        * constructor; try easy.
+          repeat intro; subst; easy.
+        * apply Hin.
+      + apply Hnodup_l.
+  Qed.
+
+  Lemma elements_in (s : t) (e : elt) :
+    List.In e (elements s) <-> In e s.
+  Proof.
+    rewrite <- elements_spec1.
+    rewrite InA_eq_iff_In. reflexivity.
+  Qed.
 End MakeUsual.
 
 Import MSetProperties.
@@ -1351,8 +1379,6 @@ Proof.
     apply sint.max_elt_spec3 in Hmax.
     apply Hmax.
 Qed.
-
-
 
 End Sets.
 
