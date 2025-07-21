@@ -50,6 +50,7 @@ let show_inference inference =
       | Linear -> "linear_bounds"
       | Fact_equiv -> "nogood"
       | Dom -> "dom"
+      | Alldifferent -> "alldifferent"
       | Cumulative -> "cumulative" )
   in
   Printf.sprintf "i %s %s %s %s %s" id premises consequent generated_by label

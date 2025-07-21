@@ -401,7 +401,7 @@ Proof.
   (* The checker uses the length of the materialize_vars_doms, which we know to be the same as the number of bounded variables in our constraint. We must now show this correspondence. Unfortunately they are not exactly equal, but we only have to show that one is longer than the other for the bound to be tight enough. *)
   enough (length vars >= length (materialize_vars_doms constr.(diff_variables) doms)) by lia.
   clear Hconfl. subst vars.
-  (* We want to compare lengths of lists of equal type, so we use the properties of flat_map_option to extract the variables. TODO: probably just using that instead of constr_vars and bounded_vars would have made this a lot easier... *)
+  (* We want to compare lengths of lists of equal type, so we use the properties of flat_map_option to extract the variables. Note: if you try to use as vars the filtered constraint Var (with filter_f_option) you have to map it to default and that NoDup proof is not trivial. *)
   unfold materialize_vars_doms.
   rewrite flat_map_option_as_filter_map with (d := sint.empty).
   rewrite length_map.
@@ -416,3 +416,89 @@ Proof.
     + exact Hinconstr.
     + intros Hnone. rewrite Hnone in Hmtrl_doms; discriminate. 
 Qed.
+
+Lemma var_name_inj :
+  forall l,
+    NoDup l
+      ->
+    NoDup (map var_name l).
+Proof.
+  induction l.
+  - simpl. intros. apply NoDup_nil.
+  - simpl. intros Hnodup.
+    inversion Hnodup; subst x l0.
+    specialize (IHl H2).
+    apply NoDup_cons.
+    + intros Hin.
+      apply H1.
+      rewrite in_map_iff in Hin.
+      destruct Hin as (a' & Haa' & Hin).
+      inversion Haa'; subst a'.
+      exact Hin.
+    + exact IHl.
+Qed.
+
+Definition build_alldifferent (vs : list string) : AlldifferentConstraint :=
+  let nodup_strs := sstr.elements (sstr.build vs) in 
+  let nodup_vars := map var_name nodup_strs in
+  {|
+    diff_variables := nodup_vars;
+    diff_unique_vars := var_name_inj nodup_strs (sstr.elements_nodup (sstr.build vs))
+  |}.
+
+Open Scope string_scope.
+
+(* Should be true, there is a conflict. *)
+Compute 
+  let constr := build_alldifferent (
+    "x" :: "y" :: nil
+  ) in
+  let fact := 
+    {| 
+      i_premises :=
+        ("x", mk_atm_eq 1) ::
+        ("y", mk_atm_eq 1) :: nil ;
+      i_consequent := None
+    |}
+  in
+  alldifferent_checker fact constr.
+
+(* Should be false. *)
+Compute 
+  let constr := build_alldifferent (
+    "x" :: "y" :: nil
+  ) in
+  let fact := 
+    {| 
+      i_premises :=
+        ("x", mk_atm_le 3) ::
+        ("x", mk_atm_ge 0) ::
+        ("x", mk_atm_ne 2) ::
+        ("y", mk_atm_eq 1) :: nil ;
+      i_consequent := None
+    |}
+  in
+  alldifferent_checker fact constr.
+
+(* Should be true. Union is 3 and 5 but we have 3 variables. *)
+Compute 
+  let constr := build_alldifferent (
+    "x" :: "y" :: "z" :: nil
+  ) in
+  let fact := 
+    {| 
+      i_premises :=
+        ("x", mk_atm_le 5) ::
+        ("x", mk_atm_ne 4) :: 
+        ("x", mk_atm_ge 3) ::
+        ("y", mk_atm_le 5) ::
+        ("y", mk_atm_ge 3) :: 
+        ("y", mk_atm_ne 4) :: 
+        ("z", mk_atm_le 5) :: 
+        ("z", mk_atm_ge 3) :: 
+        ("z", mk_atm_ne 4) :: 
+        nil ;
+      i_consequent := None
+    |}
+  in
+  alldifferent_checker fact constr.
