@@ -88,7 +88,7 @@ let time label f x =
 let time3 label f x y z =
   let t = Sys.time () in
   let fx = f x y z in
-  Printf.printf "%s: %fs\n" label (Sys.time () -. t);
+  Printf.printf "%s: %fs\n%!" label (Sys.time () -. t);
   fx
 
 let run_checker flatzinc_file drcp_file =
