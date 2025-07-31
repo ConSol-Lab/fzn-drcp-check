@@ -47,6 +47,9 @@ let eol = ws *> char '\n' <* ws_with_new_line <?> "expected newline"
 let is_digit = function '0' .. '9' -> true | _ -> false
 let is_non_zero_digit = function '1' .. '9' -> true | _ -> false
 
+let assrt p =
+  peek_char >>= (function Some c when p c -> return () | _ -> fail "!")
+
 let atomic_code =
   let sign =
     peek_char >>= function
@@ -65,9 +68,9 @@ let atomic_code =
 let is_letter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
 let ident =
-  satisfy (fun c -> is_letter c || c = '_') >>= fun first ->
+  assrt (fun c -> is_letter c || c = '_') >>= fun () ->
   take_while (fun c -> is_letter c || is_digit c || c = '_') >>= fun rest ->
-  return (String.make 1 first ^ rest) <?> "expected variable identifier"
+  return rest <?> "expected variable identifier"
 
 (* Parser for big-integers. *)
 let big_integer =
