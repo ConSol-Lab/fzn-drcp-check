@@ -50,18 +50,19 @@ let is_non_zero_digit = function '1' .. '9' -> true | _ -> false
 let assrt p =
   peek_char >>= (function Some c when p c -> return () | _ -> fail "!")
 
-let atomic_code =
-  let sign =
+let num first_ok =
+  let negb =
     peek_char >>= function
-    | Some '-' -> advance 1 >>| fun () -> "-"
-    | Some '+' -> advance 1 >>| fun () -> "+"
-    | Some c when is_non_zero_digit c -> return "+"
-    | _ -> fail "Sign or non-zero digit expected"
-  in
-  sign >>= fun sign ->
-  satisfy is_non_zero_digit >>= fun first_digit ->
-  take_while is_digit >>= fun whole ->
-  return (int_of_string (sign ^ String.make 1 first_digit ^ whole))
+    | Some '-' -> advance 1 *> return true
+    | Some '+' -> advance 1 *> return false
+    | Some c when first_ok c -> return false
+    | _ -> fail "Sign or non-zero digit expected" in
+  lift2 (fun negb digits -> (negb, digits)) negb (take_while1 is_digit)
+
+let atomic_code =
+  num is_non_zero_digit >>= fun (negb, digits) ->
+  let i = int_of_string digits in
+  return (if negb then -i else i)
   <?> "expected atomic/constraint id"
 
 (* Parser for a variable name. *)
@@ -74,16 +75,10 @@ let ident =
 
 (* Parser for big-integers. *)
 let big_integer =
-  let sign =
-    peek_char >>= function
-    | Some '-' -> advance 1 *> return "-"
-    | Some '+' -> advance 1 *> return "+"
-    | Some c when is_digit c -> return "+"
-    | _ -> fail "Sign or digit expected"
-  in
-  sign >>= fun sign ->
-  take_while1 is_digit >>= fun whole ->
-  return (big_int_of_string (sign ^ whole)) <?> "expected big integer"
+  num is_digit >>= fun (negb, digits) ->
+  let bi = big_int_of_string digits in
+  return (if negb then Big_int_Z.sub_big_int Big_int_Z.zero_big_int bi else bi)
+  <?> "expected big integer"
 
 let cmp =
   choice
