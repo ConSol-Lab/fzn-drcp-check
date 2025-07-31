@@ -24,11 +24,11 @@ type step =
   | Deduction of deduction
   | AtomDefinition of atom_definition
 
-let ( <?> ) p l =
-  let* remaining = available in
-  let remaining = Int.min remaining 20 in
-  let* s = peek_string remaining in
-  p <?> Printf.sprintf "%s, got: [%s]" l s
+(* let ( <?> ) p l = *)
+(*   let* remaining = available in *)
+(*   let remaining = Int.min remaining 20 in *)
+(*   let* s = peek_string remaining in *)
+(*   p <?> Printf.sprintf "%s, got: [%s]" l s *)
 
 let ws =
   skip_while (function ' ' | '\t' -> true | _ -> false) <?> "whitespace"
