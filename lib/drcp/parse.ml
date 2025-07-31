@@ -228,12 +228,12 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
   | AtomDefinition def :: tail ->
       convert_proof_stage tail (IntMap.add def.id def.atomic atomics) acc
   | Inference inf :: tail ->
-      convert_proof_stage tail atomics (acc @ [ convert_inference atomics inf ])
+      convert_proof_stage tail atomics (convert_inference atomics inf :: acc)
   | Deduction deduction :: tail ->
       ( atomics,
         Some
           {
-            s_inferences = acc;
+            s_inferences = List.rev acc;
             s_conclusion =
               {
                 i_premises = resolve_atomic_ids atomics deduction.premises;
@@ -247,11 +247,11 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
 let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
     (acc : proofStage list) : proofStage list * atomic_map =
   match steps with
-  | [] -> (acc, atomics)
+  | [] -> (List.rev acc, atomics)
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
       | new_atomics, Some stage, rest ->
-          convert_steps_to_proof rest new_atomics (acc @ [ stage ])
+          convert_steps_to_proof rest new_atomics (stage :: acc)
       | new_atomics, None, [] -> (acc, new_atomics)
       | _, None, _ -> raise IncompleteProofError)
 
