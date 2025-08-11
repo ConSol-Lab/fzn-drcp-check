@@ -369,19 +369,15 @@ Proof.
   - intros last Hnin Hy.
     simpl. exact Hy.
   - intros last Hnotholes' Hy.
-    assert (~ In y holes' /\ y <> h) as [Hnotholes Hynh].
-    {
-      split.
-      - intros Hin. apply Hnotholes'.
-        right. exact Hin.
-      - intros Hyh. subst y. apply Hnotholes'. 
-        left. reflexivity.
-    }
-    clear Hnotholes'. simpl.
-    destruct (h =? last)%Z eqn:Hh.
-    + apply IH; try assumption.
-      simpl_sign; lia.  
-    + exact Hy.
+    simpl. destruct (h =? last)%Z eqn:Hh.
+    2: { exact Hy. }
+    apply IH.
+    { intros Hinholes'. apply Hnotholes'. right. exact Hinholes'. }
+    assert (y <> h).
+    { intros Hyh; subst h.
+      apply Hnotholes'.
+      left. reflexivity. }
+    simpl_sign; lia.  
 Qed.
 
 Lemma tighten_holes_monotonic :
@@ -1017,7 +1013,7 @@ Proof.
   intros dom dom'.
   intros Hdom'; subst dom'.
   unfold tighten_lb, lb_tightened.
-  destruct (d_lb dom) eqn:Hdlb; simpl.
+  destruct (d_lb dom) as [lb| |] eqn:Hdlb; simpl.
   2: { rewrite Hdlb. reflexivity. }
   2: { rewrite Hdlb. reflexivity. }
   destruct sint.mem eqn:Hmem.
@@ -1029,12 +1025,12 @@ Proof.
   remember (sint.elements (d_holes dom)) as holes.
   specialize (sint.elements_spec2 (d_holes dom)) as Hsort; fold Z.lt in Hsort.
   rewrite <- Heqholes in Hsort; clear -Hsort.
-  intros H. remember (tighten_with_holes plus (elements_bound plus z holes) z) as z'. assert (z +<= z') as Hzz'.
-  { subst z'. apply tighten_holes_monotonic.  }
-  assert (In z' holes /\ z +<= z') as Hin by (split; assumption).
+  intros H. remember (tighten_with_holes plus (elements_bound plus lb holes) lb) as lb'. assert (lb +<= lb') as Hzz'.
+  { subst lb'. apply tighten_holes_monotonic.  }
+  assert (In lb' holes /\ lb +<= lb') as Hin by (split; assumption).
   rewrite <- elements_bound_in_iff in Hin; try assumption.
-  enough (~ In z' (elements_bound plus z holes)) by easy.
-  subst z'; clear -Hsort.
+  enough (~ In lb' (elements_bound plus lb holes)) by easy.
+  subst lb'; clear -Hsort.
   apply tighten_holes_spec.
   - apply Sorted_StronglySorted.
     * intro. unfold lt_flip. lia.
