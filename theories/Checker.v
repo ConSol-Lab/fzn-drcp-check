@@ -343,7 +343,7 @@ Proof.
       apply Hsat.
       simpl. left. reflexivity.
   - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    apply checker_cumulative with (constr := constraint); try assumption.
+    apply checker_cumulative with (constraint := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
     simpl. left. reflexivity.
@@ -422,23 +422,21 @@ Proof.
   destruct (validate_nogood (hs_conclusion_index stage) (hs_conclusion stage) (hs_chain stage)) eqn:Hnogood_valid ; try inversion Hvalid.
   unfold validate_nogood in Hnogood_valid.
   destruct stage.(hs_conclusion).(i_consequent) eqn:Econs in Hnogood_valid ; try inversion Hnogood_valid.
-  unfold fact_valid.
-  rewrite Econs.
-  intros Hvalid_atoms.
+  destruct stage.(hs_conclusion) as [conclusion_premises conseq]; simpl in *; subst conseq.
   apply check_deduct_correct with
     (assignment := sol)
-    (premises := stage.(hs_conclusion).(i_premises))
-    (steps := stage.(hs_chain)) ; try assumption.
-  intros inf Hin_inf.
-  specialize (Hcons_sat (fact_c inf)).
-  simpl in Hcons_sat.
-  apply Hcons_sat.
-  unfold used_constraints.
-  apply in_or_app.
-  right.
-  apply in_map, Hin_inf.
-  destruct (check_deduct (i_premises _) (hs_chain stage)) ; try inversion Hnogood_valid.
-  reflexivity.
+    (premises := conclusion_premises)
+    (steps := stage.(hs_chain)).
+  - intros inf Hin_inf.
+    specialize (Hcons_sat (fact_c inf)).
+    simpl in Hcons_sat.
+    apply Hcons_sat.
+    unfold used_constraints.
+    apply in_or_app.
+    right.
+    apply in_map, Hin_inf.
+  - destruct (check_deduct conclusion_premises (hs_chain stage)) ; try inversion Hnogood_valid.
+    reflexivity.
 Qed.
 
 Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=

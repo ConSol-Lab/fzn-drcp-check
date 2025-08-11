@@ -3,6 +3,7 @@ Require Coq.Strings.String.
 Require Coq.Lists.List.
 Require Checker.Utility.
 Require Coq.Sorting.Permutation.
+Require Coq.Classes.Morphisms.
 Require Checker.Spec.
 Require Lia.
 
@@ -11,6 +12,7 @@ Module BuildCumul.
   Import NArith.
   Import List.
   Import Lia.
+  Import Morphisms.
   Open Scope N_scope.
 
   Definition activities_pos_duration (activities : list Activity) := filter (fun act => 1 <=? act.(activity_duration)) activities.
@@ -40,6 +42,8 @@ Module NSum.
   Import NArith.
   Import List.
   Import Lia.
+  Import Permutation.
+  Import Morphisms.
   Open Scope N_scope.
   
   Fixpoint n_sum_rec (l : list N) (current : N) : N :=
@@ -66,6 +70,15 @@ Module NSum.
       lia.
   Qed.
 
+  Lemma n_sum_cons :
+    forall l n,
+      n_sum (n :: l) = n + n_sum l.
+  Proof.
+    intros l n.
+    unfold n_sum. simpl. setoid_rewrite n_sum_add.
+    lia.
+  Qed.
+
   Lemma n_sum_app :
     forall l1 l2,
       n_sum (l1 ++ l2) = n_sum l1 + n_sum l2.
@@ -73,8 +86,7 @@ Module NSum.
     induction l1.
     - intros l2. simpl. reflexivity.
     - intros l2.
-      unfold n_sum. simpl.
-      setoid_rewrite n_sum_add.
+      simpl. repeat rewrite n_sum_cons.
       rewrite IHl1. lia.
   Qed. 
 
@@ -98,9 +110,43 @@ Module NSum.
     induction ns.
     - reflexivity.
     - intros i. simpl. rewrite IHns.
-      unfold n_sum. simpl.
-      repeat rewrite n_sum_add.
+      rewrite n_sum_cons.
       lia.
+  Qed.
+
+  Lemma n_sum_perm :
+    forall l l',
+      Permutation l l'
+        ->
+      n_sum l = n_sum l'.
+  Proof.
+    induction l.
+    - intros l. intros Hperm.
+      apply Permutation_nil in Hperm; subst l.
+      reflexivity.
+    - intros l'. intros Hperm.
+      assert (In a l').
+      { apply Permutation_in with (l := (a :: l)).
+        - exact Hperm.
+        - left. reflexivity. }
+      apply in_split in H.
+      destruct H as (l1 & l2 & Hl1l2); subst l'.
+      apply Permutation_cons_app_inv in Hperm.
+      apply IHl in Hperm.
+      rewrite n_sum_cons.
+      rewrite Hperm.
+      setoid_rewrite n_sum_app.
+      rewrite n_sum_cons.
+      lia.
+  Qed.
+
+  (** When we have somewhere `n_sum l` and also `H : Permutation l l'`, this allows us to convert `n_sum l` into `n_sum l'` using `rewrite H`. *)
+  Instance n_sum_Proper : Proper (@Permutation N ==> eq) n_sum.
+  Proof.
+    unfold Proper, respectful.
+    intros l l' Hperm.
+    apply n_sum_perm.
+    exact Hperm.
   Qed.
 End NSum.
 
@@ -117,6 +163,7 @@ Module XNSum.
   
   Open Scope N_scope.
 
+  (** This was originally used by the cumulative checker when it still relied on the variable identifier to match a BoundedActivity with an Activity. It can be removed if not used anywhere by 2026. *)
   
   Definition xn_sum (l : list (string * N)) : N :=
     n_sum (map snd l).
