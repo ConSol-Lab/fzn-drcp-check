@@ -301,6 +301,30 @@ Module SubList.
     apply permutation_partition.
   Qed.
 
+  Lemma sublist_one_of :
+    forall (l1 diff l2 : list A) (a : A),
+      Permutation (l1 ++ diff) l2
+        ->
+      ~ In a l1
+        ->
+      In a l2
+        ->
+      In a diff.
+  Proof.
+    intros l1 diff l2 a.
+    intros Hperm Hnin1 Hin2.
+    apply in_split in Hin2.
+    destruct Hin2 as (l & l' & Hl2); subst l2.
+    enough (In a (l1 ++ diff)).
+    { apply in_app_or in H. destruct H.
+      - contradiction.
+      - exact H.  }
+    apply Permutation_in with (l ++ a :: l').
+    - symmetry. exact Hperm.
+    - apply in_app_iff.
+      right. left. reflexivity.
+  Qed.
+
   End SubLists.
 
   Section Map.
@@ -1062,6 +1086,7 @@ Module ZRange.
   Qed.
   
   Open Scope nat_scope.
+  (** Useful lemma with similar content to map_nth_error that does not require as much fiddling with Some/None if we know that n will fall inside the length. It states that the nth value of a list mapped using a function f is the same as applying f to the nth value, no matter the defaults we use. *)
   Lemma map_nth_len_lt {A B} :
     forall (f : A -> B) l n (d : A) (d' : B),
       n < length l
@@ -1104,7 +1129,31 @@ Module ZRange.
     - rewrite length_seq. lia.
   Qed.
 
-  Lemma range_spec_other_base (s e : Z) (d : Z) :
+  Lemma range_nth_spec :
+    forall n e s d,
+      s <= e
+        ->
+      (n <= Z.to_nat (e - s))%nat
+        ->
+      nth n (range s e) d = s + Z.of_nat n.
+  Proof.
+    intros n e s d.
+    intros Hse Hn.
+    unfold range.
+    remember (Z.to_nat (e - s + 1)) as i.
+    assert (e = s + Z.of_nat i - 1) by lia.
+    rewrite H.
+    rewrite range_rec_spec.
+    rewrite app_nil_r.
+    rewrite <- map_nth_len_lt with (d := O).
+    - rewrite seq_nth by lia.
+      unfold shift_z. lia.
+    - rewrite length_seq. lia.
+  Qed.
+
+
+
+  (* Lemma range_spec_other_base (s e : Z) (d : Z) :
     forall b,
       s <= b <= e
         ->
@@ -1127,7 +1176,7 @@ Module ZRange.
       + unfold shift_z. lia.
       + lia.
     - rewrite length_seq. lia.
-  Qed.
+  Qed. *)
 
 
   Lemma in_range (s e : Z) :
@@ -1233,14 +1282,11 @@ Module ZRange.
   Proof.
     intros n Hsne.
     rewrite range_rev_is_rev_range.
-    unfold nth_z.
-    destruct (n >=? s) eqn:Hns; try lia; clear Hns.
+    rewrite nth_z_spec by lia.
     rewrite rev_nth.
     2: { rewrite length_range. lia. }
     rewrite length_range.
-    replace (Z.to_nat (e - s + 1) - (S (Z.to_nat (n - s))))%nat with (Z.to_nat (e - n)) by lia.
-    rewrite <- nth_z_spec by lia.
-    rewrite range_spec_other_base by lia. 
+    rewrite range_nth_spec by lia. 
     lia.
   Qed.
 

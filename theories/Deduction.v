@@ -165,23 +165,21 @@ Proof.
   - apply IHl ; assumption.
 Qed.
 
-(** This is the main inductive proof. Separating it out is important so that we can put domains_equiv_atoms as a hypothesis so that we have enough information in our induction hypothesis. *)
+(** This is the main inductive proof. Separating it out is important so that we can put domains_equiv_atoms as a hypothesis so that we have enough information in our induction hypothesis. Note that the valid_atoms assignment atoms -> False is just the assignment satisfying the nogood, which is what we aim to prove. *)
 Lemma deduct_check_inferences_correct :
-  forall assignment steps domains atoms,
-    valid_atoms assignment atoms
-      ->
-    valid_domains domains atoms
+  forall assignment steps domains premises,
+    valid_domains domains premises
       ->
     (forall fact, In fact steps -> fact_valid assignment fact)
       ->
     deduct_check_inferences steps domains = deduced
       ->
-    False.
+    fact_valid assignment (mkFact premises None).
 Proof.
   intros assignment.
   induction steps as [|step steps IH].
   { easy. }
-  intros doms atoms Hatoms Hequiv Hinfs Hdeduct.
+  intros doms premises Hdoms Hinfs Hdeduct.
   simpl in Hdeduct.
   assert (forall fact, In fact steps -> fact_valid assignment fact) as Hprev.
   { intros fact Hin. apply Hinfs. now right. }
@@ -195,66 +193,67 @@ Proof.
     unfold fact_valid in Hstep.
     destruct i_consequent as [conseq|];
     try discriminate Hinf.
-    apply forall_premises with (assignment := assignment) (atoms := atoms) in Hforall; try assumption.
+    unfold fact_valid in *; simpl in *.
+    intros Hsatatoms.
+    apply forall_premises with (assignment := assignment) (atoms := premises) in Hforall; try assumption.
     apply Hstep in Hforall as Hconseq; clear Hstep Hforall.
-    apply IH with (domains := doms') (atoms := conseq :: atoms); try apply Hprev; clear IH.
-    {
+    apply IH with (domains := doms') (premises := conseq :: premises); clear IH.
+    2: { apply Hprev. }  
+    2: { apply Hdeduct. }
+    2: {
       unfold valid_atoms. intros x a.
       intros Hin.
       destruct Hin as [Hconseqxa | Hprevatoms].
       - subst conseq. apply Hconseq.
-      - apply Hatoms. exact Hprevatoms.
+      - apply Hsatatoms. exact Hprevatoms.
     }
     destruct conseq as [x a].
     clear Hprev.
-    specialize (doms_apply_tighten_step doms atoms Hequiv x a) as Happly_spec.
+    specialize (doms_apply_tighten_step doms premises Hdoms x a) as Happly_spec.
     destruct doms_apply_tighten as [doms_apply|] eqn:Happly;
     try discriminate Hinf.
     inversion Hinf; subst doms_apply; clear Hinf.
     apply Happly_spec.
-    assumption.
-  - clear IH.
-    unfold step_inference in Hinf.
+  - unfold step_inference in Hinf.
     destruct (filter _ (i_premises step)) eqn:Hforall ; try inversion Hinf.
     apply filter_eq_nil in Hforall.
     try discriminate Hinf.
     unfold fact_valid in Hstep.
     destruct i_consequent as [conseq|].
     + destruct conseq as [x a].
-      specialize (doms_apply_tighten_step doms atoms Hequiv x a) as Happly_spec.
+      specialize (doms_apply_tighten_step doms premises Hdoms x a) as Happly_spec.
       destruct doms_apply_tighten eqn:Happly;
       try discriminate Hinf.
+      intros Hsatatoms; simpl in *.
       apply Happly_spec; clear Happly_spec Happly.
       apply dom_consistent_if_valid_atoms with (sol := assignment).
       unfold valid_atoms.
       intros x' a'.
       intros [Hxx' | Hin].
       * inversion Hxx'; subst. apply Hstep.
-        apply forall_premises with (doms := doms) (atoms := atoms); assumption.
-      * apply Hatoms. exact Hin.
-    + apply Hstep.
-      apply forall_premises with (doms := doms) (atoms := atoms); assumption.
+        apply forall_premises with (doms := doms) (atoms := premises); assumption.
+      * apply Hsatatoms. exact Hin.
+    + intros Hsatatoms; simpl in *.
+      apply Hstep.
+      apply forall_premises with (doms := doms) (atoms := premises); assumption.
   - easy.
 Qed. 
 
 (** This is the main correctness proof that factors out the use of the domain map. *)
 Lemma check_deduct_correct :
   forall assignment premises steps,
-    valid_atoms assignment premises
-      ->
     (forall inf, In inf steps -> fact_valid assignment inf)
       ->
     check_deduct premises steps = deduced
       ->
-    False.
+    fact_valid assignment (mkFact premises None).
 Proof.
   intros assignment.
-  intros premises steps Hvalid Hinfs.
+  intros premises steps Hinfs.
   specialize domains_from_atomics_correct with (atoms := premises) as Hdomains.
   unfold check_deduct.
   destruct check_domains_consistent; try easy.
-  apply deduct_check_inferences_correct with (assignment := assignment) (atoms := premises).
-  - exact Hvalid.
+  apply deduct_check_inferences_correct with (assignment := assignment) (premises := premises).
   - unfold valid_domains.
     intros x. 
     rewrite tighten_doms_equiv.
