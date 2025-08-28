@@ -24,11 +24,11 @@ type step =
   | Deduction of deduction
   | AtomDefinition of atom_definition
 
-let ( <?> ) p l =
-  let* remaining = available in
-  let remaining = Int.min remaining 20 in
-  let* s = peek_string remaining in
-  p <?> Printf.sprintf "%s, got: [%s]" l s
+(* let ( <?> ) p l = *)
+(*   let* remaining = available in *)
+(*   let remaining = Int.min remaining 20 in *)
+(*   let* s = peek_string remaining in *)
+(*   p <?> Printf.sprintf "%s, got: [%s]" l s *)
 
 let ws =
   skip_while (function ' ' | '\t' -> true | _ -> false) <?> "whitespace"
@@ -47,40 +47,38 @@ let eol = ws *> char '\n' <* ws_with_new_line <?> "expected newline"
 let is_digit = function '0' .. '9' -> true | _ -> false
 let is_non_zero_digit = function '1' .. '9' -> true | _ -> false
 
-let atomic_code =
-  let sign =
+let assrt p =
+  peek_char >>= (function Some c when p c -> return () | _ -> fail "!")
+
+let num first_ok =
+  let negb =
     peek_char >>= function
-    | Some '-' -> advance 1 >>| fun () -> "-"
-    | Some '+' -> advance 1 >>| fun () -> "+"
-    | Some c when is_non_zero_digit c -> return "+"
-    | _ -> fail "Sign or non-zero digit expected"
-  in
-  sign >>= fun sign ->
-  satisfy is_non_zero_digit >>= fun first_digit ->
-  take_while is_digit >>= fun whole ->
-  return (int_of_string (sign ^ String.make 1 first_digit ^ whole))
+    | Some '-' -> advance 1 *> return true
+    | Some '+' -> advance 1 *> return false
+    | Some c when first_ok c -> return false
+    | _ -> fail "Sign or non-zero digit expected" in
+  lift2 (fun negb digits -> (negb, digits)) negb (take_while1 is_digit)
+
+let atomic_code =
+  num is_non_zero_digit >>= fun (negb, digits) ->
+  let i = int_of_string digits in
+  return (if negb then -i else i)
   <?> "expected atomic/constraint id"
 
 (* Parser for a variable name. *)
 let is_letter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
 let ident =
-  satisfy (fun c -> is_letter c || c = '_') >>= fun first ->
+  assrt (fun c -> is_letter c || c = '_') >>= fun () ->
   take_while (fun c -> is_letter c || is_digit c || c = '_') >>= fun rest ->
-  return (String.make 1 first ^ rest) <?> "expected variable identifier"
+  return rest <?> "expected variable identifier"
 
 (* Parser for big-integers. *)
 let big_integer =
-  let sign =
-    peek_char >>= function
-    | Some '-' -> advance 1 *> return "-"
-    | Some '+' -> advance 1 *> return "+"
-    | Some c when is_digit c -> return "+"
-    | _ -> fail "Sign or digit expected"
-  in
-  sign >>= fun sign ->
-  take_while1 is_digit >>= fun whole ->
-  return (big_int_of_string (sign ^ whole)) <?> "expected big integer"
+  num is_digit >>= fun (negb, digits) ->
+  let bi = big_int_of_string digits in
+  return (if negb then Big_int_Z.sub_big_int Big_int_Z.zero_big_int bi else bi)
+  <?> "expected big integer"
 
 let cmp =
   choice
@@ -228,12 +226,12 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
   | AtomDefinition def :: tail ->
       convert_proof_stage tail (IntMap.add def.id def.atomic atomics) acc
   | Inference inf :: tail ->
-      convert_proof_stage tail atomics (acc @ [ convert_inference atomics inf ])
+      convert_proof_stage tail atomics (convert_inference atomics inf :: acc)
   | Deduction deduction :: tail ->
       ( atomics,
         Some
           {
-            s_inferences = acc;
+            s_inferences = List.rev acc;
             s_conclusion =
               {
                 i_premises = resolve_atomic_ids atomics deduction.premises;
@@ -247,11 +245,11 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
 let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
     (acc : proofStage list) : proofStage list * atomic_map =
   match steps with
-  | [] -> (acc, atomics)
+  | [] -> (List.rev acc, atomics)
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
       | new_atomics, Some stage, rest ->
-          convert_steps_to_proof rest new_atomics (acc @ [ stage ])
+          convert_steps_to_proof rest new_atomics (stage :: acc)
       | new_atomics, None, [] -> (acc, new_atomics)
       | _, None, _ -> raise IncompleteProofError)
 
