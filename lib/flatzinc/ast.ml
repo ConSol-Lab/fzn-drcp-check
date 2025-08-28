@@ -93,10 +93,31 @@ let create_linear parsed_ast args =
       }
   | _ -> raise (InvalidArgumentsError "int_lin_le")
 
+let create_cumulative parsed_ast args =
+  match args with
+  | [ start_arg; duration_arg; usage_arg; capacity_arg ] ->
+      {
+        capacity = arg_to_constant parsed_ast capacity_arg;
+        activities =
+          List.map
+            (fun ((s, d), u) -> {
+               activity_start = s;
+               activity_duration = d;
+               activity_usage = u;
+             })
+            (List.combine
+              (List.combine
+                (variable_array parsed_ast start_arg)
+                (constant_array parsed_ast duration_arg))
+              (constant_array parsed_ast usage_arg));
+      }
+  | _ -> raise (InvalidArgumentsError "cumulative")
+
 let create_constraint parsed_ast c =
   match c.constr_name with
   | "int_lin_le" -> Coq_linear_leq (create_linear parsed_ast c.constr_args)
   | "int_lin_eq" -> Coq_linear_eq (create_linear parsed_ast c.constr_args)
+  | "pumpkin_cumulative" -> Coq_cumulative_c (create_cumulative parsed_ast c.constr_args)
   | unknown -> raise (UnknownConstraintError unknown)
 
 let accumulate_constraints parsed_ast (map, idx) c =
