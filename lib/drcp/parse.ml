@@ -24,6 +24,12 @@ type step =
   | Deduction of deduction
   | AtomDefinition of atom_definition
 
+let ( <?> ) p l =
+  let* remaining = available in
+  let remaining = Int.min remaining 20 in
+  let* s = peek_string remaining in
+  p <?> Printf.sprintf "%s, got: [%s]" l s
+
 let ws =
   skip_while (function ' ' | '\t' -> true | _ -> false) <?> "whitespace"
 
@@ -33,9 +39,9 @@ let ws_with_new_line =
 
 let ws_sep =
   take_while1 (function ' ' | '\t' -> true | _ -> false)
-  <?> "whitespace separator"
+  <?> "expected whitespace seperator"
 
-let eol = ws *> char '\n' <* ws_with_new_line
+let eol = ws *> char '\n' <* ws_with_new_line <?> "expected newline"
 
 (* Parses Ocaml integers *)
 let is_digit = function '0' .. '9' -> true | _ -> false
@@ -53,7 +59,7 @@ let atomic_code =
   satisfy is_non_zero_digit >>= fun first_digit ->
   take_while is_digit >>= fun whole ->
   return (int_of_string (sign ^ String.make 1 first_digit ^ whole))
-  <?> "atomic/constraint id"
+  <?> "expected atomic/constraint id"
 
 (* Parser for a variable name. *)
 let is_letter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
@@ -61,7 +67,7 @@ let is_letter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 let ident =
   satisfy (fun c -> is_letter c || c = '_') >>= fun first ->
   take_while (fun c -> is_letter c || is_digit c || c = '_') >>= fun rest ->
-  return (String.make 1 first ^ rest) <?> "variable identifier"
+  return (String.make 1 first ^ rest) <?> "expected variable identifier"
 
 (* Parser for big-integers. *)
 let big_integer =
@@ -74,17 +80,17 @@ let big_integer =
   in
   sign >>= fun sign ->
   take_while1 is_digit >>= fun whole ->
-  return (big_int_of_string (sign ^ whole)) <?> "big integer"
+  return (big_int_of_string (sign ^ whole)) <?> "expected big integer"
 
 let cmp =
   choice
     [
-      string ">=" *> return Coq_greater_equal;
-      string "<=" *> return Coq_less_equal;
-      string "==" *> return Coq_equal;
-      string "!=" *> return Coq_not_equal;
+      string ">=" *> return Coq_greater_equal <?> "greater equal";
+      string "<=" *> return Coq_less_equal <?> "less equal";
+      string "==" *> return Coq_equal <?> "equal";
+      string "!=" *> return Coq_not_equal <?> "not equal";
     ]
-  <?> "comparator"
+  <?> "expected comparator"
 
 let atom =
   char '['
@@ -94,23 +100,23 @@ let atom =
        ident
        (ws_sep *> cmp <* ws_sep)
        big_integer
-  <* char ']' <?> "atomic"
+  <* char ']' <?> "expected atomic"
 
 let atom_definition =
   char 'a' *> ws_sep
   *> lift2
        (fun atom_id atomic -> { id = atom_id; atomic })
        atomic_code (ws_sep *> atom)
-  <* eol <?> "atomic definition line"
+  <* eol <?> "expected atomic definition line"
 
 let inference_rule =
   choice
     [
-      string "linear_bounds" *> return Linear;
-      string "nogood" *> return Fact_equiv;
-      string "initial_domain" *> return Dom;
+      string "linear_bounds" *> return Linear <?> "linear_bounds";
+      string "nogood" *> return Fact_equiv <?> "nogood";
+      string "initial_domain" *> return Dom <?> "initial_domain";
     ]
-  <?> "inference rule"
+  <?> "expected inference rule"
 
 let premises = many (atomic_code <* ws_sep) <* char '0'
 
@@ -150,9 +156,13 @@ let proof_line =
 type conclusion = Unsat | DualBound of int
 
 let conclusion_line =
-  string "c UNSAT" *> return Unsat
-  <|> (string "c " *> atomic_code >>| fun code -> DualBound code)
-  <* ws_with_new_line
+  char 'c' *> ws_sep
+  *> (string "UNSAT" *> return Unsat
+     <?> "unsat conclusion"
+     <|> (atomic_code
+         >>| (fun code -> DualBound code)
+         <?> "dual bound conclusion"))
+  <* ws_with_new_line <?> "conclusion line"
 
 let proof =
   many proof_line >>= fun steps ->
@@ -212,25 +222,26 @@ exception IncompleteProofError
 
 let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
     (acc : indexedInference list) :
-    coq_BoundAtomic IntMap.t * proofStage * step list =
+    coq_BoundAtomic IntMap.t * proofStage option * step list =
   match steps with
-  | [] -> raise IncompleteProofError
+  | [] -> (atomics, None, [])
   | AtomDefinition def :: tail ->
       convert_proof_stage tail (IntMap.add def.id def.atomic atomics) acc
   | Inference inf :: tail ->
       convert_proof_stage tail atomics (acc @ [ convert_inference atomics inf ])
   | Deduction deduction :: tail ->
       ( atomics,
-        {
-          s_inferences = acc;
-          s_conclusion =
-            {
-              i_premises = resolve_atomic_ids atomics deduction.premises;
-              i_consequent = None;
-            };
-          s_chain = deduction.sequence;
-          s_conclusion_index = deduction.constraint_id;
-        },
+        Some
+          {
+            s_inferences = acc;
+            s_conclusion =
+              {
+                i_premises = resolve_atomic_ids atomics deduction.premises;
+                i_consequent = None;
+              };
+            s_chain = deduction.sequence;
+            s_conclusion_index = deduction.constraint_id;
+          },
         tail )
 
 let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
@@ -239,8 +250,10 @@ let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
   | [] -> (acc, atomics)
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
-      | new_atomics, stage, rest ->
-          convert_steps_to_proof rest new_atomics (acc @ [ stage ]))
+      | new_atomics, Some stage, rest ->
+          convert_steps_to_proof rest new_atomics (acc @ [ stage ])
+      | new_atomics, None, [] -> (acc, new_atomics)
+      | _, None, _ -> raise IncompleteProofError)
 
 exception ParseError of string
 
