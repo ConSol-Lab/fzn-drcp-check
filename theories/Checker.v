@@ -1,6 +1,5 @@
 Require Import Checker.Deduction.
-(*Require Import Checker.Cumulative.*)
-(*Require Import Checker.CumulativeCheck.*)
+Require Import Checker.CumulativeCheck.
 Require Import Checker.ConstraintProblem.
 Import Utility.Maps.
 Import Utility.Sets.
@@ -20,7 +19,7 @@ Inductive InferenceRule :=
 | fact_equiv
 | dom
 | linear
-(* TODO This is not _cumulative_ inference rule; look up the canonical naming *)
+| cumulative
     (* | cumulative *)
 (* | alldifferent *)
 .
@@ -271,11 +270,11 @@ Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (
       end
   | dom =>
       validate_domain csp_domains fact
-      (*| cumulative =>
+  | cumulative =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
       | _ => false
-         end*)
+      end
   | linear =>
       match hint with
       | [linear_leq c] => Linear.linear_checker fact c
@@ -338,11 +337,11 @@ Proof.
       specialize (Hsat (linear_eq constraint)).
       apply Hsat.
       simpl. left. reflexivity.
-    (*- destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
+  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
     apply checker_cumulative with (constr := constraint); try assumption.
     specialize (Hsat (cumulative_c constraint)).
     apply Hsat.
-       simpl. left. reflexivity.*)
+    simpl. left. reflexivity.
   (* - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy. *)
   (*   specialize (Hsat (alldifferent_c constraint)). *)
   (*   apply Is_true_eq_left. *)

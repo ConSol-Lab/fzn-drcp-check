@@ -3,22 +3,53 @@ Require Coq.Strings.String.
 Require Coq.Lists.List.
 Require Checker.Utility.
 Require Coq.Sorting.Permutation.
-Require Import Checker.Cumulative.
-Require Import Checker.Spec.
-Import Spec.ConstraintDefinitions.
+Require Checker.Spec.
 Require Lia.
 
-Module XNSum.
-  Import Bool.
+Module BuildCumul.
+  Import Spec.ConstraintDefinitions.
   Import NArith.
   Import List.
   Import Lia.
-  Import Utility.ListEx.
-  Import Utility.SubList.
-  Import String.
-  Import Permutation.
-  
   Open Scope N_scope.
+
+  Definition activities_pos_duration (activities : list Activity) := filter (fun act => 1 <=? act.(activity_duration)) activities.
+
+  Lemma activities_pos_duration_correct :
+    forall activities,
+      Forall (fun act => act.(activity_duration) >= 1) (activities_pos_duration activities).
+  Proof.
+    intros activities.
+    rewrite Forall_forall; intros act.
+    unfold activities_pos_duration.
+    rewrite filter_In.
+    intros [_ Hpos].
+    rewrite N.leb_le in Hpos.
+    lia.
+  Qed.
+
+  Definition build_cumulative (activities : list Activity) (cap : N) : CumulativeConstraint :=
+    {|
+      capacity := cap ;
+      activities := activities_pos_duration activities;
+      valid_durations := activities_pos_duration_correct activities;
+    |}.
+End BuildCumul.
+
+Module NSum.
+  Import NArith.
+  Import List.
+  Import Lia.
+  Open Scope N_scope.
+  
+  Fixpoint n_sum_rec (l : list N) (current : N) : N :=
+    match l with
+    | nil => current
+    | n :: l' => n_sum_rec l' (current + n)
+    end.
+
+  Definition n_sum (l : list N) : N :=
+    n_sum_rec l N0.
 
   Lemma n_sum_add :
     forall l n,
@@ -59,7 +90,45 @@ Module XNSum.
       + apply IHl in H.
         rewrite n_sum_add in *. lia.
   Qed.
+
+  Lemma n_fold_is_n_sum :
+    forall ns i,
+    fold_left N.add ns i = n_sum ns + i.
+  Proof.
+    induction ns.
+    - reflexivity.
+    - intros i. simpl. rewrite IHns.
+      unfold n_sum. simpl.
+      repeat rewrite n_sum_add.
+      lia.
+  Qed.
+End NSum.
+
+Module XNSum.
+  Import Bool.
+  Import NArith.
+  Import List.
+  Import Lia.
+  Import Utility.ListEx.
+  Import Utility.SubList.
+  Import String.
+  Import Permutation.
+  Import NSum.
   
+  Open Scope N_scope.
+
+  
+  Definition xn_sum (l : list (string * N)) : N :=
+    n_sum (map snd l).
+
+  Lemma xn_eq_dec :
+    forall x y : (string * N), {x = y}+{x <> y}.
+  Proof.
+    intros x y. decide equality.
+    - apply N.eq_dec.
+    - apply String.string_dec.
+  Qed.
+
   Lemma xn_sum_perm :
     forall l l',
       Permutation l l' -> xn_sum l = xn_sum l'.
@@ -133,7 +202,6 @@ Module XNSum.
         exact Hindiff.
       + exact Hin2.
   Qed.
-  
 End XNSum.
 
 Module RunOfN.

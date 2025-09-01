@@ -85,6 +85,44 @@ Ltac break_in_hyps :=
 
 Ltac solve_in := break_in_hyps; try solve_disjunction.
 
+Lemma reflect_neg_iff (P : Prop) (b : bool) :
+  reflect P b -> (~ P <-> b = false).
+Proof.
+  intros R; destruct R; split; cbv; congruence.
+Qed.
+
+(* The below are very useful when you have a bool and Prop version of a lemma but don't want to active the full ssreflect machinery. Used to translate between the cumulative Prop and non-Prop versions. *)
+Ltac reflect_rewrite_base R loc is_goal :=
+  match type of R with
+  | reflect ?P ?P_dec =>
+    let Rtrue := fresh in
+    let Rfalse := fresh in
+    specialize (reflect_iff P P_dec R) as Rtrue;
+    specialize (reflect_neg_iff P P_dec R) as Rfalse;
+    match is_goal with
+    | false =>
+      first [ rewrite Rtrue in loc
+        | rewrite <- Rtrue in loc
+        | rewrite Rfalse in loc
+        | rewrite <- Rfalse in loc ]
+    | true =>
+      first [ rewrite Rtrue
+        | rewrite <- Rtrue
+        | rewrite Rfalse
+        | rewrite <- Rfalse ]
+    end;
+    clear Rtrue Rfalse
+  | _ => fail "Argument should be reflect lemma!"
+  end.
+
+Ltac reflect_rewrite R := reflect_rewrite_base R True true.
+ 
+Tactic Notation "reflect_rewrite" constr(R) :=
+  reflect_rewrite R.
+
+Tactic Notation "reflect_rewrite" constr(R) "in" hyp(H) :=
+  reflect_rewrite_base R H false.
+
 End Tactics.
 
 Module ListInd.
@@ -106,6 +144,57 @@ Qed.
 
 End ListInd.
 
+(** * ZMaxMinList  *)
+(** These are used by cumulative. *)
+Module ZMaxMinList.
+  Import ZArith.
+  Import List.
+  Open Scope Z_scope.
+  Import ListInd.
+  Import Lia.
+  Definition max_l (l : list Z) :=
+  fold_right Z.max (hd 0 l) l.
+
+  Definition min_l (l : list Z) :=
+    fold_right Z.min (hd 0 l) l.
+
+  Lemma min_l_spec l : forall n, In n l -> min_l l <= n.
+  Proof.
+    set (P := fun (s : list Z) (acc : Z) =>
+      forall n, In n s -> acc <= n).
+    enough (P l (min_l l)).
+    { apply H. } 
+    unfold min_l.
+    apply fold_ind; unfold P in *; clear P.
+    - intros n Hin. destruct Hin.
+    - intros n acc s. intros IH.
+      intros n'. intros [Hnn' | Hin].
+      + subst. lia.
+      + specialize (IH n' Hin).
+        lia.
+  Qed.
+
+  Lemma max_l_spec l : forall n, In n l -> n <= max_l l.
+  Proof.
+    set (P := fun (s : list Z) (acc : Z) =>
+      forall n, In n s -> n <= acc).
+    enough (P l (max_l l)).
+    { apply H. } 
+    unfold max_l.
+    apply fold_ind; unfold P in *; clear P.
+    - intros n Hin. destruct Hin.
+    - intros n acc s. intros IH.
+      intros n'. intros [Hnn' | Hin].
+      + subst. lia.
+      + specialize (IH n' Hin).
+        lia.
+  Qed.
+End ZMaxMinList.
+
+(** * SubList *)
+(** This logic was originally critical to Cumulative when there was still a dependency on there being no duplicates and looking up activities for bounds using names. But with the new valid_bounds definition, the below is no longer necessary.
+
+If this is still around by 2026 without any use being found, feel free to delete. *)
 Module SubList.
   Import List.
   Import Sorted.
@@ -436,12 +525,19 @@ Module SubList.
   
 End SubList.
 
+(** * ListEx  *)
+(** Various utilities for working with lists.  *)
 Module ListEx.
   Import Bool.
   Import List.
   Import Lia.
   Import Permutation.
   Import Tactics.
+
+(* From Coq 9.0 *)
+Lemma filter_false {A} l : filter (fun _ : A => false) l = nil.
+Proof. induction l; cbn [filter]; congruence. Qed.
+
 
 Lemma forallb_false {A} (f : A -> bool) :
   forall l,
@@ -1147,12 +1243,6 @@ Module ZRange.
     rewrite range_spec_other_base by lia. 
     lia.
   Qed.
-
-    
-
-
-
-
 
 End ZRange.
 

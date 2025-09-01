@@ -79,7 +79,7 @@ Module ConstraintDefinitions.
       l_bound : Z;
     }.
 
-  Record Activity := mkActDef {
+  Record Activity := mkAct {
     activity_start : Var;
     activity_duration : N;
     activity_usage : N;
@@ -89,14 +89,13 @@ Module ConstraintDefinitions.
     {
       capacity: N;
       activities: list Activity;
-      valid_p_times : forall a, In a activities -> (a.(activity_duration) >= 1)%N;
-      acts_nodup : NoDup (map activity_start activities)
+      valid_durations : Forall (fun a => a.(activity_duration) >= 1)%N activities;
     }.
 
   Inductive Constraint :=
   | linear_leq (constraint : LinearConstraint)
   | linear_eq (constraint : LinearConstraint)
-      (* | cumulative_c (constraint : CumulativeConstraint) *)
+  | cumulative_c (constraint : CumulativeConstraint)
   | fact_c (constraint : ProofFacts.ProofFact)
   (* TODO | alldifferent_c (constraint : AllDifferent.AllDifferentConstraint) *)
   .
@@ -124,24 +123,24 @@ Module ConstraintDefinitions.
   Definition is_active_at (sol : Assignment) (timepoint : Z) (activity : Activity) : bool :=
     let start_time := evaluate activity.(activity_start) sol in
     let duration := Z.of_N activity.(activity_duration) in
-    let end_time := Z.add start_time duration in
-    Z.leb start_time timepoint && Z.ltb timepoint end_time.
+    let end_time := start_time + duration in
+    (start_time <=? timepoint) && (timepoint <? end_time).
 
   Definition usage_at_timepoint (sol : Assignment) (timepoint : Z) (activities : list Activity) : N :=
     let active_activities := filter (is_active_at sol timepoint) activities in
-    let usages := List.map activity_usage activities in
-    fold_left N.add usages N.zero.
+    let usages := map activity_usage active_activities in
+    fold_left N.add usages N0.
 
   Definition Cumulative (constraint : CumulativeConstraint) (sol : Assignment) : Prop :=
     forall t,
-      N.le (usage_at_timepoint sol t constraint.(activities)) constraint.(capacity).
+      ((usage_at_timepoint sol t constraint.(activities)) <= constraint.(capacity))%N.
 
   Open Scope Z_scope.
   Definition satisfies_constraint (c : Constraint) (sol : string -> Z) :=
     match c with
     | linear_leq c => Linear c sol
     | linear_eq c => LinearEq c sol
-        (* | cumulative_c c => Cumulative c sol *)
+    | cumulative_c c => Cumulative c sol
     | fact_c c => ProofFacts.fact_valid sol c
     end.
 

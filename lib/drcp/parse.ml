@@ -111,6 +111,7 @@ let inference_rule =
   choice
     [
       string "linear_bounds" *> return Linear <?> "linear_bounds";
+      string "time_table" *> return Cumulative <?> "time_table";
       string "nogood" *> return Fact_equiv <?> "nogood";
       string "initial_domain" *> return Dom <?> "initial_domain";
     ]
