@@ -93,6 +93,11 @@ let create_linear parsed_ast args =
       }
   | _ -> raise (InvalidArgumentsError "int_lin_le")
 
+let create_alldifferent parsed_ast args =
+  match args with
+  | [ vars_arg ] -> variable_array parsed_ast vars_arg
+  | _ -> raise (InvalidArgumentsError "alldifferent")
+
 let create_cumulative parsed_ast args =
   match args with
   | [ start_arg; duration_arg; usage_arg; capacity_arg ] ->
@@ -118,6 +123,7 @@ let create_constraint parsed_ast c =
   | "int_lin_le" -> Coq_linear_leq (create_linear parsed_ast c.constr_args)
   | "int_lin_eq" -> Coq_linear_eq (create_linear parsed_ast c.constr_args)
   | "pumpkin_cumulative" -> Coq_cumulative_c (create_cumulative parsed_ast c.constr_args)
+  | "pumpkin_all_different" -> Coq_alldifferent_c (create_alldifferent parsed_ast c.constr_args)
   | unknown -> raise (UnknownConstraintError unknown)
 
 let accumulate_constraints parsed_ast (map, idx) c =

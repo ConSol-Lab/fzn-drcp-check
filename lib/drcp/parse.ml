@@ -112,6 +112,7 @@ let inference_rule =
     [
       string "linear_bounds" *> return Linear <?> "linear_bounds";
       string "time_table" *> return Cumulative <?> "time_table";
+      string "all_different" *> return Alldifferent <?> "all_different";
       string "nogood" *> return Fact_equiv <?> "nogood";
       string "initial_domain" *> return Dom <?> "initial_domain";
     ]
