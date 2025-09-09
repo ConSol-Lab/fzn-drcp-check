@@ -14,6 +14,7 @@ let to_coq_map empty add pairs = List.fold_left (fun acc (key, value) -> add key
 %token INT
 %token BOOL
 %token CONSTRAINT
+%token PREDICATE
 %token MINIMIZE
 %token MAXIMIZE
 %token DOUBLE_PERIOD
@@ -39,7 +40,7 @@ let to_coq_map empty add pairs = List.fold_left (fun acc (key, value) -> add key
 %start model
 %%
 
-model: consts = constants; const_arrays = constant_arrays; vars = variables; var_arrs = var_arrays; cs = constraints; solve_item; EOF { 
+model: list(predicate); consts = constants; const_arrays = constant_arrays; vars = variables; var_arrs = var_arrays; cs = constraints; solve_item; EOF { 
     to_constraint_problem { 
         ast_constants = consts;
         ast_constant_arrays = const_arrays;
@@ -48,6 +49,17 @@ model: consts = constants; const_arrays = constant_arrays; vars = variables; var
         ast_constraints  = cs;
     }  
 };
+
+predicate: PREDICATE; IDENT; OPEN_PAREN; separated_list(COMMA, predicate_parameter); CLOSE_PAREN; SEMICOLON {}
+predicate_parameter: predicate_parameter_type; COLON; IDENT {}
+predicate_parameter_type:
+    | basic_predicate_parameter_type {}
+    | ARRAY; OPEN_BRACKET; INT; CLOSE_BRACKET; OF; basic_predicate_parameter_type {}
+basic_predicate_parameter_type:
+    | BOOL {}
+    | INT {}
+    | VAR; BOOL {}
+    | VAR; INT {}
 
 solve_item: 
     | SOLVE; annotation_list; SATISFY; SEMICOLON {}

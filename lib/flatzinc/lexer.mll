@@ -35,6 +35,7 @@ rule read_token =
   | "satisfy" { SATISFY }
   | "minimize" { MINIMIZE }
   | "maximize" { MAXIMIZE }
+  | "predicate" { PREDICATE }
   | "::"     { DOUBLE_COLON }
   | ":"      { COLON }
   | ";"      { SEMICOLON }
