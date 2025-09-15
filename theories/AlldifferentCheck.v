@@ -6,7 +6,7 @@ Require Import Lia.
 Require Checker.Spec.
 Import Spec.ProofFacts.
 Import Spec.ConstraintDefinitions.
-
+Require Import Logic.FinFun.
 Require Utility.
 Import Utility.Sets.
 Import Utility.Maps.
@@ -25,18 +25,18 @@ Open Scope nat_scope.
 (** The below section is fully independent from the checker's implementation. It highlights the main idea on which the checker is based: there is no solution to an alldifferent constraint (given a current state of variable domains) if we can find variables such that the union of their domains is smaller than the number of variables. These are 'tight sets' according to the language of Van Hoeve (2001). *)
 
 Definition MaterializedDomain := sint.t.
-Definition state := string -> MaterializedDomain.
+Definition state {V} := V -> MaterializedDomain.
 
-Definition valuation_in_state (st : state) (vs : list string) (v : string -> Z) : Prop :=
+Definition valuation_in_state {V} (st : state) (vs : list V) (v : V -> Z) : Prop :=
   forall x, In x vs -> sint.In (v x) (st x).
 
-Definition Alldifferent_l (vs : list string) (sol : string -> Z) : Prop :=
+Definition Alldifferent_l {V} (vs : list V) (sol : V -> Z) : Prop :=
     forall x y, 
       In x vs -> 
       In y vs -> 
         sol x <> sol y.
 
-Definition AllDifferent_sat (st : state) (vs : list string) :=
+Definition AllDifferent_sat {V} (st : state) (vs : list V) :=
   exists v, valuation_in_state st vs v /\ Alldifferent_l vs v.
 
 (** Copied from Coq stdlib 9.0 *)
@@ -49,7 +49,7 @@ Proof.
 Qed.
 
 (** This is the main lemma that underpins the approach. *)
-Lemma alldiff_conflict_if_union_lt_vars (st : state) (vars : list string) (domain_union : list Z) :
+Lemma alldiff_conflict_if_union_lt_vars {V} (st : state) (vars : list V) (domain_union : list Z) :
   NoDup domain_union
     ->
   NoDup vars
@@ -157,24 +157,43 @@ Definition materialized_dom_for_var (doms: Domains) (var : Var) : option sint.t 
     | None => None
     | Some dom => materialize_dom dom
     end
-  | _ => None
+  | const value => Some (sint.add value sint.empty)
   end.
 
 Lemma in_materialized_iff_in_dom_for_var :
   forall n s doms x,
     materialized_dom_for_var doms (var_name x) = Some s
       ->
-    (sint.In n s <-> sint.In n (option_default sint.empty (materialize_dom (doms d-> x)))).
+    (sint.In n s <-> sint.In n (option_default sint.empty (materialize_dom (doms d-> x)))) /\ is_bounded (doms d-> x) = true.
 Proof.
   intros n s doms x.
-  unfold materialized_dom_for_var, dom_from_domains, option_default, materialize_dom.
+  unfold materialized_dom_for_var, dom_from_domains, option_default, materialize_dom, is_bounded.
   destruct smap.find as [dom|] eqn:Hfind.
   - destruct lb_ub_from_dom as [[lb ub]|].
     + intros H; inversion H; subst s; clear H.
-      reflexivity.
+      split; reflexivity.
     + easy.
   - easy.
 Qed.
+
+Lemma in_materialized_const_if_is_const :
+  forall n n' s doms,
+    materialized_dom_for_var doms (const n) = Some s
+      ->
+    (sint.In n' s <-> n = n').
+Proof.
+  intros n n' s doms.
+  unfold materialized_dom_for_var.
+  intros H; inversion H; clear H; subst.
+  rewrite sint.add_spec.
+  split.
+  - intros [H | Hfalse].
+    + easy.
+    + destruct (sint.empty_spec Hfalse).
+  - intros; subst.
+    left; reflexivity.
+Qed.
+
  
 Definition materialize_vars_doms (vars : list Var) (doms : Domains) :=
   flat_map_option (materialized_dom_for_var doms) vars.
@@ -232,9 +251,9 @@ Definition alldifferent_checker (fact : ProofFact) (constraint : AlldifferentCon
   end.
 
 (** For efficiency, we do not explicitly compute the variables in the materialize_vars_doms, but we do want to reason about exactly which variables show will not be all different. First, we compute all variables with finite domains, as these are the only ones with a finite domain size that we can reason about. *)
-Definition bounded_vars (doms : Domains) :=
+(* Definition bounded_vars (doms : Domains) :=
   filter (fun x => is_bounded (doms d-> x)) (map fst (smap.bindings doms)).
-
+*)
 Definition same_ident (x : string) (var : Var) : bool :=
   match var with
   | var_name y => (x =? y)%string
@@ -242,57 +261,207 @@ Definition same_ident (x : string) (var : Var) : bool :=
   end.
 
 (** These are not used for computation, just for the proofs. In combination with bounded_vars they allow specifying exactly which variable domains are included in the domains of materialize_vars_doms. *)
-Definition constr_vars (vs : list string) (constr : AlldifferentConstraint) :=
-  filter (fun x => existsb (same_ident x) constr.(diff_variables)) vs.
+(* Definition constr_vars (vs : list Var) (constr : AlldifferentConstraint) :=
+  filter (fun x => existsb (same_var x) constr.(diff_variables)) vs.
+ *)
+Definition is_variable (v : Var) : Prop :=
+  match v with
+  | var_name x => True
+  | _ => False
+  end.
+
+Definition bounded_in_vars (doms : Domains) (vars : list Var) : list Var :=
+  flat_map_option (fun x =>
+    match is_bounded (doms d-> x) && existsb (same_ident x) vars with
+    | true => Some (var_name x)
+    | false => None
+    end
+  ) (map fst (smap.bindings doms)).
+
+Definition const_vars (vars : list Var) :=
+  filter (fun v => match v with | const _ => true | _ => false end) vars.
+
+Definition proof_variables (doms : Domains) (constr : AlldifferentConstraint) : list Var :=
+  bounded_in_vars doms constr.(diff_variables) ++ const_vars constr.(diff_variables).
+
+(* Lemma is_bounded_in_doms_ex_dom :
+  forall doms x,
+    is_bounded (doms d-> x) = true
+      ->
+    smap.find x doms = Some (doms d-> x).
+Proof.
+  intros doms x.
+  unfold dom_from_domains.
+  destruct is_bounded eqn:Hbounded; try easy.
+  intros _.
+  unfold option_default in Hbounded.
+  destruct (smap.find x) as [dom|] eqn:Hfind.
+  { exists dom. reflexivity. }
+  exfalso.
+  revert Hbounded.
+  unfold is_bounded, initial_dom. 
+  destruct lb_ub_from_dom as [[lb ub]|] eqn:Hlubub; unfold lb_ub_from_dom in Hlubub; easy.
+Qed.
+ *)
+
+Lemma is_bounded_in_doms_ex_dom :
+  forall doms x,
+    is_bounded (doms d-> x) = true
+      ->
+    smap.find x doms = Some (doms d-> x).
+Proof.
+  intros doms x.
+  unfold dom_from_domains.
+  destruct is_bounded eqn:Hbounded; try easy.
+  intros _.
+  unfold option_default in *.
+  destruct (smap.find x) as [dom|] eqn:Hfind.
+  { reflexivity. }
+  exfalso.
+  revert Hbounded.
+  unfold is_bounded, initial_dom. 
+  destruct lb_ub_from_dom as [[lb ub]|] eqn:Hlubub; unfold lb_ub_from_dom in Hlubub; easy.
+Qed.
+
+
+Lemma in_bounded_in_vars :
+  forall v doms vars,
+    In v (bounded_in_vars doms vars)
+      <->
+    (In v vars
+      /\
+      match v with
+      | var_name x => is_bounded (doms d-> x) = true
+      | const n => False
+      end
+    ).
+Proof.
+  intros v doms vars.
+  unfold bounded_in_vars.
+  rewrite in_flat_map_option.
+  assert (forall x, existsb (same_ident x) vars = true <-> In (var_name x) vars) as Hexists_ident_in.
+  {
+    intros x.  
+    rewrite existsb_exists.
+    unfold same_ident.
+    split.
+    - intros (v' & Hvin & Hsame).
+      destruct v'; try discriminate.
+      rewrite String.eqb_eq in Hsame.
+      subst ident.
+      exact Hvin.
+    - intros Hin. exists (var_name x).
+      rewrite String.eqb_eq.
+      now split.
+  }
+  destruct v as [x|].
+  - split.
+    + intros (x' & (Hin & H)).
+      destruct is_bounded eqn:Hbounded; 
+      destruct existsb eqn:Hident;
+      simpl in H; inversion H.
+      subst x'.
+      now rewrite Hexists_ident_in in Hident.
+    + intros Hin.
+      exists x.
+      split.
+      * rewrite in_map_iff.
+        exists (x, doms d-> x).
+        simpl; split; try easy.
+        rewrite smap_in_spec.
+        destruct Hin as [_ His_bounded].
+        unfold is_bounded in His_bounded.
+        destruct lb_ub_from_dom eqn:Hlbub; try discriminate.
+        unfold dom_from_domains in *.
+        destruct smap.find eqn:Hfind.
+        2: { unfold lb_ub_from_dom in Hlbub. discriminate Hlbub. }
+        simpl.
+        rewrite <- smap.find_spec.
+        exact Hfind.
+      * destruct Hin as [Hin Hbounded].
+        rewrite Hbounded.
+        rewrite <- Hexists_ident_in in Hin.
+        rewrite Hin. simpl.
+        reflexivity.
+  - split; try easy.
+    intros (x & (Hin & H)).
+    destruct is_bounded; destruct existsb;
+    simpl in H; discriminate.
+Qed.
+
+Lemma proof_variables_or :
+  forall v doms constr,
+    In v (proof_variables doms constr)
+      <->
+    (In v constr.(diff_variables)
+      /\
+      match v with
+      | var_name x => is_bounded (doms d-> x) = true
+      | const _ => True
+      end
+    ).
+Proof.
+  intros v doms vars.
+  unfold proof_variables.
+  rewrite in_app_iff.
+  rewrite in_bounded_in_vars.
+  unfold const_vars.
+  rewrite filter_In.
+  destruct v.
+  - split.
+    + now intros [Hv | Hconst].
+    + intros H.
+      left. exact H.
+  - repeat split; try easy.
+    + now destruct H as [Hfalse | Hconst].
+    + intros H.
+      right.
+      split; try reflexivity.
+      apply H.
+Qed.
+
+(* Lemma const_in_bounded:
+  forall n vars doms,
+  In (const n) vars
+    ->
+  In (const n) (bounded_vars doms vars).
+Proof.
+  intros n vars doms.
+  induction vars as [| v vars IH].
+  { intros H. destruct H. }
+  simpl. intros [Hveq | Hin].
+  - subst v. left. reflexivity.
+  - destruct v.
+    + destruct is_bounded.
+      * right. apply IH; exact Hin.
+      * apply IH; exact Hin.
+    + right. apply IH; exact Hin.
+Qed.
+   *)
 
 (** Here we show that bounded constraint variables will have a materialized domain. This connects what we do in the checker with the function we use to denote the actual variables in the conflict. *)
-Lemma materialized_in_constr_iff_in_constr_bounded :
+(* Lemma materialized_in_constr_iff_in_constr_bounded :
   forall constr doms v,
-  (In v constr.(diff_variables)
-    /\
-  materialized_dom_for_var doms v <> None)
+  In v constr.(diff_variables)
+    ->
+  (materialized_dom_for_var doms v <> None
     <->
-  In v (map var_name (constr_vars (bounded_vars doms) constr)).
+  In v (bounded_vars doms constr.(diff_variables))).
 Proof.
   intros constr doms v.
+  intros Hin.
   unfold materialized_dom_for_var.
-  rewrite in_map_iff.
   destruct v as [x|] eqn:Hvx.
-  2: { split; intros H; try easy. destruct H as (x & Hfalse & _). discriminate. }
-    enough (In (var_name x) (diff_variables constr) /\ match smap.find x doms with
-  | Some dom => materialize_dom dom
-  | None => None
-  end <> None <-> In x (constr_vars (bounded_vars doms) constr)) as Henough. 
-  { split; intros H.
-    - exists x. split; try reflexivity.
-      apply Henough. exact H.
-    - destruct H as (x' & Hxx' & H).
-      inversion Hxx'; subst x'.
-      apply Henough. exact H. }
-  unfold constr_vars, bounded_vars.
-  setoid_rewrite filter_In; setoid_rewrite filter_In.
-  unfold is_bounded, materialize_dom, dom_from_domains, option_default.
-  setoid_rewrite existsb_exists.
-  destruct smap.find as [dom|] eqn:Hfind.
-  2: { simpl. repeat split; try easy. }
-  destruct lb_ub_from_dom as [[lb ub]|]; try easy.
-  repeat split; try easy.
-  - rewrite in_map_iff.
-    exists (x, dom).
-    split; try reflexivity.
-    rewrite smap_in_spec.
-    rewrite <- smap.find_spec.
-    exact Hfind.
-  - exists (var_name x).
-    split.
-    + apply H.
-    +  simpl. rewrite String.eqb_eq. reflexivity.
-  - destruct H as (_ & (v' & Hin & Hxv')).
-    unfold same_ident in Hxv'.
-    destruct v' as [x'|]; try discriminate.
-    rewrite String.eqb_eq in Hxv'; subst x'.
-    exact Hin.
-Qed.
+  2: { 
+    split. 
+    - intros _. apply const_in_bounded. exact Hin.
+    - intros _. now intros H.
+  } 
+  unfold bounded_vars.
+  setoid_rewrite filter_In.
+  unfold is_bounded, materialize_dom, option_default, dom_from_domains.
+  destruct smap.find as [dom|] eqn:Hfind; repeat split; try easy; destruct lb_ub_from_dom as [[lb ub]|]; repeat split; try easy.
+Qed. *)
 
 (** The proof is a bit large because we aim to explicitly decouple the implementation details and the core idea of checking alldifferent. *)
 Lemma checker_alldifferent :
@@ -308,49 +477,49 @@ Proof.
   apply infer_domains_correct with (sol := sol) in Hinfer.
   rewrite <- Hinfer; clear Hinfer cnsq fact.
   intros Halldiff Hconfl Hin_doms.
-  (* Now we have that sol adheres to domain, so let us build a state with it. We use materialize_dom for this. *)
-  remember (fun x => option_default sint.empty (materialize_dom (doms d-> x))) as st.
+  (* Now we have that sol adheres to domain, so let us build a state with it. We use materialize_dom_for_var for this. *)
+  remember (fun v => option_default sint.empty (materialized_dom_for_var doms v)) as st.
   unfold sol_in_doms in Hin_doms.
-  remember (constr_vars (bounded_vars doms) constr) as vars.
+  remember (proof_variables doms constr) as vars.
   (* We now show that our solution adheres to this state for the particular variables we care about. *)
-  assert (valuation_in_state st vars sol) as Hvars_in_state.
+  assert (valuation_in_state st vars (fun v => evaluate v sol)) as Hvars_in_state.
   {
     clear -Heqst Heqvars Hin_doms.
-    intros x.
+    intros v.
     subst st vars.
-    unfold constr_vars, bounded_vars.
-    rewrite filter_In; rewrite filter_In.
-    intros ((_ & Hisbounded) & _).
-    apply materialize_dom_iff_in_dom with (y := sol x) in Hisbounded.
-    apply Hisbounded.
-    apply Hin_doms.
+    intros Hin.
+    apply proof_variables_or in Hin.
+    unfold materialized_dom_for_var.
+    destruct v as [x | n].
+    - destruct Hin as (Hin & Hbounded).
+      apply is_bounded_in_doms_ex_dom in Hbounded as Hdomex.
+      rewrite Hdomex.
+      simpl.
+      apply materialize_dom_iff_in_dom with (y := sol x).
+      + exact Hbounded.
+      + apply Hin_doms.
+    - simpl. rewrite sint.add_spec. left. reflexivity.
   }
   clear Hin_doms.
   (* We now show we get a conflict if we have that some of the values in the particular variables we chose are not all distinct. This brings us a step closer to applying our core proof. *)
-  enough (~ Alldifferent_l vars sol) as Halldiff_l.
+  enough (~ Alldifferent_l vars (fun v => evaluate v sol)) as Halldiff_l.
   {
     clear -Halldiff Halldiff_l Heqvars.
     apply Halldiff_l; clear Halldiff_l.
     intros x y.
     subst vars.
-    unfold constr_vars. setoid_rewrite filter_In.
-    intros [_ Hexx] [_ Hexy].
-    revert Hexx Hexy.
-    setoid_rewrite existsb_exists.
-    intros (x' & Hx') (y' & Hy').
-    revert Hx' Hy'.
-    unfold same_ident. destruct y' as [y'|]; destruct x' as [x'|]; try easy.
-    setoid_rewrite String.eqb_eq.
-    intros [Hinx Hxx'] [Hiny Hyy']; subst x' y'.
-    specialize (Halldiff (var_name x) (var_name y)).
-    simpl in Halldiff. apply Halldiff; assumption.
+    intros Hinx Hiny.
+    apply proof_variables_or in Hinx, Hiny.
+    apply Halldiff.
+    - apply Hinx.
+    - apply Hiny.
   }
   clear Halldiff.
   enough (~ AllDifferent_sat st vars) as Halldiff_sat.
   {
     intros Halldiff_l. apply Halldiff_sat; clear Halldiff_sat.
     unfold AllDifferent_sat.
-    exists sol.
+    exists (fun v => evaluate v sol).
     split.
     - exact Hvars_in_state.
     - exact Halldiff_l.
@@ -359,9 +528,48 @@ Proof.
   remember (sint.elements (union_sets (materialize_vars_doms (diff_variables constr) doms))) as domain_union.
   apply alldiff_conflict_if_union_lt_vars with (domain_union := domain_union).
   { subst domain_union. apply sint.elements_nodup. }
-  { subst vars. clear. unfold constr_vars, bounded_vars. apply NoDup_filter. apply NoDup_filter. apply nodup_bindings_keys. }
+  { subst vars. clear.
+    unfold proof_variables.
+    apply NoDup_app.
+    - unfold bounded_in_vars.
+      rewrite flat_map_option_as_filter_map with (d := const 0).
+      remember (fun x : string =>
+        if
+        is_bounded (doms d-> x) &&
+        existsb (same_ident x)
+        (diff_variables constr)
+        then Some (var_name x)
+        else None) as fn.
+      apply Injective_map_NoDup_in.
+      {
+        intros x y. setoid_rewrite filter_In.
+        unfold filter_f_option.
+        unfold option_map_default.
+        destruct (fn x) as [fx|] eqn:Hfnx; try easy.
+        destruct (fn y) as [fy|] eqn:Hfny; try easy.
+        intros [Hxin _] [Hyin _].
+        subst fn.
+        destruct is_bounded; destruct existsb;
+        destruct is_bounded; destruct existsb;
+        simpl in *;
+        try discriminate.
+        inversion Hfnx; inversion Hfny.
+        intros H.
+        inversion H.
+        reflexivity.
+      }
+      apply NoDup_filter.
+      apply nodup_bindings_keys.
+    - unfold const_vars. apply NoDup_filter.
+      apply constr.(diff_unique_vars).
+    - intros v Hin.
+      apply in_bounded_in_vars in Hin.
+      intros Hinv.
+      unfold const_vars in Hinv.
+      rewrite filter_In in Hinv.
+      destruct v; easy. }
   { 
-    (* We now need to show that the union used by teh checker is indeed a valid union in the sense of the core proof. *)
+    (* We now need to show that the union used by the checker is indeed a valid union in the sense of the core proof. *)
     subst st domain_union vars. clear.
     intros n.
     rewrite sint.elements_in. rewrite union_sets_spec.
@@ -369,81 +577,94 @@ Proof.
     - destruct H as (s & Hin_mtrl & Hin).
       revert Hin_mtrl. unfold materialize_vars_doms.
       rewrite in_flat_map_option. intros (v & Hvconstr & Hmtrl). 
-      assert (In v (map var_name (constr_vars (bounded_vars doms) constr))) as Hvin.
-      { rewrite <- materialized_in_constr_iff_in_constr_bounded. split.
-        - exact Hvconstr.
-        - intros Hnone. rewrite Hnone in Hmtrl. discriminate Hmtrl. }
-      rewrite in_map_iff in Hvin.
-      destruct Hvin as (x & Hxv & Hxin).
-      exists x.
-      split; try exact Hxin.
-      rewrite <- in_materialized_iff_in_dom_for_var.
-      + exact Hin.
-      + subst v. exact Hmtrl.
-    - destruct H as (x & Hxin & Hndom).
-      apply in_map with (f := var_name) in Hxin.
-      rewrite <- materialized_in_constr_iff_in_constr_bounded in Hxin.
-      destruct Hxin as [Hvin Hmtrl].
-      destruct materialized_dom_for_var as [s|] eqn:Hs; try easy; clear Hmtrl.
-      exists s.
-      split.
-      + unfold materialize_vars_doms. rewrite in_flat_map_option. exists (var_name x).
+      exists v.
+      specialize (proof_variables_or v doms constr) as Hproof.
+      destruct v as [x | c].
+      + apply in_materialized_iff_in_dom_for_var with (n := n) in Hmtrl.
         split.
-        * exact Hvin.
-        * exact Hs.
-      + apply in_materialized_iff_in_dom_for_var with (n := n) in Hs.
-        apply Hs. exact Hndom.
+        * now apply Hproof.
+        * destruct Hmtrl as [Hsin Hbounded].
+          unfold materialized_dom_for_var.
+          rewrite is_bounded_in_doms_ex_dom;
+          try exact Hbounded.
+          apply Hsin.
+          exact Hin.
+      + apply in_materialized_const_if_is_const with (n := c) (n' := n) in Hmtrl.
+        unfold materialized_dom_for_var. simpl.
+        rewrite Hmtrl in Hin. subst n.
+        split.
+        * apply Hproof.
+          split; try reflexivity.
+          apply Hvconstr.
+        * rewrite sint.add_spec.
+          left. reflexivity.
+    - destruct H as (v & Hvin & Hndom).
+      unfold materialize_vars_doms.
+      setoid_rewrite in_flat_map_option.
+      unfold option_default in Hndom.
+      destruct materialized_dom_for_var as [s|] eqn:Hmtrl.
+      2: { destruct (sint.empty_spec Hndom). }
+      exists s.
+      split; try exact Hndom.
+      exists v.
+      split; try exact Hmtrl.
+      rewrite proof_variables_or in Hvin.
+      apply Hvin.
   }
   clear Hvars_in_state Heqst st.
   subst domain_union. 
   rewrite <- sint.cardinal_spec.
   rewrite Nat.ltb_lt in Hconfl.
-  (* The checker uses the length of the materialize_vars_doms, which we know to be the same as the number of bounded variables in our constraint. We must now show this correspondence. Unfortunately they are not exactly equal, but we only have to show that one is longer than the other for the bound to be tight enough. *)
+  (* The checker uses the length of the materialize_vars_doms, which we know to be the same as the number of bounded variables + constant values in our constraint. We must now show this correspondence. Unfortunately they are not exactly equal, but we only have to show that one is longer than the other for the bound to be tight enough. *)
   enough (length vars >= length (materialize_vars_doms constr.(diff_variables) doms)) by lia.
   clear Hconfl. subst vars.
-  (* We want to compare lengths of lists of equal type, so we use the properties of flat_map_option to extract the variables. Note: if you try to use as vars the filtered constraint Var (with filter_f_option) you have to map it to default and that NoDup proof is not trivial. *)
+  (* We want to compare lengths of lists of equal type, so we use the properties of flat_map_option to extract the variables. *)
   unfold materialize_vars_doms.
   rewrite flat_map_option_as_filter_map with (d := sint.empty).
   rewrite length_map.
-  rewrite <- length_map with (f := var_name).
   apply NoDup_incl_length.
   - apply NoDup_filter. apply constr.(diff_unique_vars).
   - intros v. rewrite filter_In. unfold filter_f_option.
     destruct materialized_dom_for_var as [s|] eqn:Hmtrl_doms; try easy.
     intros [Hinconstr _].
-    rewrite <- materialized_in_constr_iff_in_constr_bounded.
-    split.
-    + exact Hinconstr.
-    + intros Hnone. rewrite Hnone in Hmtrl_doms; discriminate. 
+    rewrite proof_variables_or.
+    split; try exact Hinconstr.
+    destruct v as [x|]; try reflexivity.
+    apply (in_materialized_iff_in_dom_for_var 0%Z) in Hmtrl_doms.
+    apply Hmtrl_doms.
 Qed.
 
-Lemma var_name_inj :
-  forall l,
-    NoDup l
-      ->
-    NoDup (map var_name l).
-Proof.
-  induction l.
-  - simpl. intros. apply NoDup_nil.
-  - simpl. intros Hnodup.
-    inversion Hnodup; subst x l0.
-    specialize (IHl H2).
-    apply NoDup_cons.
-    + intros Hin.
-      apply H1.
-      rewrite in_map_iff in Hin.
-      destruct Hin as (a' & Haa' & Hin).
-      inversion Haa'; subst a'.
-      exact Hin.
-    + exact IHl.
-Qed.
-
-Definition build_alldifferent (vs : list string) : AlldifferentConstraint :=
+Definition build_alldifferent_vars (vs : list string) (cs : list Z) :=
+  let nodup_ints := sint.elements (sint.build cs) in
   let nodup_strs := sstr.elements (sstr.build vs) in 
   let nodup_vars := map var_name nodup_strs in
+  let nodup_consts := map const nodup_ints in
+  nodup_vars ++ nodup_consts.
+
+Lemma build_vars_nodup :
+  forall vs cs,
+    NoDup (build_alldifferent_vars vs cs).
+Proof.
+  intros vs cs.
+  apply NoDup_app.
+  - apply Injective_map_NoDup_in.
+    + intros x y _ _ H. inversion H; reflexivity.
+    + apply sstr.elements_nodup.
+  - apply Injective_map_NoDup_in.
+    + intros x y _ _ H. inversion H; reflexivity.
+    + apply sint.elements_nodup.
+  - intros v.
+    setoid_rewrite in_map_iff.
+    intros (x & Hvx & Hxin).
+    intros (c & Hvc & Hcin).
+    rewrite <- Hvx in Hvc.
+    discriminate Hvc.
+Qed.
+
+Definition build_alldifferent (vs : list string) (cs : list Z) : AlldifferentConstraint :=
   {|
-    diff_variables := nodup_vars;
-    diff_unique_vars := var_name_inj nodup_strs (sstr.elements_nodup (sstr.build vs))
+    diff_variables := build_alldifferent_vars vs cs;
+    diff_unique_vars := build_vars_nodup vs cs
   |}.
 
 Open Scope string_scope.
@@ -452,7 +673,7 @@ Open Scope string_scope.
 Compute 
   let constr := build_alldifferent (
     "x" :: "y" :: nil
-  ) in
+  ) nil in
   let fact := 
     {| 
       i_premises :=
@@ -467,7 +688,7 @@ Compute
 Compute 
   let constr := build_alldifferent (
     "x" :: "y" :: nil
-  ) in
+  ) nil in
   let fact := 
     {| 
       i_premises :=
@@ -484,7 +705,7 @@ Compute
 Compute 
   let constr := build_alldifferent (
     "x" :: "y" :: "z" :: nil
-  ) in
+  ) nil in
   let fact := 
     {| 
       i_premises :=
@@ -498,6 +719,20 @@ Compute
         ("z", mk_atm_ge 3) :: 
         ("z", mk_atm_ne 4) :: 
         nil ;
+      i_consequent := None
+    |}
+  in
+  alldifferent_checker fact constr.
+
+(* Should be true. Constant 1 causes x to not be able to be 1. *)
+Compute 
+  let constr := build_alldifferent (
+    "x" :: nil
+  ) (1%Z :: nil) in
+  let fact := 
+    {| 
+      i_premises :=
+        ("x", mk_atm_eq 1) :: nil ;
       i_consequent := None
     |}
   in
