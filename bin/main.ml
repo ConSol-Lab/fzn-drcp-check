@@ -35,6 +35,8 @@ let print_error e =
       print_endline
         "One of the deduction steps does not imply false. This should not be \
          able to happen!"
+  | Unknown_inference (step_id, name) ->
+      Printf.printf "Inference %s (%s) is unknown\n" (string_of_big_int step_id) name
   | Invalid_inference step_id ->
       Printf.printf "Inference %s is unsound\n" (string_of_big_int step_id)
   | Invalid_deduction (step_id, None) ->
@@ -79,22 +81,16 @@ let print_error e =
         inferences
   | Invalid_conclusion -> print_endline "Invalid conclusion."
 
-let time label f x =
+let time label f =
   let t = Sys.time () in
-  let fx = f x in
-  Printf.printf "%s: %fs\n" label (Sys.time () -. t);
-  fx
-
-let time3 label f x y z =
-  let t = Sys.time () in
-  let fx = f x y z in
+  let res = f () in
   Printf.printf "%s: %fs\n%!" label (Sys.time () -. t);
-  fx
+  res
 
 let run_checker flatzinc_file drcp_file =
-  let csp = time "parse-flatzinc" read_constraint_problem flatzinc_file in
-  let proof, conclusion = time "parse-proof" read_proof drcp_file in
-  let result = time3 "validate" validate csp conclusion proof in
+  let csp = time "parse-flatzinc" (fun () -> read_constraint_problem flatzinc_file) in
+  let proof, conclusion = time "parse-proof" (fun () -> read_proof drcp_file) in
+  let result = time "validate" (fun () -> validate default_rules csp conclusion proof) in
   match result with
   | Proofs.Coq_valid -> print_endline "Proof is valid!"
   | Proofs.Coq_invalid e ->
