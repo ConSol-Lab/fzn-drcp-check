@@ -51,7 +51,7 @@ Record IndexedInference := {
     iinf_index : N ;
     iinf_fact : ProofFacts.ProofFact ;
     iinf_hint : list N ;
-    iinf_rule : InferenceRule.t
+    iinf_rule : string
   }.
 
 Record ProofStage := {
@@ -62,6 +62,7 @@ Record ProofStage := {
   }.
 
 Inductive CheckerErrorType : Type :=
+  | unknown_inference (id : N) (name: string)
   | invalid_inference (id : N)
   (* If failed_inferences is None, the premises of the deduction are contradictory *)
   | invalid_deduction (id : N) (failed_inferences : option (list FailedInference))
@@ -74,7 +75,7 @@ Record HydratedInference := {
   hinf_index : N ;
   hinf_fact : ProofFact ;
   hinf_hint : list Constraint ;
-  hinf_rule : InferenceRule.t
+  hinf_rule : string
 }.
 
 Record HydratedProofStage := {
@@ -380,6 +381,14 @@ End alldifferent_Impl.
 
 Module alldifferent := InferenceRule.Make alldifferent_Impl.
 
+Definition default_rules s :=
+  if String.eqb s "linear_bounds" then Some linear.rule else
+    if String.eqb s "time_table" then Some cumulative.rule else
+      if String.eqb s "all_different" then Some alldifferent.rule else
+        if String.eqb s "nogood" then Some fact_equiv.rule else
+          if String.eqb s "initial_domain" then Some dom.rule else
+            None.
+
 (*
 Compute fact_equiv.validate
   smap.empty
@@ -407,6 +416,9 @@ Compute fact_equiv.validate
   ].
  *)
 
+Section Checker.
+Variable (rules: string -> option InferenceRule.t).
+
 Inductive StageResult :=
   | valid_single_stage
   | invalid_single_stage (e : CheckerErrorType).
@@ -421,29 +433,39 @@ Definition validate_nogood (id : N) (fact : ProofFact) (chain : list ProofFact) 
   | Some _ => invalid_single_stage deduction_implies_not_false
   end.
 
-Definition validate_inference_within_stage (doms : smap.t IntSet) (step : HydratedInference) :=
-  step.(hinf_rule).(InferenceRule.r_validate) doms step.(hinf_fact) step.(hinf_hint).
+Definition validate_inference_within_stage
+  (doms : smap.t IntSet) (step : HydratedInference) :=
+  match rules step.(hinf_rule) with
+  | Some rule =>
+      if rule.(InferenceRule.r_validate) doms step.(hinf_fact) step.(hinf_hint) then
+        valid_single_stage
+      else
+        invalid_single_stage (invalid_inference step.(hinf_index))
+  | None =>
+      invalid_single_stage (unknown_inference step.(hinf_index) step.(hinf_rule))
+  end.
 
 Fixpoint validate_inferences (doms : smap.t IntSet) (inferences : list HydratedInference) : StageResult :=
   match inferences with
   | nil => valid_single_stage
-  | inf :: tail => if validate_inference_within_stage doms inf
-                   then validate_inferences doms tail
-                   else invalid_single_stage (invalid_inference inf.(hinf_index))
+  | inf :: tail =>
+      match validate_inference_within_stage doms inf with
+      | valid_single_stage => validate_inferences doms tail
+      | error => error
+      end
   end.
 
 Lemma validate_inferences_forall : forall
   (doms : smap.t IntSet) (inferences : list HydratedInference) ,
-  validate_inferences doms inferences = valid_single_stage -> Forall (fun inf => validate_inference_within_stage doms inf = true) inferences.
+  validate_inferences doms inferences = valid_single_stage -> Forall (fun inf => validate_inference_within_stage doms inf = valid_single_stage) inferences.
 Proof.
   intros doms inferences Hvalid.
   rewrite Forall_forall.
   induction inferences ; simpl ; simpl in Hvalid ; try easy.
   intros x Hin'.
   destruct Hin' ; destruct (validate_inference_within_stage doms a) eqn:Estage ; try inversion Hvalid.
-  - rewrite <- H.
-    exact Estage.
-  - apply IHinferences ; assumption.
+  - congruence.
+  - rewrite IHinferences; congruence.
 Qed.
 
 Definition validate_proof_stage (doms : smap.t IntSet) (stage : HydratedProofStage) : StageResult :=
@@ -676,13 +698,15 @@ Proof.
         unfold validate_inference_within_stage in Hvalid_inferences.
         rewrite <- Efact_c.
         simpl.
-        remember (hydrate_inference csp inf) as hinf.
-        apply (hinf_rule hinf).(InferenceRule.r_validate_ok) with
-          (hint := (hinf_hint hinf)) 
+        set (hydrate_inference csp inf) as hinf.
+        rewrite Forall_forall in Hvalid_inferences.
+        specialize (Hvalid_inferences hinf ltac:(eauto using in_map)).
+        destruct rules as [rule | ]; [ | discriminate Hvalid_inferences].
+        apply rule.(InferenceRule.r_validate_ok) with
+          (hint := (hinf_hint hinf))
           (doms := csp.(domains)).
           -- (* Check that the hydrated hints are in the CSP *)
              intros c' Hin_hint.
-             rewrite Heqhinf in Hin_hint.
              simpl in Hin_hint.
              apply in_flat_map in Hin_hint.
              destruct Hin_hint as [index' [Hin_inf' Hin_c']].
@@ -698,19 +722,13 @@ Proof.
              assumption.
           -- (* Check that the inference checker returns true *)
              assert (Hrewrite: fact = (hinf_fact hinf)). {
-               rewrite Heqhinf.
                simpl.
                rewrite Einf_fact.
                reflexivity.
              }
              rewrite Hrewrite.
              clear Hrewrite.
-             rewrite Forall_forall in Hvalid_inferences.
-             apply
-               Hvalid_inferences with (x := hinf),
-               in_map_iff.
-             exists inf.
-             split ; easy.
+             destruct InferenceRule.r_validate; congruence.
   - unfold satisfies_problem in Hsat.
     destruct Hsat as [_ Hdoms].
     assumption.
@@ -793,3 +811,4 @@ Proof.
     destruct (validate_stages csp' stages) ; try reflexivity.
     destruct nmap.exists_ ; reflexivity.
 Qed.
+End Checker.
