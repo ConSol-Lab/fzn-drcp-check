@@ -21,4 +21,11 @@ Extract Constant BinNat.N.eq_dec => "Big_int_Z.eq_big_int".
 Extraction "checker" 
   Spec.ConstraintDefinitions.ConstraintProblem
   Checker.InferenceRule
-  Checker.validate.
+  Checker.validate
+
+  Checker.fact_equiv
+  Checker.dom
+  Checker.linear
+  Checker.cumulative
+  Checker.alldifferent
+.
