@@ -316,7 +316,7 @@ End fact_equiv_Impl.
 Module fact_equiv := InferenceRule.Make fact_equiv_Impl.
 
 Module dom_Impl <: InferenceRule.Impl.
-  Definition r_label := "dom".
+  Definition r_label := "initial_domain".
 
   Definition r_validate : InferenceRule.validator :=
     fun domains fact _hint =>
@@ -365,7 +365,7 @@ End cumulative_Impl.
 Module cumulative := InferenceRule.Make cumulative_Impl.
 
 Module alldifferent_Impl <: InferenceRule.Impl.
-  Definition r_label := "alldifferent".
+  Definition r_label := "all_different".
 
   Definition r_validate : InferenceRule.validator :=
     fun _domains fact hint =>
@@ -382,12 +382,9 @@ End alldifferent_Impl.
 Module alldifferent := InferenceRule.Make alldifferent_Impl.
 
 Definition default_rules s :=
-  if String.eqb s "linear_bounds" then Some linear.rule else
-    if String.eqb s "time_table" then Some cumulative.rule else
-      if String.eqb s "all_different" then Some alldifferent.rule else
-        if String.eqb s "nogood" then Some fact_equiv.rule else
-          if String.eqb s "initial_domain" then Some dom.rule else
-            None.
+  Eval simpl in
+    List.find (fun r => String.eqb s r.(InferenceRule.r_label))
+      [linear.rule; cumulative.rule; alldifferent.rule; fact_equiv.rule; dom.rule].
 
 (*
 Compute fact_equiv.validate
