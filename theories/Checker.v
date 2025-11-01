@@ -16,19 +16,42 @@ Import Spec.ProofFacts.
 Import Coq.Lists.List.ListNotations.
 Open Scope Z_scope.
 
-Inductive InferenceRule :=
-| fact_equiv
-| dom
-| linear
-| cumulative
-| alldifferent
-.
+Module InferenceRule.
+  Definition validator :=
+    forall (csp_domains : smap.t IntSet) (fact : ProofFact) (hint : list Constraint), bool.
+
+  Definition validator_ok (v : validator) :=
+    forall (doms : smap.t IntSet) (fact : ProofFact) (hint : list Constraint) (sol : string -> Z),
+      (forall (c : Constraint), In c hint -> satisfies_constraint c sol) ->
+      satisfies_domains doms sol ->
+      v doms fact hint = true ->
+      fact_valid sol fact.
+
+  Module Type Impl.
+    Parameter r_label: string.
+    Parameter r_validate: validator.
+    Parameter r_validate_ok: validator_ok r_validate.
+  End Impl.
+
+  Record t :=
+    { r_label: string;
+      r_validate: validator;
+      r_validate_ok: validator_ok r_validate }.
+
+  Module Make (I: Impl).
+    Definition rule: t :=
+      {| r_label := I.r_label;
+         r_validate := I.r_validate;
+         r_validate_ok := I.r_validate_ok |}.
+    Include I.
+  End Make.
+End InferenceRule.
 
 Record IndexedInference := {
     iinf_index : N ;
     iinf_fact : ProofFacts.ProofFact ;
     iinf_hint : list N ;
-    iinf_rule : InferenceRule
+    iinf_rule : InferenceRule.t
   }.
 
 Record ProofStage := {
@@ -51,7 +74,7 @@ Record HydratedInference := {
   hinf_index : N ;
   hinf_fact : ProofFact ;
   hinf_hint : list Constraint ;
-  hinf_rule : InferenceRule
+  hinf_rule : InferenceRule.t
 }.
 
 Record HydratedProofStage := {
@@ -260,36 +283,106 @@ Proof.
   apply Hsat, smap_prps.find_2, Emap.
 Qed.
 
+Create HintDb validate_ok discriminated.
+Hint Resolve Is_true_eq_left : validate_ok.
+
+Ltac validate_ok_t :=
+    repeat lazymatch goal with
+      | [ H: false = true |- _ ] => discriminate H
+      | [ H: match ?x with _ => _ end = _ |- _ ] => destruct x
+      | [ H: forall c : Constraint, In c [?cst] -> satisfies_constraint c _ |- _ ] => specialize (H cst (in_eq _ _))
+      | [  |- InferenceRule.validator_ok ?v ] => unfold v; red; intros
+      end;
+    eauto with validate_ok.
+
 (* TODO: see the comment above Deduction.equiv, currently some equivalent inferences might still return false. *)
-Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) :=
-  match rule with
-  | fact_equiv =>
+(* TODO each of these modules should be moved to the corresponding file *)
+Module fact_equiv_Impl <: InferenceRule.Impl.
+  Definition r_label := "nogood".
+
+  Definition r_validate : InferenceRule.validator :=
+    fun _domains fact hint =>
       match hint with
       | [fact_c ref_fact] => Deduction.fact_implies_fact ref_fact fact
       | _ => false
-      end
-  | dom =>
-      validate_domain csp_domains fact
-  | cumulative =>
+      end.
+
+  Hint Resolve Deduction.fact_implies_fact_entails : validate_ok.
+  Lemma r_validate_ok : InferenceRule.validator_ok r_validate.
+  Proof. validate_ok_t. Qed.
+End fact_equiv_Impl.
+
+Module fact_equiv := InferenceRule.Make fact_equiv_Impl.
+
+Module dom_Impl <: InferenceRule.Impl.
+  Definition r_label := "dom".
+
+  Definition r_validate : InferenceRule.validator :=
+    fun domains fact _hint =>
+      validate_domain domains fact.
+
+  Hint Resolve validate_if_holds : validate_ok.
+  Lemma r_validate_ok : InferenceRule.validator_ok r_validate.
+  Proof. validate_ok_t. Qed.
+End dom_Impl.
+
+Module dom := InferenceRule.Make dom_Impl.
+
+Module linear_Impl <: InferenceRule.Impl.
+  Definition r_label := "linear_bounds".
+
+  Definition r_validate : InferenceRule.validator :=
+    fun _domains fact hint =>
+      match hint with
+      | [linear_leq c] => Linear.linear_checker fact c
+      | [linear_eq c]  => Linear.linear_eq_checker fact c
+      | _ => false
+      end.
+
+  Hint Resolve Linear.linear_checker_soundness Linear.linear_eq_checker_soundness : validate_ok.
+  Lemma r_validate_ok : InferenceRule.validator_ok r_validate.
+  Proof. validate_ok_t. Qed.
+End linear_Impl.
+
+Module linear := InferenceRule.Make linear_Impl.
+
+Module cumulative_Impl <: InferenceRule.Impl.
+  Definition r_label := "time_table".
+
+  Definition r_validate : InferenceRule.validator :=
+    fun _domains fact hint =>
       match hint with
       | [cumulative_c c] => cumulative_checker fact c
       | _ => false
-      end
-  | linear =>
+      end.
+
+  Hint Resolve checker_cumulative : validate_ok.
+  Lemma r_validate_ok : InferenceRule.validator_ok r_validate.
+  Proof. validate_ok_t. Qed.
+End cumulative_Impl.
+
+Module cumulative := InferenceRule.Make cumulative_Impl.
+
+Module alldifferent_Impl <: InferenceRule.Impl.
+  Definition r_label := "alldifferent".
+
+  Definition r_validate : InferenceRule.validator :=
+    fun _domains fact hint =>
       match hint with
-      | [linear_leq c] => Linear.linear_checker fact c
-      | [linear_eq c] => Linear.linear_eq_checker fact c
+      | [alldifferent_c c] => alldifferent_checker fact c
       | _ => false
-      end
-  | alldifferent =>
-    match hint with
-    | [alldifferent_c c] => alldifferent_checker fact c
-    | _ => false
-    end
-  end.
+      end.
 
+  Hint Resolve checker_alldifferent : validate_ok.
+  Lemma r_validate_ok : InferenceRule.validator_ok r_validate.
+  Proof. validate_ok_t. Qed.
+End alldifferent_Impl.
 
-(* Compute validate_inference 
+Module alldifferent := InferenceRule.Make alldifferent_Impl.
+
+(*
+Compute fact_equiv.validate
+  smap.empty
   {|
     i_premises := [("x", Domain.mk_atm_le 5 )];
     i_consequent := Some (("y", Domain.mk_atm_le 3 ));
@@ -299,9 +392,9 @@ Definition validate_inference (csp_domains : smap.t IntSet) (fact : ProofFact) (
     i_premises := [("x", Domain.mk_atm_le 5 ) ; ("y", Domain.mk_atm_ge 4)];
     i_consequent := None;
   |}
-  ]
-  fact_equiv.
-Compute validate_inference 
+  ].
+Compute fact_equiv.validate
+  smap.empty
   {|
     i_premises := [("x", Domain.mk_atm_le 5 ) ; ("y", Domain.mk_atm_ge 4)];
     i_consequent := None;
@@ -311,48 +404,8 @@ Compute validate_inference
     i_premises := [("x", Domain.mk_atm_le 5 )];
     i_consequent := Some (("y", Domain.mk_atm_le 3 ));
   |}
-  ]
-  fact_equiv.
+  ].
  *)
-
-Lemma validate_inference_soundness :
-  forall (doms : smap.t IntSet) (fact : ProofFact) (hint : list Constraint) (rule : InferenceRule) (sol : string -> Z),
-  (forall (c : Constraint), In c hint -> satisfies_constraint c sol) ->
-  satisfies_domains doms sol ->
-  validate_inference doms fact hint rule = true ->
-  fact_valid sol fact.
-Proof.
-  intros doms fact hint rule sol Hsat Hdoms Hvalid.
-  unfold validate_inference in Hvalid.
-  destruct rule; simpl in Hvalid.
-  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    apply Deduction.fact_implies_fact_entails with (stronger := constraint) (weaker := fact).
-    exact Hvalid.
-    specialize (Hsat (fact_c constraint)).
-    apply Hsat.
-    simpl. left. reflexivity.
-  - apply validate_if_holds with (csp_domains := doms) ; assumption.
-  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    + apply Is_true_eq_left in Hvalid.
-      apply Linear.linear_checker_soundness with (c := constraint); try assumption.
-      specialize (Hsat (linear_leq constraint)).
-      apply Hsat.
-      simpl. left. reflexivity.
-    + apply Linear.linear_eq_checker_soundness with (c := constraint); try assumption.
-      specialize (Hsat (linear_eq constraint)).
-      apply Hsat.
-      simpl. left. reflexivity.
-  - destruct hint as [|c [|c0 l]] eqn:Ehint ; try destruct c eqn:Ec ; try easy.
-    apply checker_cumulative with (constraint := constraint); try assumption.
-    specialize (Hsat (cumulative_c constraint)).
-    apply Hsat.
-    simpl. left. reflexivity.
-  - destruct hint as [|c [|c0 l]] eqn:Ehint; try destruct c eqn:Hc; try easy.
-    apply checker_alldifferent with (constr := constraint); try exact Hvalid.
-    specialize (Hsat (alldifferent_c constraint)).
-    apply Hsat.
-    simpl. left. reflexivity. 
-  Qed.
 
 Inductive StageResult :=
   | valid_single_stage
@@ -369,12 +422,12 @@ Definition validate_nogood (id : N) (fact : ProofFact) (chain : list ProofFact) 
   end.
 
 Definition validate_inference_within_stage (doms : smap.t IntSet) (step : HydratedInference) :=
-  validate_inference doms step.(hinf_fact) step.(hinf_hint) step.(hinf_rule).
+  step.(hinf_rule).(InferenceRule.r_validate) doms step.(hinf_fact) step.(hinf_hint).
 
 Fixpoint validate_inferences (doms : smap.t IntSet) (inferences : list HydratedInference) : StageResult :=
   match inferences with
   | nil => valid_single_stage
-  | inf :: tail => if validate_inference_within_stage doms inf 
+  | inf :: tail => if validate_inference_within_stage doms inf
                    then validate_inferences doms tail
                    else invalid_single_stage (invalid_inference inf.(hinf_index))
   end.
@@ -624,9 +677,8 @@ Proof.
         rewrite <- Efact_c.
         simpl.
         remember (hydrate_inference csp inf) as hinf.
-        apply validate_inference_soundness with
+        apply (hinf_rule hinf).(InferenceRule.r_validate_ok) with
           (hint := (hinf_hint hinf)) 
-          (rule := (hinf_rule hinf))
           (doms := csp.(domains)).
           -- (* Check that the hydrated hints are in the CSP *)
              intros c' Hin_hint.

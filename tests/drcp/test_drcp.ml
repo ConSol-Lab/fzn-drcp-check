@@ -45,13 +45,7 @@ let show_inference inference =
     Printf.sprintf "c:%s" (string_of_big_int (List.hd inference.iinf_hint))
   in
   let label =
-    Printf.sprintf "l:%s"
-      (match inference.iinf_rule with
-      | Linear -> "linear_bounds"
-      | Fact_equiv -> "nogood"
-      | Dom -> "dom"
-      | Alldifferent -> "alldifferent"
-      | Cumulative -> "cumulative" )
+    Printf.sprintf "l:%s" inference.iinf_rule.r_label
   in
   Printf.sprintf "i %s %s %s %s %s" id premises consequent generated_by label
 
@@ -156,11 +150,11 @@ let%test "parse a proof stage" =
                   atom "x2" Coq_less_equal 2;
                   atom "x3" Coq_greater_equal 1;
                 ]
-                None [ 6 ] Linear;
+                None [ 6 ] Coq_linear.rule;
               inference 8
                 [ atom "x1" Coq_greater_equal 1; atom "x2" Coq_less_equal 2 ]
                 (Some (atom "x3" Coq_greater_equal 1))
-                [ 5 ] Linear;
+                [ 5 ] Coq_linear.rule;
             ];
           s_conclusion = nogood [ atom "x1" Coq_greater_equal 1 ];
           s_chain = [ big_int_of_int 5; big_int_of_int 6 ];
@@ -187,8 +181,8 @@ let%test "parse initial domain inferences without constraint hint" =
         {
           s_inferences =
             [
-              inference 1 [] (Some (atom "x1" Coq_greater_equal 1)) [] Dom;
-              inference 2 [] (Some (atom "x1" Coq_less_equal 0)) [] Dom;
+              inference 1 [] (Some (atom "x1" Coq_greater_equal 1)) [] Coq_dom.rule;
+              inference 2 [] (Some (atom "x1" Coq_less_equal 0)) [] Coq_dom.rule;
             ];
           s_conclusion = nogood [];
           s_chain = [ big_int_of_int 1; big_int_of_int 2 ];

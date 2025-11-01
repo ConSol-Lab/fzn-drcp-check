@@ -10,7 +10,7 @@ type inference = {
   premises : int list;
   consequent : int option;
   generated_by : big_int list;
-  label : inferenceRule;
+  label : InferenceRule.t;
 }
 
 type deduction = {
@@ -107,14 +107,15 @@ let atom_definition =
        atomic_code (ws_sep *> atom)
   <* eol <?> "expected atomic definition line"
 
+(* TODO modularize: pass in a map from name to module *)
 let inference_rule =
   choice
     [
-      string "linear_bounds" *> return Linear <?> "linear_bounds";
-      string "time_table" *> return Cumulative <?> "time_table";
-      string "all_different" *> return Alldifferent <?> "all_different";
-      string "nogood" *> return Fact_equiv <?> "nogood";
-      string "initial_domain" *> return Dom <?> "initial_domain";
+      string "linear_bounds" *> return Coq_linear.rule <?> "linear_bounds";
+      string "time_table" *> return Coq_cumulative.rule <?> "time_table";
+      string "all_different" *> return Coq_alldifferent.rule <?> "all_different";
+      string "nogood" *> return Coq_fact_equiv.rule <?> "nogood";
+      string "initial_domain" *> return Coq_dom.rule <?> "initial_domain";
     ]
   <?> "expected inference rule"
 
