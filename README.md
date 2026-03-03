@@ -1,10 +1,11 @@
 # FZN DRCP Checker
 
-A formally verified checker for the FZN model format and DRCP proof format.
+A formally verified checker for the FlatZinc (FZN) constraint-model format and
+the DRCP (Deletion Reverse-unit-propagation Constraint Proof) proof format.
 
 ## Dependencies
 
-The following OPAM packages should be installed:
+The project requires Rocq/Coq 8.20. The following OPAM packages should be installed:
 - `menhir`
 - `coq-menhirlib`
 - `angstrom`
@@ -26,11 +27,6 @@ in the root directory. Alternatively, the checker can be executed directly by
 `dune` by running
 ```
 dune exec fzn_drcp_check -- <args>
-```
-
-Currently to make it work you need to run it in release mode:
-```
-dune exec fzn_drcp_check --profile release
 ```
 
 ## Documentation
