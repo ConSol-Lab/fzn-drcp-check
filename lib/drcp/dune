@@ -1,8 +1,13 @@
-;; (ocamllex lexer)
-;; 
-;; (menhir
-;;  (modules parser))
-
 (library
  (name drcpcheck_drcp)
- (libraries drcpcheck_core angstrom))
+ (libraries drcpcheck_core angstrom pbrt))
+
+(rule
+ (targets drcp_proto.ml drcp_proto.mli)
+ (action
+  (run
+   ocaml-protoc
+   --binary
+   --ml_out
+   ./
+   %{dep:drcp-protobuf-schema/drcp_proto.proto})))

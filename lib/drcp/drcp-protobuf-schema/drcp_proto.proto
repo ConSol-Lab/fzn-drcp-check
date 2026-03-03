@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+// DRCP (Deletion Reverse Constraint Propagation) schema
+
+package drcp;
+
+// -----------------------------
+// Utility
+// -----------------------------
+
+// Used as an empty placeholder in oneof branches.
+message Empty {}
+
+// -----------------------------
+// Types
+// -----------------------------
+
+// Atomic constraints
+
+enum AtomicOp {
+  EQ = 0;  // ==
+  NE = 1;  // !=
+  LE = 2;  // <=
+  GE = 3;  // >=
+}
+
+message AtomicConstraint {
+  int32    id    = 1;  // ConstraintId
+  string   var   = 2;
+  AtomicOp op    = 3;
+  int32    value = 4;
+}
+
+message LiteralMapping {
+  // Dictionary: literal id -> atomic constraint.
+  repeated AtomicConstraint atoms = 1;
+}
+
+// Inference Hints (Pumpkin-specific)
+// CUSTOM indicates the application should inspect label_custom on InferenceStep.
+enum InferenceHint {
+  INITIAL_DOMAIN    = 0;
+  LINEAR_BOUNDS     = 1;
+  NOGOOD            = 2;
+  TIME_TABLE        = 3;
+  ALL_DIFFERENT     = 4;
+  BINARY_EQUALS     = 5;
+  BINARY_NOT_EQUALS = 6;
+  CUSTOM            = 7;
+}
+
+// -----------------------------
+// Proof steps
+message InferenceStep {
+  // `i <step_id> <premises> [0 <propagated>] [c:<constraint tag>] [l:<filtering algorithm>]`
+  uint32         id       = 1;  // StepId
+  repeated int32 premises = 2;  // List(ConstraintId)
+  // a.k.a. "consequent"
+  // Non-zero: the single propagated literal.
+  // Zero (unset): premises imply a conflicting assignment.
+  int32         propagated   = 3;  // ConstraintId; 0 = absent
+  int32         generated_by = 4;  // ConstraintId — constraint that introduced this inference
+  InferenceHint label_hint   = 5;  // filtering algorithm / reasoning hint
+  string        label_custom = 6;  // optional; used when label_hint == CUSTOM
+}
+
+message NogoodStep {
+  // `n <step_id> <atomic constraint ids> [0 <propagation hint>]`
+  uint32          id               = 1;  // StepId
+  repeated int32  literals         = 2;  // List(ConstraintId)
+  repeated uint32 propagation_hint = 3;  // List(StepId); optional derivation order hint
+}
+
+message ConclusionStep {
+  // `c UNSAT`  OR  `c <objective bound>`
+  oneof conclusion {
+    Empty unsat           = 1;
+    int32 objective_bound = 2;  // ConstraintId
+  }
+}
+
+message ProofStep {
+  oneof step {
+    InferenceStep    inference  = 1;
+    NogoodStep       nogood     = 2;
+    ConclusionStep   conclusion = 3;
+    AtomicConstraint constraint = 4;
+  }
+}
+
+message ProofBuffer {
+  // Ordered proof steps containing inferences, nogoods, conclusions, and inline constraints.
+  repeated ProofStep steps = 1;
+}

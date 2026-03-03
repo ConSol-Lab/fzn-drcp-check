@@ -5,8 +5,9 @@ open Drcpcheck_core.Spec.ProofFacts
 
 let usage =
   {|
-fzn_drcp_check [-d] <flatzinc> <drcp>
+fzn_drcp_check [--drcp-format text|binary] [-d] <flatzinc> <drcp|bin>
 
+--drcp-format: proof encoding. Defaults to guessing from the file extension, .drcp or .bin.
 -d: debug mode. Prints precise time measurements for each step of the checking process.
 |}
 
@@ -14,11 +15,18 @@ fzn_drcp_check [-d] <flatzinc> <drcp>
 let flatzinc_file = ref ""
 let drcp_file = ref ""
 let arg_count = ref 0
+let drcp_format = ref None
 let debug_mode = ref false
 
 (* CLI Actions *)
 let speclist =
   [
+    ( "--drcp-format",
+      Arg.Symbol
+        ( [ "text"; "binary" ],
+          fun s -> drcp_format := Some (if s = "binary" then `Binary else `Text)
+        ),
+      " Proof encoding (default: guessed from the file extension)" );
     ("-d", Arg.Set debug_mode, "Debug mode");
   ]
 
@@ -40,6 +48,10 @@ let _read_proof drcp_file =
   in
   close_in proof_handle;
   Drcpcheck_drcp.Parse.parse_proof source
+
+let _read_binary_proof ?(_compression = `Packing) bin_file =
+  let () = Printf.printf "Reading binary proof from %s...\n%!" bin_file in
+  Drcpcheck_drcp.Deserialize_proto.parse_binary_proof bin_file
 
 let print_error e =
   match e with
@@ -104,21 +116,78 @@ let time label f =
     res
   end
 
-let run_streamed csp file =
+let bufsz = 4096
+
+let rec read_available_and_build_stage ?(format = `Binary) fd buf atomics :
+    coq_ProofStream =
+  let temp = Bytes.create bufsz in
+  let eof = ref false in
+
+  (* check if fd has data right now, timeout=-1 means block indefinitely if nothing is available *)
+  let readable, _, _ = Unix.select [ fd ] [] [] (-1.) in
+
+  (if readable <> [] then
+     let n = Unix.read fd temp 0 bufsz in
+     if n > 0 then Buffer.add_subbytes buf temp 0 n else eof := true);
+
+  (* Process all full stages encountered so far *)
+  let stages, new_atomics =
+    match format with
+    | `Binary ->
+        Drcpcheck_drcp.Deserialize_proto.build_stages_from_buf buf atomics
+  in
+
+  let next =
+   fun () -> read_available_and_build_stage ~format fd buf new_atomics
+  in
+
+  let open Drcpcheck_core.Lazy in
+  let out = append stages (Thunk next) in
+
+  if !eof then Unix.close fd;
+  out
+
+let run_streamed ?(format = `Text) csp file =
   let fd = Unix.openfile file [ O_RDONLY ] 0 in
   let chan = Unix.in_channel_of_descr fd in
+  let buf = Buffer.create bufsz in
   let parser = Drcpcheck_drcp.Parse.create_steps_parser () in
   let stream =
-    Drcpcheck_drcp.Parse.read_available_text_and_build_stage chan parser
-      Drcpcheck_drcp.Parse.IntMap.empty
+    match format with
+    | `Text ->
+        Drcpcheck_drcp.Parse.read_available_text_and_build_stage chan parser
+          Drcpcheck_drcp.Parse.IntMap.empty
+    | `Binary ->
+        read_available_and_build_stage fd buf Drcpcheck_drcp.Parse.IntMap.empty
   in
-  validate default_rules csp stream
+  let result = validate default_rules csp stream in
+  result
 
 let run_checker flatzinc_file drcp_file =
+  let format =
+    match !drcp_format with
+    | Some format -> format
+    | None ->
+        if
+          Filename.check_suffix drcp_file ".bin"
+          || Filename.check_suffix drcp_file ".bin.gz"
+        then `Binary
+        else if
+          Filename.check_suffix drcp_file ".drcp"
+          || Filename.check_suffix drcp_file ".drcp.gz"
+        then `Text
+        else (
+          Printf.eprintf
+            "cannot infer the proof format of %s: expected a .drcp or .bin \
+             extension (or pass --drcp-format)\n\
+             %!"
+            drcp_file;
+          exit 2)
+  in
   let csp =
     time "parse-flatzinc" (fun () -> read_constraint_problem flatzinc_file)
   in
-  let result = run_streamed csp drcp_file in
+  let result = run_streamed ~format csp drcp_file in
   match result with
   | Spec.Proofs.Coq_valid -> print_endline "Proof is valid!"
   | Spec.Proofs.Coq_invalid e ->
