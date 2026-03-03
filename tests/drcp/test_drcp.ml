@@ -1,7 +1,14 @@
-open Drcpcheck_core.Checker
-open Drcpcheck_core.Checker.ProofFacts
+open Drcpcheck_core.CheckerStreamed
+open Drcpcheck_core.Spec.ProofFacts
 open Drcpcheck_drcp.Parse
 open Big_int_Z
+
+let lmap = Drcpcheck_core.Lazy.map_i
+let lto_list = Drcpcheck_core.Lazy.to_list_i
+let lof_list = Drcpcheck_core.Lazy.of_list
+
+let conv expected =
+  expected |> fun (proof, conclusion) -> (lof_list proof, conclusion)
 
 let implication premises consequent =
   { i_premises = premises; i_consequent = Some consequent }
@@ -62,7 +69,7 @@ let show_proof_stage stage : string =
     sequence
 
 let show_proof proof conclusion =
-  let steps = String.concat "\n" (List.map show_proof_stage proof) in
+  let steps = String.concat "\n" (lmap show_proof_stage proof |> lto_list) in
   let conclusion_premises =
     String.concat " " (List.map show_atomic conclusion.i_premises)
   in
@@ -105,7 +112,8 @@ let%test "parse an empty nogood" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source expected
+  test_parse source
+    (expected |> fun (proof, conclusion) -> (lof_list proof, conclusion))
 
 let%test "parse a unit nogood" =
   let source = {|
@@ -125,7 +133,7 @@ let%test "parse a unit nogood" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source expected
+  test_parse source (conv expected)
 
 let%test "parse a proof stage" =
   let source =
@@ -164,7 +172,7 @@ let%test "parse a proof stage" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source expected
+  test_parse source (conv expected)
 
 let%test "parse initial domain inferences without constraint hint" =
   let source =
@@ -196,7 +204,7 @@ let%test "parse initial domain inferences without constraint hint" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source expected
+  test_parse source (conv expected)
 
 let%test "parse a dual bound proof" =
   let source = {|
@@ -216,4 +224,4 @@ let%test "parse a dual bound proof" =
       { i_premises = [ atom "x1" Coq_greater_equal 1 ]; i_consequent = None } )
   in
 
-  test_parse source expected
+  test_parse source (conv expected)

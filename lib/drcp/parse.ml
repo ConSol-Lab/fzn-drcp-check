@@ -1,5 +1,6 @@
-open Drcpcheck_core.Checker.ProofFacts
-open Drcpcheck_core.Checker
+open Drcpcheck_core.Spec.ProofFacts
+open Drcpcheck_core.CheckerStreamed
+open Drcpcheck_core.Lazy
 open Angstrom
 open Big_int_Z
 
@@ -150,6 +151,22 @@ let conclusion_line =
          <?> "dual bound conclusion"))
   <* ws_with_new_line <?> "conclusion line"
 
+let proof_stage_line =
+  ws_with_new_line *> peek_char_fail >>= function
+  | 'a' -> atom_definition >>| fun def -> AtomDefinition def
+  | 'i' -> inference_line >>| fun inf -> Inference inf
+  | _ -> fail "Unknown proof line"
+
+(* return: conclusion if conclusion, all lines needed for proof stage if n is found, None if no deduction is found *)
+let proof_stage =
+  many proof_stage_line >>= fun steps ->
+  peek_char >>= function
+  | Some 'n' ->
+      deduction_line >>| fun d -> (None, List.append steps [ Deduction d ])
+  | Some 'c' -> conclusion_line >>| fun c -> (Some c, steps)
+  | None -> return (None, steps)
+  | Some c -> fail (Printf.sprintf "Unknown proof line with char [%c]" c)
+
 let proof =
   many proof_line >>= fun steps ->
   conclusion_line >>= fun conclusion -> return (steps, conclusion)
@@ -191,7 +208,7 @@ let resolve_atomic_id atomics id =
 let resolve_atomic_ids atomics ids = List.map (resolve_atomic_id atomics) ids
 
 let convert_inference (atomics : atomic_map) (inference : inference) :
-    indexedInference =
+    coq_IndexedInference =
   {
     iinf_index = inference.constraint_id;
     iinf_fact =
@@ -207,8 +224,8 @@ let convert_inference (atomics : atomic_map) (inference : inference) :
 exception IncompleteProofError
 
 let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
-    (acc : indexedInference list) :
-    coq_BoundAtomic IntMap.t * proofStage option * step list =
+    (acc : coq_IndexedInference list) :
+    coq_BoundAtomic IntMap.t * coq_ProofStage option * step list =
   match steps with
   | [] -> (atomics, None, [])
   | AtomDefinition def :: tail ->
@@ -231,22 +248,107 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
         tail )
 
 let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
-    (acc : proofStage list) : proofStage list * atomic_map =
+    (acc : coq_ProofStream) : coq_ProofStream * atomic_map =
+  let open Drcpcheck_core.Lazy in
   match steps with
-  | [] -> (List.rev acc, atomics)
+  | [] -> (rev acc, atomics)
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
       | new_atomics, Some stage, rest ->
-          convert_steps_to_proof rest new_atomics (stage :: acc)
+          convert_steps_to_proof rest new_atomics (stage +: acc)
       | new_atomics, None, [] -> (acc, new_atomics)
       | _, None, _ -> raise IncompleteProofError)
 
 exception ParseError of string
 
-let parse_proof (source : string) : proofStage list * coq_ProofFact =
+let conclusion_fact conclusion atomics =
+  match conclusion with
+  | Unsat -> { i_premises = []; i_consequent = None }
+  | DualBound code ->
+      {
+        i_premises = [ resolve_atomic_id atomics (-code) ];
+        i_consequent = None;
+      }
+
+let debug_string_of_steps steps =
+  "-"
+  ^ String.concat "\n-"
+      (List.map
+         (function
+           | AtomDefinition def -> Printf.sprintf "AtomDefinition: %i" def.id
+           | Inference inf ->
+               Printf.sprintf "Inference: %s"
+                 (string_of_big_int inf.constraint_id)
+           | Deduction ded ->
+               Printf.sprintf "Deduction: %s"
+                 (string_of_big_int ded.constraint_id))
+         steps)
+
+let create_steps_parser () = Angstrom.Buffered.parse proof_stage
+
+let build_stages_from_state state atomics :
+    (conclusion option * step list) Buffered.state * coq_ProofStream * atomic_map =
+  let open Buffered in
+  let parse_result, new_state =
+    match state with
+    | Done (unconsumed, res) ->
+        let bs =
+          Bigstringaf.copy unconsumed.buf ~off:unconsumed.off
+            ~len:unconsumed.len
+        in
+        let new_state = parse proof_stage |> fun s -> feed s (`Bigstring bs) in
+        (Some res, new_state)
+    | Partial _ ->
+        (None, state)
+    | Fail (_unconsumed, _, e) ->
+        raise (ParseError e)
+  in
+
+  match parse_result with
+  | None ->
+      (new_state, LNil, atomics)
+  | Some res -> (
+      match res with
+      | None, [] -> (new_state, LNil, atomics)
+      | Some conc, steps ->
+          convert_proof_stage steps atomics [] |> fun (new_atomics, _, _) ->
+          (new_state, Single (conclusion_fact conc atomics), new_atomics)
+      | None, steps -> (
+          match convert_proof_stage steps atomics [] with
+          | new_atomics, Some stage, _ ->
+              (* remove what was read from buffer *)
+              (new_state, Cons (stage, LNil), new_atomics)
+          | new_atomics, None, _ -> (new_state, LNil, new_atomics)))
+
+(* Messages are read in batches of maximum size bufsz. Here we use 4KiB which seems reasonable. *)
+let bufsz = 4096
+
+(** Read one or more stages from the current buffer. *)
+let rec read_available_text_and_build_stage in_chan state atomics : coq_ProofStream
+    =
+  let buf = Bytes.create bufsz in
+  let contents =
+    begin match input in_chan buf 0 bufsz with
+    | exception Sys_error _ -> `Eof
+    | 0 -> `Eof
+    | n -> `String Bytes.(unsafe_to_string (sub buf 0 n))
+    end
+  in
+  let state' = Angstrom.Buffered.feed state contents in
+  let new_state, stages, new_atomics = build_stages_from_state state' atomics in
+  let next =
+   fun () -> read_available_text_and_build_stage in_chan new_state new_atomics
+  in
+
+  if contents = `Eof then close_in in_chan;
+  let open Drcpcheck_core.Lazy in
+  let out = append_terminate stages (Thunk next) in
+  out
+
+let parse_proof (source : string) : coq_ProofStream * coq_ProofFact =
   match parse_string ~consume:All proof source with
   | Ok (steps, conclusion) ->
-      let proof, atomics = convert_steps_to_proof steps IntMap.empty [] in
+      let proof, atomics = convert_steps_to_proof steps IntMap.empty LNil in
       let conclusion_fact =
         match conclusion with
         | Unsat -> { i_premises = []; i_consequent = None }
@@ -257,4 +359,31 @@ let parse_proof (source : string) : proofStage list * coq_ProofFact =
             }
       in
       (proof, conclusion_fact)
+  | Error e -> raise (ParseError e)
+
+let time_run f =
+  let t = Sys.time () in
+  let res = f () in
+  (res, Sys.time () -. t)
+
+let parse_proof_timed (source : string) :
+    (coq_ProofStream * coq_ProofFact) * float * float =
+  let str, dur_process =
+    time_run (fun () -> parse_string ~consume:All proof source)
+  in
+  match str with
+  | Ok (steps, conclusion) ->
+      let (proof, atomics), dur_convert =
+        time_run (fun () -> convert_steps_to_proof steps IntMap.empty LNil)
+      in
+      let conclusion_fact =
+        match conclusion with
+        | Unsat -> { i_premises = []; i_consequent = None }
+        | DualBound code ->
+            {
+              i_premises = [ resolve_atomic_id atomics (-code) ];
+              i_consequent = None;
+            }
+      in
+      ((proof, conclusion_fact), dur_process, dur_convert)
   | Error e -> raise (ParseError e)

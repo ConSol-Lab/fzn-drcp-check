@@ -194,6 +194,12 @@ Module Proofs.
   Definition ProofChecker (Proof : Type) (Error : Type) := 
     ConstraintDefinitions.ConstraintProblem -> ProofFacts.ProofFact -> Proof -> CheckResult Error.
 
+  Definition StreamedProofChecker (Proof : Type) (Error : Type) :=
+    ConstraintDefinitions.ConstraintProblem -> Proof -> option ProofFacts.ProofFact * CheckResult Error.
+
+  Definition streamed_checker_sound (Proof : Type) (Error : Type) (checker : StreamedProofChecker Proof Error) : Prop :=
+    forall csp proof fact, checker csp proof = (Some fact, valid Error) -> fact_holds csp fact.
+
   Definition checker_sound (Proof : Type) (Error : Type) (checker : ProofChecker Proof Error) : Prop :=
     forall csp proof fact, checker csp fact proof = (valid Error) -> fact_holds csp fact.
 End Proofs.

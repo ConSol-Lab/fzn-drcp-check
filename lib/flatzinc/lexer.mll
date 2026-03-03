@@ -1,6 +1,6 @@
 {
 open Lexing
-open Drcpcheck_core.Checker
+open Drcpcheck_core.Parser
 open Big_int_Z
 
 let next_line lexbuf =
