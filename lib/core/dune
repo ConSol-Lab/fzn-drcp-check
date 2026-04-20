@@ -1,7 +1,7 @@
 (coq.extraction
  (prelude extraction)
  (extracted_modules checker)
- (theories MMaps Checker))
+ (theories MMaps Checker FlatZinc MenhirLib))
 
 (env
  (dev
@@ -10,4 +10,4 @@
 
 (library
  (name drcpcheck_core)
- (libraries zarith))
+ (libraries zarith menhirLib))

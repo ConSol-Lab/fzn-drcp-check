@@ -1,8 +1,5 @@
 (ocamllex lexer)
 
-(menhir
- (modules parser))
-
 (library
  (name drcpcheck_flatzinc)
- (libraries drcpcheck_core))
+ (libraries drcpcheck_core menhirLib))

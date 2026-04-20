@@ -1,6 +1,6 @@
 {
 open Lexing
-open Parser
+open Drcpcheck_core.Checker
 open Big_int_Z
 
 let next_line lexbuf =
@@ -25,32 +25,32 @@ rule read_token =
   | newline  { next_line lexbuf; read_token lexbuf }
   | "%"      { single_line_comment lexbuf }
   | int      { INT_LITERAL (big_int_of_string (Lexing.lexeme lexbuf)) }
-  | "var"    { VAR }
-  | "array"  { ARRAY }
-  | "of"     { OF }
-  | "int"    { INT }
-  | "bool"   { BOOL }
-  | "constraint"    { CONSTRAINT }
-  | "solve"  { SOLVE }
-  | "satisfy" { SATISFY }
-  | "minimize" { MINIMIZE }
-  | "maximize" { MAXIMIZE }
-  | "predicate" { PREDICATE }
-  | "::"     { DOUBLE_COLON }
-  | ":"      { COLON }
-  | ";"      { SEMICOLON }
-  | ".."     { DOUBLE_PERIOD }
-  | "["      { OPEN_BRACKET }
-  | "]"      { CLOSE_BRACKET }
-  | "("      { OPEN_PAREN }
-  | ")"      { CLOSE_PAREN }
-  | "="      { EQUALS }
-  | ","      { COMMA }
+  | "var"    { VAR () }
+  | "array"  { ARRAY () }
+  | "of"     { OF () }
+  | "int"    { INT () }
+  | "bool"   { BOOL () }
+  | "constraint"    { CONSTRAINT () }
+  | "solve"  { SOLVE () }
+  | "satisfy" { SATISFY () }
+  | "minimize" { MINIMIZE () }
+  | "maximize" { MAXIMIZE () }
+  | "predicate" { PREDICATE () }
+  | "::"     { DOUBLE_COLON () }
+  | ":"      { COLON () }
+  | ";"      { SEMICOLON () }
+  | ".."     { DOUBLE_PERIOD () }
+  | "["      { OPEN_BRACKET () }
+  | "]"      { CLOSE_BRACKET () }
+  | "("      { OPEN_PAREN () }
+  | ")"      { CLOSE_PAREN () }
+  | "="      { EQUALS () }
+  | ","      { COMMA () }
   | ident    { IDENT (Lexing.lexeme lexbuf) }
   | _ { raise (SyntaxError ("Unexpected char: " ^ Lexing.lexeme lexbuf)) }
-  | eof      { EOF }
+  | eof      { EOF () }
 
 and single_line_comment = parse
   | newline { next_line lexbuf; read_token lexbuf }
-  | eof { EOF }
+  | eof { EOF () }
   | _ { single_line_comment lexbuf }
