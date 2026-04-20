@@ -1,5 +1,7 @@
 From Checker Require Import Spec.
 From Checker Require Import Checker.
+From FlatZinc Require Import Ast.
+From FlatZinc Require Import Parser.
 
 Set Warnings Append "-extraction-opaque-accessed".
 
@@ -18,8 +20,11 @@ Extract Constant OrdersEx.String_as_OT.compare => "fun s1 s2 -> let cmp = String
 Extract Constant BinNat.N.eqb => "Big_int_Z.eq_big_int".
 Extract Constant BinNat.N.eq_dec => "Big_int_Z.eq_big_int".
 
-Extraction "checker" 
+Extraction "checker"
   Spec.ConstraintDefinitions.ConstraintProblem
   Checker.validate
   Checker.default_rules
+  Ast.mk_ast
+  Parser.model
+  Lower.to_constraint_problem
 .

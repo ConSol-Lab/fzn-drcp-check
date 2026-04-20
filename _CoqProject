@@ -1,4 +1,6 @@
 -R _build/default/theories Checker
+-R _build/default/lib/flatzinc/coq FlatZinc
 theories
+lib/flatzinc/coq/Ast.v
 -I _build/default/lib
 lib/extraction.v
