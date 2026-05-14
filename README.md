@@ -6,6 +6,7 @@ A formally verified checker for the FZN model format and DRCP proof format.
 
 The following OPAM packages should be installed:
 - `menhir`
+- `coq-menhirlib`
 - `angstrom`
 - `ppx_import`
 - `ppx_inline_test`
@@ -29,7 +30,7 @@ dune exec fzn_drcp_check -- <args>
 
 Currently to make it work you need to run it in release mode:
 ```
-dune exec drcp_checker_cli --profile release
+dune exec fzn_drcp_check --profile release
 ```
 
 ## Documentation
