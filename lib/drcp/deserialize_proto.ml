@@ -123,6 +123,8 @@ let read_bin bin_file =
   really_input chan bytes 0 len;
   let decoder = Pbrt.Decoder.of_bytes bytes in
   let rec loop_over_buf steps conc i =
+    (* skip length prefix *)
+    Pbrt.Decoder.skip decoder Varint;
     let step = try Some (PB.decode_pb_proof_step decoder) with _ -> None in
     match step with
     | Some s -> (
@@ -135,9 +137,78 @@ let read_bin bin_file =
   close_in chan;
   res
 
-let build_stages_from_buf buf _atomics : coq_ProofStream * Parse.atomic_map =
-  let _decoder = Pbrt.Decoder.of_bytes (Buffer.to_bytes buf) in
-  (LNil, Parse.IntMap.empty)
+let create_decoder ?(off = 0) ?(len = 0) buf =
+  match len with
+  | 0 -> Pbrt.Decoder.of_bytes buf
+  | l -> Pbrt.Decoder.of_subbytes buf off l
+
+(* Adapted from Pbrt: https://github.com/mransan/ocaml-protoc/blob/master/src/runtime/stubs.c *)
+let varint_size i =
+  if i <= 0x7F then 1
+  else if i <= 0x3FFF then 2
+  else if i <= 0x1FFFFF then 3
+  else if i <= 0xFFFFFFF then 4
+  else if i <= 0x7FFFFFFFF then 5
+  else if i <= 0x3FFFFFFFFFFF then 6
+  else if i <= 0x1FFFFFFFFFFFF then 7
+  else 8
+
+let max_varint_size = 5
+
+(** [read_if_unavailable fd buf until off len] checks if [len] bytes can still
+    be read from the buffer and fills the buffer with more data from [fd] if
+    [off + len] is larger than [until]. It returns the offset in the buffer from
+    which to read. *)
+let rec read_if_unavailable fd buf until off len =
+  let bufsz = Bytes.length buf in
+  if off + len > bufsz then (
+    let rem_len = until - off in
+    Bytes.blit buf off buf 0 rem_len;
+    let n = Unix.read fd buf rem_len (bufsz - rem_len) in
+    if n = 0 then (
+      Unix.close fd;
+      failwith "Unexpected end of proof file");
+    read_if_unavailable fd buf (rem_len + n) 0 len)
+  else if off + len > until then (
+    let n = Unix.read fd buf until (bufsz - until) in
+    if n = 0 then (
+      Unix.close fd;
+      failwith "Unexpected end of proof file");
+    read_if_unavailable fd buf (until + n) off len)
+  else (off, until)
+
+let build_stage_from_buf fd buf off until atomics :
+    coq_ProofStream * Parse.atomic_map * (int * int) =
+  (* Collect list of steps *)
+  let rec loop_steps acc conc off until =
+    let off, until = read_if_unavailable fd buf until off max_varint_size in
+    let decoder = Pbrt.Decoder.of_subbytes buf off max_varint_size in
+    let msg_sz = Pbrt.Decoder.int_as_varint decoder in
+    let off, until =
+      read_if_unavailable fd buf until (off + varint_size msg_sz) msg_sz
+    in
+    let decoder = Pbrt.Decoder.of_subbytes buf off msg_sz in
+    let step = Some (PB.decode_pb_proof_step decoder) in
+    let off = off + msg_sz in
+
+    match step with
+    | Some s -> (
+        match process_step s with
+        | Conclusion c ->
+            ((Some c, List.rev acc), (off, until))
+        | Step (Deduction _ as d) ->
+            ((conc, List.rev (d :: acc)), (off, until))
+        | Step s_proc ->
+            loop_steps (s_proc :: acc) conc off until)
+    | None ->
+        raise (Parse.ParseError "reached end of buffer while building stage")
+  in
+
+  let parse_result, new_offsets = loop_steps [] None off until in
+  let proof, new_atomics =
+    Parse.build_stage_from_parse_result parse_result atomics
+  in
+  (proof, new_atomics, new_offsets)
 
 let calc_time_acc (acc : float ref) f =
   let start = Sys.time () in
@@ -147,7 +218,7 @@ let calc_time_acc (acc : float ref) f =
   acc := !acc +. dur;
   res
 
-let parse_binary_proof (source : string) : coq_ProofStream * coq_ProofFact =
+let parse_binary_proof (source : string) : coq_ProofStream =
   let steps, conclusion = read_bin source in
   let proof, atomics =
     Parse.convert_steps_to_proof steps Parse.IntMap.empty LNil
@@ -162,4 +233,22 @@ let parse_binary_proof (source : string) : coq_ProofStream * coq_ProofFact =
         }
     | None -> raise (Parse.ParseError "No conclusion found in proof")
   in
-  (proof, conclusion_fact)
+  let open Drcpcheck_core.Lazy in
+  proof @ Single conclusion_fact
+
+let bufsz = 4096
+
+let rec read_available_and_build_stage fd buf off until atomics : coq_ProofStream =
+  (* Process all full stages encountered so far *)
+  let stages, new_atomics, (new_off, new_until) =
+    build_stage_from_buf fd buf off until atomics
+  in
+
+  let next =
+   fun () -> read_available_and_build_stage fd buf new_off new_until new_atomics
+  in
+
+  let open Drcpcheck_core.Lazy in
+  let out = append_terminate stages (Thunk next) in
+
+  out

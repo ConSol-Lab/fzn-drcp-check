@@ -30,16 +30,16 @@ let rec append_terminate l1 l2 =
   | Cons (x, xs) -> Cons (x, append_terminate xs l2)
   | Thunk f -> append_terminate (f ()) l2
 
-let rec map f = function
+let rec map f g = function
   | LNil -> LNil
-  | Single _ -> raise (Invalid_argument "map: cannot map over a Single")
-  | Cons (x, xs) -> Cons (f x, map f xs)
-  | Thunk g -> Thunk (fun () -> map f (g ()))
+  | Single s -> Single (g s)
+  | Cons (x, xs) -> Cons (f x, map f g xs)
+  | Thunk h -> Thunk (fun () -> map f g (h ()))
 
-let rec map_i f = function
+let rec map_i f g = function
   | LNil -> LNil
-  | Single _ -> raise (Invalid_argument "map_i: cannot map_i over a Single")
-  | Cons (x, xs) -> Cons (f x, map_i f xs)
+  | Single s -> Single (g s)
+  | Cons (x, xs) -> Cons (f x, map_i f g xs)
   | Thunk _ -> raise (Invalid_argument "map_i: cannot map_i over a Thunk")
 
 let ( @ ) l1 l2 = append l1 l2

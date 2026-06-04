@@ -286,6 +286,20 @@ let debug_string_of_steps steps =
 
 let create_steps_parser () = Angstrom.Buffered.parse proof_stage
 
+let build_stage_from_parse_result (res : conclusion option * step list) atomics
+    =
+  match res with
+  | None, [] -> (LNil, atomics)
+  | Some conc, steps ->
+      convert_proof_stage steps atomics [] |> fun (new_atomics, _, _) ->
+      (Single (conclusion_fact conc atomics), new_atomics)
+  | None, steps -> (
+      match convert_proof_stage steps atomics [] with
+      | new_atomics, Some stage, _ ->
+          (* remove what was read from buffer *)
+          (Cons (stage, LNil), new_atomics)
+      | new_atomics, None, _ -> (LNil, new_atomics))
+
 let build_stages_from_state state atomics :
     (conclusion option * step list) Buffered.state * coq_ProofStream * atomic_map =
   let open Buffered in
@@ -303,22 +317,12 @@ let build_stages_from_state state atomics :
     | Fail (_unconsumed, _, e) ->
         raise (ParseError e)
   in
-
   match parse_result with
   | None ->
       (new_state, LNil, atomics)
-  | Some res -> (
-      match res with
-      | None, [] -> (new_state, LNil, atomics)
-      | Some conc, steps ->
-          convert_proof_stage steps atomics [] |> fun (new_atomics, _, _) ->
-          (new_state, Single (conclusion_fact conc atomics), new_atomics)
-      | None, steps -> (
-          match convert_proof_stage steps atomics [] with
-          | new_atomics, Some stage, _ ->
-              (* remove what was read from buffer *)
-              (new_state, Cons (stage, LNil), new_atomics)
-          | new_atomics, None, _ -> (new_state, LNil, new_atomics)))
+  | Some res ->
+      build_stage_from_parse_result res atomics |> fun (stage, new_atomics) ->
+      (new_state, stage, new_atomics)
 
 (* Messages are read in batches of maximum size bufsz. Here we use 4KiB which seems reasonable. *)
 let bufsz = 4096
@@ -345,7 +349,7 @@ let rec read_available_text_and_build_stage in_chan state atomics : coq_ProofStr
   let out = append_terminate stages (Thunk next) in
   out
 
-let parse_proof (source : string) : coq_ProofStream * coq_ProofFact =
+let parse_proof (source : string) : coq_ProofStream =
   match parse_string ~consume:All proof source with
   | Ok (steps, conclusion) ->
       let proof, atomics = convert_steps_to_proof steps IntMap.empty LNil in
@@ -358,7 +362,8 @@ let parse_proof (source : string) : coq_ProofStream * coq_ProofFact =
               i_consequent = None;
             }
       in
-      (proof, conclusion_fact)
+      let open Drcpcheck_core.Lazy in
+      append proof (Single conclusion_fact)
   | Error e -> raise (ParseError e)
 
 let time_run f =

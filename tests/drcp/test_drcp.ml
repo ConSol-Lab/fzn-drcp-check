@@ -8,7 +8,8 @@ let lto_list = Drcpcheck_core.Lazy.to_list_i
 let lof_list = Drcpcheck_core.Lazy.of_list
 
 let conv expected =
-  expected |> fun (proof, conclusion) -> (lof_list proof, conclusion)
+  let open Drcpcheck_core.Lazy in
+  expected |> fun (proof, conclusion) -> lof_list proof @ Single conclusion
 
 let implication premises consequent =
   { i_premises = premises; i_consequent = Some consequent }
@@ -68,8 +69,7 @@ let show_proof_stage stage : string =
   Printf.sprintf "%s\nn %s %s 0 %s" inferences conclusion_id conclusion_premises
     sequence
 
-let show_proof proof conclusion =
-  let steps = String.concat "\n" (lmap show_proof_stage proof |> lto_list) in
+let show_conclusion conclusion =
   let conclusion_premises =
     String.concat " " (List.map show_atomic conclusion.i_premises)
   in
@@ -79,19 +79,25 @@ let show_proof proof conclusion =
     | None -> "0 False"
   in
   let conclusion = Printf.sprintf "c %s %s" conclusion_premises consequent in
-  steps ^ "\n" ^ conclusion
+  conclusion
+
+let show_proof proof =
+  let steps =
+    String.concat "\n" (lmap show_proof_stage show_conclusion proof |> lto_list)
+  in
+  steps
 
 let test_parse input expected =
   let parsed = parse_proof input in
   if parsed = expected then true
   else
-    let expected_proof, expected_conclusion = expected in
-    let parsed_proof, parsed_conclusion = parsed in
+    let expected_proof = expected in
+    let parsed_proof = parsed in
     let _ =
       Printf.printf
         "==========\nEXPECTED:\n%s\n----------\nPARSED:\n%s\n==========\n"
-        (show_proof expected_proof expected_conclusion)
-        (show_proof parsed_proof parsed_conclusion)
+        (show_proof expected_proof)
+        (show_proof parsed_proof)
     in
     false
 
@@ -112,8 +118,7 @@ let%test "parse an empty nogood" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source
-    (expected |> fun (proof, conclusion) -> (lof_list proof, conclusion))
+  test_parse source (conv expected)
 
 let%test "parse a unit nogood" =
   let source = {|
