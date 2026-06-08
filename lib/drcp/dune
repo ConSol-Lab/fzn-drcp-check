@@ -1,6 +1,12 @@
 (library
  (name drcpcheck_drcp)
- (libraries drcpcheck_core angstrom pbrt unix))
+ (libraries
+  drcpcheck_core
+  drcpcheck_util
+  angstrom
+  pbrt
+  bigstringaf
+  unix))
 
 (rule
  (targets drcp_proto.ml drcp_proto.mli)

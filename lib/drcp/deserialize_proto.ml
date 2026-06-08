@@ -1,5 +1,6 @@
 open Drcpcheck_core.Spec.ProofFacts
 open Drcpcheck_core.CheckerStreamed
+open Drcpcheck_util.Buffer
 open Big_int_Z
 module PB = Drcp_proto
 module IntMap = Map.Make (Int)
@@ -155,60 +156,41 @@ let varint_size i =
 
 let max_varint_size = 5
 
-(** [read_if_unavailable fd buf until off len] checks if [len] bytes can still
-    be read from the buffer and fills the buffer with more data from [fd] if
-    [off + len] is larger than [until]. It returns the offset in the buffer from
-    which to read. *)
-let rec read_if_unavailable fd buf until off len =
-  let bufsz = Bytes.length buf in
-  if off + len > bufsz then (
-    let rem_len = until - off in
-    Bytes.blit buf off buf 0 rem_len;
-    let n = Unix.read fd buf rem_len (bufsz - rem_len) in
-    if n = 0 then (
-      Unix.close fd;
-      failwith "Unexpected end of proof file");
-    read_if_unavailable fd buf (rem_len + n) 0 len)
-  else if off + len > until then (
-    let n = Unix.read fd buf until (bufsz - until) in
-    if n = 0 then (
-      Unix.close fd;
-      failwith "Unexpected end of proof file");
-    read_if_unavailable fd buf (until + n) off len)
-  else (off, until)
-
-let build_stage_from_buf fd buf off until atomics :
-    coq_ProofStream * Parse.atomic_map * (int * int) =
+(* [until] is how much data has currently been read into the buffer *)
+let build_stage_from_buf fd buf atomics :
+    coq_ProofStream * Parse.atomic_map * DBuffer.t =
   (* Collect list of steps *)
-  let rec loop_steps acc conc off until =
-    let off, until = read_if_unavailable fd buf until off max_varint_size in
-    let decoder = Pbrt.Decoder.of_subbytes buf off max_varint_size in
+  let rec loop_steps acc conc (buf : DBuffer.t) =
+    let buf = DBuffer.read_if_unavailable fd buf max_varint_size in
+
+    let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off max_varint_size in
     let msg_sz = Pbrt.Decoder.int_as_varint decoder in
-    let off, until =
-      read_if_unavailable fd buf until (off + varint_size msg_sz) msg_sz
-    in
-    let decoder = Pbrt.Decoder.of_subbytes buf off msg_sz in
+    let buf = { buf with off = buf.off + varint_size msg_sz } in
+    let buf = DBuffer.read_if_unavailable fd buf msg_sz in
+    let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off msg_sz in
+
     let step = Some (PB.decode_pb_proof_step decoder) in
-    let off = off + msg_sz in
+    let off = buf.off + msg_sz in
+    let buf = { buf with off } in
 
     match step with
     | Some s -> (
         match process_step s with
         | Conclusion c ->
-            ((Some c, List.rev acc), (off, until))
+            ((Some c, List.rev acc), buf)
         | Step (Deduction _ as d) ->
-            ((conc, List.rev (d :: acc)), (off, until))
+            ((conc, List.rev (d :: acc)), buf)
         | Step s_proc ->
-            loop_steps (s_proc :: acc) conc off until)
+            loop_steps (s_proc :: acc) conc buf)
     | None ->
         raise (Parse.ParseError "reached end of buffer while building stage")
   in
 
-  let parse_result, new_offsets = loop_steps [] None off until in
+  let parse_result, new_buf = loop_steps [] None buf in
   let proof, new_atomics =
     Parse.build_stage_from_parse_result parse_result atomics
   in
-  (proof, new_atomics, new_offsets)
+  (proof, new_atomics, new_buf)
 
 let calc_time_acc (acc : float ref) f =
   let start = Sys.time () in
@@ -238,15 +220,11 @@ let parse_binary_proof (source : string) : coq_ProofStream =
 
 let bufsz = 4096
 
-let rec read_available_and_build_stage fd buf off until atomics : coq_ProofStream =
+let rec read_available_and_build_stage fd buf atomics : coq_ProofStream =
   (* Process all full stages encountered so far *)
-  let stages, new_atomics, (new_off, new_until) =
-    build_stage_from_buf fd buf off until atomics
-  in
+  let stages, new_atomics, new_buf = build_stage_from_buf fd buf atomics in
 
-  let next =
-   fun () -> read_available_and_build_stage fd buf new_off new_until new_atomics
-  in
+  let next = fun () -> read_available_and_build_stage fd new_buf new_atomics in
 
   let open Drcpcheck_core.Lazy in
   let out = append_terminate stages (Thunk next) in

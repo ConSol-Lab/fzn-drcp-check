@@ -122,11 +122,9 @@ let time label f =
     res
   end
 
-let bufsz = 4096
-
 let run_streamed ?(format = `Text) csp file =
   let fd = Unix.openfile file [ O_RDONLY ] 0 in
-  let buf = Bytes.create bufsz in
+  let buf = Drcpcheck_util.Buffer.DBuffer.create_default () in
   let stream =
     match format with
     | `Text ->
@@ -135,8 +133,8 @@ let run_streamed ?(format = `Text) csp file =
         Drcpcheck_drcp.Parse.read_available_text_and_build_stage chan
           text_parser Drcpcheck_drcp.Parse.IntMap.empty
     | `Binary ->
-        Drcpcheck_drcp.Deserialize_proto.read_available_and_build_stage fd buf 0
-          0 Drcpcheck_drcp.Parse.IntMap.empty
+        Drcpcheck_drcp.Deserialize_proto.read_available_and_build_stage fd buf
+          Drcpcheck_drcp.Parse.IntMap.empty
   in
   let result = validate default_rules csp stream in
   result
