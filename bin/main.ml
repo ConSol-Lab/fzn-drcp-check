@@ -5,7 +5,7 @@ open Drcpcheck_core.Spec.ProofFacts
 
 let usage =
   {|
-fzn_drcp_check [--drcp-format text|binary] [-s] [-d] <flatzinc> <drcp|bin>
+fzn_drcp_check [-s] [--drcp-format text|binary] [-d] <flatzinc> <drcp|bin>
 
 --drcp-format: proof encoding. Defaults to guessing from the file extension, .drcp or .bin.
 -s: streamed mode. Performs incremental reads from a file or pipe instead of loading everything in memory at once.

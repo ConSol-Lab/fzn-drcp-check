@@ -515,12 +515,10 @@ Proof.
     reflexivity.
 Qed.
 
-Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
+Fixpoint hydrate_deduction_chain_aux (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) (acc : list ProofFact) : list ProofFact :=
   match index_chain with
-  | nil => nil
+  | nil => List.rev acc
   | index :: tail =>
-      let chain_tail := hydrate_deduction_chain csp infs tail
-      in
       let chain_head :=
         match ConstraintProblem.lookup csp index with
         | Some (fact_c i) => [i]
@@ -528,8 +526,67 @@ Fixpoint hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedI
             (fun inf => inf.(iinf_fact))
             (filter (fun inf => N.eqb (inf.(iinf_index)) index) infs)
         end
-      in chain_head ++ chain_tail
+      in
+      hydrate_deduction_chain_aux csp infs tail (List.rev_append chain_head acc)
   end.
+
+Definition hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
+  hydrate_deduction_chain_aux csp infs index_chain [].
+
+Lemma hydrate_deduction_chain_spec :
+  forall csp infs index_chain,
+    hydrate_deduction_chain csp infs index_chain =
+    hydrate_deduction_chain_aux csp infs index_chain [].
+Proof.
+  intros. unfold hydrate_deduction_chain. reflexivity.
+Qed.
+
+Lemma hydrated_chain_lookup_aux : forall
+  (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N)
+  (fact : ProofFact) (acc : list ProofFact),
+  In fact (hydrate_deduction_chain_aux csp infs index_chain acc) ->
+  (exists x, ConstraintProblem.lookup csp x = Some (fact_c fact)) \/
+  (exists inf, In inf infs /\ inf.(iinf_fact) = fact) \/
+  In fact acc.
+Proof.
+  intros.
+  generalize dependent fact.
+  generalize dependent acc.
+  induction index_chain as [|index tail].
+  - simpl. intros acc fact Hin.
+    apply in_rev in Hin; repeat right; assumption.
+  - intros fact acc Hin. apply IHtail in Hin.
+    destruct Hin as [Hlookup | [Hin_infs | Hin_acc]].
+    + left. exact Hlookup.
+    + right. left. exact Hin_infs.
+    + rewrite rev_append_rev in Hin_acc.
+      apply in_app_iff in Hin_acc.
+      destruct Hin_acc as [Hin_lookup | Hin_rec].
+      * destruct (lookup csp index) as [c|] eqn:Elookup ;
+        try destruct c;
+
+        (* 5/6 cases: c <> fact_c constraint *)
+        try (
+          right ;
+          apply in_rev in Hin_lookup ;
+          apply in_map_iff in Hin_lookup ;
+          destruct Hin_lookup as [inf [Efact Hin_fact]] ;
+          left ;
+          exists inf ;
+          split ;
+          try easy ;
+          apply filter_In in Hin_fact ;
+          destruct Hin_fact as [Hin_fact _] ;
+          exact Hin_fact
+        ).
+
+        left.
+        exists index.
+        inversion Hin_lookup ; try easy.
+        rewrite <- H, Elookup.
+        reflexivity.
+      * right. right. exact Hin_rec.
+Qed.
 
 
 Lemma hydrated_chain_lookup : forall
@@ -539,34 +596,14 @@ Lemma hydrated_chain_lookup : forall
   (exists x, ConstraintProblem.lookup csp x = Some (fact_c fact)) \/
   (exists inf, In inf infs /\ inf.(iinf_fact) = fact).
 Proof.
-  intros.
-  generalize dependent fact.
-  induction index_chain as [|index] ; try easy.
-  simpl.
-  intros fact Hin.
-  apply in_app_iff in Hin.
-  destruct Hin as [Hin_lookup | Hin_rec].
-  - destruct (lookup csp index) as [c|] eqn:Elookup ;
-    try destruct c ;
-    try (
-      right ;
-      apply in_map_iff in Hin_lookup ;
-      destruct Hin_lookup as [inf [Efact Hin_fact]] ;
-      exists inf ;
-      split ;
-      try easy ;
-      apply filter_In in Hin_fact ;
-      destruct Hin_fact as [Hin_fact _] ;
-      exact Hin_fact
-    ).
-    left.
-    exists index.
-    inversion Hin_lookup ; try easy.
-    rewrite <- H, Elookup.
-    reflexivity.
-  - apply IHindex_chain, Hin_rec.
+  intros csp infs index_chain fact Hin.
+  unfold hydrate_deduction_chain in Hin.
+  apply hydrated_chain_lookup_aux in Hin.
+  destruct Hin as [Hlookup | [Hin_infs | Hin_acc]].
+  - left. exact Hlookup.
+  - right. exact Hin_infs.
+  - simpl in Hin_acc. contradiction.
 Qed.
-
 
 Definition hydrate_inference (csp : ConstraintProblem) (inf : IndexedInference) : HydratedInference :=
   let hint := flat_map (

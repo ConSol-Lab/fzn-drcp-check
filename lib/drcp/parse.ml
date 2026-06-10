@@ -205,7 +205,8 @@ let resolve_atomic_id atomics id =
   | None, Some a1 -> a1
   | None, None -> raise (UndefinedAtomic id)
 
-let resolve_atomic_ids atomics ids = List.map (resolve_atomic_id atomics) ids
+let resolve_atomic_ids atomics ids =
+  List.rev_map (resolve_atomic_id atomics) ids |> List.rev
 
 let convert_inference (atomics : atomic_map) (inference : inference) :
     coq_IndexedInference =

@@ -65,6 +65,7 @@ module DBuffer = struct
       positioned at the offset from which to read. *)
   let rec read_if_unavailable fd (buf : t) len : t =
     let bufsz = length buf in
+
     if len > bufsz then
       (* resize buf to fit requested length *)
       let new_bufsz = compute_bufsz len in

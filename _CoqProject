@@ -4,4 +4,4 @@
 theories
 lib/flatzinc/coq/Ast.v
 -I _build/default/lib
-lib/extraction.v
+lib/core/extraction.v

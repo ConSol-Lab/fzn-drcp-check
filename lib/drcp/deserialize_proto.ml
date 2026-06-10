@@ -45,6 +45,7 @@ let parse_inference (i : PB.inference_step) : Parse.step =
     }
 
 let parse_nogood (n : PB.nogood_step) : Parse.step =
+
   let id = n.id in
   let literals = n.literals in
   let prophint = n.propagation_hint in
@@ -164,6 +165,7 @@ let build_stage_from_buf fd buf atomics :
 
     let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off max_varint_size in
     let msg_sz = Pbrt.Decoder.int_as_varint decoder in
+
     let buf = { buf with off = buf.off + varint_size msg_sz } in
     let buf = DBuffer.read_if_unavailable fd buf msg_sz in
     let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off msg_sz in

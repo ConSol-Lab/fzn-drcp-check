@@ -21,6 +21,11 @@ Extract Constant OrdersEx.String_as_OT.compare => "fun s1 s2 -> let cmp = String
 
 Extract Constant BinNat.N.eqb => "Big_int_Z.eq_big_int".
 Extract Constant BinNat.N.eq_dec => "Big_int_Z.eq_big_int".
+Extract Constant List.map => "fun f l -> List.rev (List.rev_map f l)".
+Extract Constant List.rev => "List.rev".
+Extract Constant List.rev_append => "List.rev_append".
+
+Extract Constant List.length => "fun l -> Big_int_Z.big_int_of_int (List.length l)".
 
 Extract Inductive Utility.LazyLists.llist => "Lazy.lazylist" [ "Lazy.LNil" "Lazy.Single" "Lazy.Cons" "Lazy.Thunk" ].
 
