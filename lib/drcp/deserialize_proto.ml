@@ -36,12 +36,11 @@ let parse_inference (i : PB.inference_step) : Parse.step =
 
   Inference
     {
-      constraint_id = big_int_of_int32 id;
-      premises = List.map Int32.to_int premises;
-      consequent =
-        (if propagated <> 0l then Some (Int32.to_int propagated) else None);
+      constraint_id = big_int_of_int id;
+      premises;
+      consequent = (if propagated <> 0 then Some propagated else None);
       generated_by =
-        (if generated_by <> 0l then [ big_int_of_int32 generated_by ] else []);
+        (if generated_by <> 0 then [ big_int_of_int generated_by ] else []);
       label;
     }
 
@@ -52,9 +51,9 @@ let parse_nogood (n : PB.nogood_step) : Parse.step =
 
   Deduction
     {
-      constraint_id = big_int_of_int32 id;
-      premises = List.map Int32.to_int literals;
-      sequence = List.map big_int_of_int32 prophint;
+      constraint_id = big_int_of_int id;
+      premises = literals;
+      sequence = List.rev_map big_int_of_int prophint |> List.rev;
     }
 
 type capnp_step = Conclusion of Parse.conclusion | Step of Parse.step
@@ -62,7 +61,7 @@ type capnp_step = Conclusion of Parse.conclusion | Step of Parse.step
 let parse_conclusion (c : PB.conclusion_step) : capnp_step =
   match c with
   | Unsat -> Conclusion Parse.Unsat
-  | Objective_bound b -> Conclusion (Parse.DualBound (Int32.to_int b))
+  | Objective_bound b -> Conclusion (Parse.DualBound b)
 
 let map_op (op : PB.atomic_op) =
   match op with
@@ -80,9 +79,9 @@ let parse_constraint (c : PB.atomic_constraint) : capnp_step =
   Step
     (AtomDefinition
        {
-         id = Int32.to_int id;
+         id;
          atomic =
-           (variab, { atm_cmp = map_op op; atm_val = big_int_of_int32 value });
+           (variab, { atm_cmp = map_op op; atm_val = big_int_of_int value });
        })
 
 let string_of_cstep (step : capnp_step) =
