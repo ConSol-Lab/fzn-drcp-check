@@ -4,6 +4,7 @@
   drcpcheck_core
   drcpcheck_util
   angstrom
+  camlzip
   pbrt
   bigstringaf
   unix))
