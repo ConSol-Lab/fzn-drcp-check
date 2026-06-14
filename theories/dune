@@ -7,5 +7,6 @@
     --with-footer ../../../../../coqdocjs/footer.html))
 
 (copy_files
+ (enabled_if %{file-available:../coqdocjs/resources})
  (files ../coqdocjs/resources/*)
  (alias doc))

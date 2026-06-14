@@ -150,11 +150,11 @@ let%test "parse a proof stage" =
                   atom "x2" Coq_less_equal 2;
                   atom "x3" Coq_greater_equal 1;
                 ]
-                None [ 6 ] "linear";
+                None [ 6 ] "linear_bounds";
               inference 8
                 [ atom "x1" Coq_greater_equal 1; atom "x2" Coq_less_equal 2 ]
                 (Some (atom "x3" Coq_greater_equal 1))
-                [ 5 ] "linear";
+                [ 5 ] "linear_bounds";
             ];
           s_conclusion = nogood [ atom "x1" Coq_greater_equal 1 ];
           s_chain = [ big_int_of_int 5; big_int_of_int 6 ];
@@ -181,8 +181,12 @@ let%test "parse initial domain inferences without constraint hint" =
         {
           s_inferences =
             [
-              inference 1 [] (Some (atom "x1" Coq_greater_equal 1)) [] "dom";
-              inference 2 [] (Some (atom "x1" Coq_less_equal 0)) [] "dom";
+              inference 1 []
+                (Some (atom "x1" Coq_greater_equal 1))
+                [] "initial_domain";
+              inference 2 []
+                (Some (atom "x1" Coq_less_equal 0))
+                [] "initial_domain";
             ];
           s_conclusion = nogood [];
           s_chain = [ big_int_of_int 1; big_int_of_int 2 ];
