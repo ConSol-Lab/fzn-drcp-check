@@ -515,38 +515,75 @@ Proof.
     reflexivity.
 Qed.
 
-Fixpoint hydrate_deduction_chain_aux (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) (acc : list ProofFact) : list ProofFact :=
+(* Index inferences by id to speed up `hydrate_deduction_chain`. *)
+Definition build_inf_map_step (m : nmap.t (list ProofFact)) (inf : IndexedInference)
+  : nmap.t (list ProofFact) :=
+  nmap.add inf.(iinf_index)
+    (inf.(iinf_fact) :: match nmap.find inf.(iinf_index) m with Some l => l | None => [] end)
+    m.
+
+Definition build_inf_map (infs : list IndexedInference) : nmap.t (list ProofFact) :=
+  fold_left build_inf_map_step infs nmap.empty.
+
+Fixpoint hydrate_deduction_chain_aux (csp : ConstraintProblem) (infmap : nmap.t (list ProofFact)) (index_chain : list N) (acc : list ProofFact) : list ProofFact :=
   match index_chain with
   | nil => List.rev acc
   | index :: tail =>
       let chain_head :=
         match ConstraintProblem.lookup csp index with
         | Some (fact_c i) => [i]
-        | _ => map
-            (fun inf => inf.(iinf_fact))
-            (filter (fun inf => N.eqb (inf.(iinf_index)) index) infs)
+        | _ => match nmap.find index infmap with Some l => l | None => [] end
         end
       in
-      hydrate_deduction_chain_aux csp infs tail (List.rev_append chain_head acc)
+      hydrate_deduction_chain_aux csp infmap tail (List.rev_append chain_head acc)
   end.
 
 Definition hydrate_deduction_chain (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N) : list ProofFact :=
-  hydrate_deduction_chain_aux csp infs index_chain [].
+  hydrate_deduction_chain_aux csp (build_inf_map infs) index_chain [].
 
-Lemma hydrate_deduction_chain_spec :
-  forall csp infs index_chain,
-    hydrate_deduction_chain csp infs index_chain =
-    hydrate_deduction_chain_aux csp infs index_chain [].
+Lemma build_inf_map_fold_spec : forall infs m index l fact,
+  nmap.find index (fold_left build_inf_map_step infs m) = Some l ->
+  In fact l ->
+  (exists inf, In inf infs /\ inf.(iinf_fact) = fact) \/
+  (exists l0, nmap.find index m = Some l0 /\ In fact l0).
 Proof.
-  intros. unfold hydrate_deduction_chain. reflexivity.
+  induction infs as [|inf rest IH]; intros m index l fact Hfind Hin.
+  - eauto.
+  - cbn [fold_left] in Hfind.
+    specialize (IH (build_inf_map_step m inf) index l fact Hfind Hin).
+    destruct IH as [[inf' [Hin' Heq]] | [l0 [Hfind0 Hin0]]].
+    + eauto using in_cons.
+    + unfold build_inf_map_step in Hfind0.
+      destruct (N.eq_dec inf.(iinf_index) index) as [Heq | Hneq].
+      * subst index.
+        rewrite nmap.add_spec1 in Hfind0.
+        injection Hfind0 as Hfind0; subst l0.
+        simpl in Hin0; destruct Hin0 as [Hfeq | Hin_prev].
+        -- eauto using in_eq.
+        -- right. destruct (nmap.find inf.(iinf_index) m) as [pl|] eqn:Eprev;
+             simpl in *; eauto; contradiction.
+      * rewrite nmap.add_spec2 in Hfind0 by exact Hneq.
+        eauto.
 Qed.
 
-Lemma hydrated_chain_lookup_aux : forall
-  (csp : ConstraintProblem) (infs : list IndexedInference) (index_chain : list N)
-  (fact : ProofFact) (acc : list ProofFact),
-  In fact (hydrate_deduction_chain_aux csp infs index_chain acc) ->
+Lemma in_build_inf_map : forall infs index l fact,
+  nmap.find index (build_inf_map infs) = Some l ->
+  In fact l ->
+  exists inf, In inf infs /\ inf.(iinf_fact) = fact.
+Proof.
+  intros infs index l fact Hfind Hin.
+  unfold build_inf_map in Hfind.
+  destruct (build_inf_map_fold_spec infs nmap.empty index l fact Hfind Hin)
+    as [? | [? [Hempty _]]]; eauto.
+  rewrite nmap.empty_spec in Hempty; discriminate.
+Qed.
+
+Lemma hydrated_chain_lookup_aux
+  (csp : ConstraintProblem) (infmap : nmap.t (list ProofFact)) (index_chain : list N)
+  (fact : ProofFact) (acc : list ProofFact) :
+  In fact (hydrate_deduction_chain_aux csp infmap index_chain acc) ->
   (exists x, ConstraintProblem.lookup csp x = Some (fact_c fact)) \/
-  (exists inf, In inf infs /\ inf.(iinf_fact) = fact) \/
+  (exists index l, nmap.find index infmap = Some l /\ In fact l) \/
   In fact acc.
 Proof.
   intros.
@@ -565,19 +602,12 @@ Proof.
       * destruct (lookup csp index) as [c|] eqn:Elookup ;
         try destruct c;
 
-        (* 5/6 cases: c <> fact_c constraint *)
         try (
           right ;
-          apply in_rev in Hin_lookup ;
-          apply in_map_iff in Hin_lookup ;
-          destruct Hin_lookup as [inf [Efact Hin_fact]] ;
           left ;
-          exists inf ;
-          split ;
-          try easy ;
-          apply filter_In in Hin_fact ;
-          destruct Hin_fact as [Hin_fact _] ;
-          exact Hin_fact
+          apply in_rev in Hin_lookup ;
+          destruct (nmap.find index infmap) as [l|] eqn:Efind ;
+          simpl in * ; eauto ; contradiction
         ).
 
         left.
@@ -599,10 +629,10 @@ Proof.
   intros csp infs index_chain fact Hin.
   unfold hydrate_deduction_chain in Hin.
   apply hydrated_chain_lookup_aux in Hin.
-  destruct Hin as [Hlookup | [Hin_infs | Hin_acc]].
+  destruct Hin as [Hlookup | [[index [l [Hfind Hin_l]]] | Hin_acc]].
   - left. exact Hlookup.
-  - right. exact Hin_infs.
-  - simpl in Hin_acc. contradiction.
+  - eauto using in_build_inf_map.
+  - destruct Hin_acc.
 Qed.
 
 Definition hydrate_inference (csp : ConstraintProblem) (inf : IndexedInference) : HydratedInference :=
