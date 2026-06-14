@@ -3,6 +3,8 @@ open Drcpcheck_core.Checker
 open Drcpcheck_core.Checker.ProofFacts
 module StreamingChecker = StreamingChecker (DefaultRules)
 module SeqChecker = SequentialChecker (DefaultRules)
+open Drcpcheck_drcp.Read
+open Drcpcheck_flatzinc.Read
 
 let usage =
   {|
@@ -41,27 +43,6 @@ let assign_args anonymous_argument =
   if !arg_count = 1 then flatzinc_file := anonymous_argument
   else if !arg_count = 2 then drcp_file := anonymous_argument
   else raise (Arg.Bad "Too many anonymous arguments.")
-
-let read_constraint_problem flatzinc_file =
-  let channel = In_channel.open_text flatzinc_file in
-  let lexbuf = Lexing.from_channel channel in
-  Drcpcheck_flatzinc.Parse.parse lexbuf (Some flatzinc_file)
-
-let read_proof drcp_file =
-  let proof_handle = open_in drcp_file in
-  let source =
-    really_input_string proof_handle (in_channel_length proof_handle)
-  in
-  close_in proof_handle;
-  Drcpcheck_drcp.Parse.parse_proof source
-
-let read_binary_proof bin_file =
-  let chan = open_in_bin bin_file in
-  let len = in_channel_length chan in
-  let source = Bytes.create len in
-  really_input chan source 0 len;
-  close_in chan;
-  Drcpcheck_drcp.Deserialize.deserialize_binary_proof source
 
 let show_atomic (name, atomic) =
   let cmp =
