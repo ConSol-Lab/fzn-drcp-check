@@ -151,13 +151,16 @@ let conclusion_line =
          <?> "dual bound conclusion"))
   <* ws_with_new_line <?> "conclusion line"
 
+let proof =
+  many proof_line >>= fun steps ->
+  conclusion_line >>= fun conclusion -> return (steps, conclusion)
+
 let proof_stage_line =
   ws_with_new_line *> peek_char_fail >>= function
   | 'a' -> atom_definition >>| fun def -> AtomDefinition def
   | 'i' -> inference_line >>| fun inf -> Inference inf
   | _ -> fail "Unknown proof line"
 
-(* return: conclusion if conclusion, all lines needed for proof stage if n is found, None if no deduction is found *)
 let proof_stage =
   many proof_stage_line >>= fun steps ->
   peek_char >>= function
@@ -165,11 +168,7 @@ let proof_stage =
       deduction_line >>| fun d -> (None, List.append steps [ Deduction d ])
   | Some 'c' -> conclusion_line >>| fun c -> (Some c, steps)
   | None -> return (None, steps)
-  | Some c -> fail (Printf.sprintf "Unknown proof line with char [%c]" c)
-
-let proof =
-  many proof_line >>= fun steps ->
-  conclusion_line >>= fun conclusion -> return (steps, conclusion)
+  | Some chr -> fail (Printf.sprintf "Unknown proof line with char [%c]" chr)
 
 module IntMap = Map.Make (Int)
 
@@ -344,31 +343,4 @@ let parse_proof (source : string) : proofStage list * coq_ProofFact =
             }
       in
       (proof, conclusion_fact)
-  | Error e -> raise (ParseError e)
-
-let time_run f =
-  let t = Sys.time () in
-  let res = f () in
-  (res, Sys.time () -. t)
-
-let parse_proof_timed (source : string) :
-    (proofStage list * coq_ProofFact) * float * float =
-  let str, dur_process =
-    time_run (fun () -> parse_string ~consume:All proof source)
-  in
-  match str with
-  | Ok (steps, conclusion) ->
-      let (proof, atomics), dur_convert =
-        time_run (fun () -> convert_steps_to_proof steps IntMap.empty [])
-      in
-      let conclusion_fact =
-        match conclusion with
-        | Unsat -> { i_premises = []; i_consequent = None }
-        | DualBound code ->
-            {
-              i_premises = [ resolve_atomic_id atomics (-code) ];
-              i_consequent = None;
-            }
-      in
-      ((proof, conclusion_fact), dur_process, dur_convert)
   | Error e -> raise (ParseError e)

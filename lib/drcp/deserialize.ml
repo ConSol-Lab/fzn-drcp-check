@@ -3,11 +3,8 @@ open Drcpcheck_core.Checker
 open Drcpcheck_util.Buffer
 open Big_int_Z
 module PB = Drcp_proto
-module IntMap = Map.Make (Int)
 
-let usage = "drcp-bin-parse <file>"
-let bin_file = ref ""
-let arg_count = ref 0
+type step = Conclusion of Parse.conclusion | Step of Parse.step
 
 let parse_inf_hint (i : PB.inference_step) =
   let h = i.label_hint in
@@ -50,9 +47,7 @@ let parse_nogood (n : PB.nogood_step) : Parse.step =
       sequence = List.rev_map big_int_of_int prophint |> List.rev;
     }
 
-type deserialize_step = Conclusion of Parse.conclusion | Step of Parse.step
-
-let parse_conclusion (c : PB.conclusion_step) : deserialize_step =
+let parse_conclusion (c : PB.conclusion_step) : step =
   match c with
   | Unsat -> Conclusion Parse.Unsat
   | Objective_bound b -> Conclusion (Parse.DualBound b)
@@ -64,7 +59,7 @@ let map_op (op : PB.atomic_op) =
   | Le -> Coq_less_equal
   | Ge -> Coq_greater_equal
 
-let parse_constraint (c : PB.atomic_constraint) : deserialize_step =
+let parse_atomic (c : PB.atomic_constraint) : step =
   let id = c.id in
   let variab = c.var in
   let op = c.op in
@@ -78,50 +73,36 @@ let parse_constraint (c : PB.atomic_constraint) : deserialize_step =
            (variab, { atm_cmp = map_op op; atm_val = big_int_of_int value });
        })
 
-let string_of_cstep (step : deserialize_step) =
-  match step with
-  | Step s -> (
-      match s with
-      | Inference inf -> Printf.sprintf "Inference: %s" inf.label
-      | Deduction ded ->
-          Printf.sprintf "Deduction: %s" (string_of_big_int ded.constraint_id)
-      | AtomDefinition def ->
-          Printf.sprintf "AtomDefinition: %s" (fst def.atomic))
-  | Conclusion c -> (
-      match c with
-      | Parse.Unsat -> "Conclusion: Unsat"
-      | Parse.DualBound b -> Printf.sprintf "Conclusion: DualBound %d" b)
-
-let process_step (message : PB.proof_step) : deserialize_step =
+let process_step (message : PB.proof_step) : step =
   match message with
-  | Constraint c -> parse_constraint c
+  | Constraint c -> parse_atomic c
   | Inference i -> Step (parse_inference i)
   | Nogood n -> Step (parse_nogood n)
   | Conclusion c -> parse_conclusion c
 
-let process_step_or_conc (acc : Parse.step list * Parse.conclusion option)
-    (step : PB.proof_step) =
-  let steps, conc = acc in
-  match process_step step with
-  | Conclusion c -> (steps, Some c)
-  | Step s -> (s :: steps, conc)
-
-let process (buf : PB.proof_buffer) : Parse.step list * Parse.conclusion option
-    =
-  List.fold_left process_step_or_conc ([], None) buf.steps
-
 let bin_to_steps bytes =
-  let decoder = Pbrt.Decoder.of_bytes bytes in
+  let open Pbrt in
+  let decoder = Decoder.of_bytes bytes in
   let rec loop_over_buf steps conc i =
     (* skip length prefix *)
-    Pbrt.Decoder.skip decoder Varint;
-    let step = try Some (PB.decode_pb_proof_step decoder) with _ -> None in
-    match step with
-    | Some s -> (
-        match process_step s with
-        | Conclusion c -> (List.rev steps, Some c)
-        | Step s_proc -> loop_over_buf (s_proc :: steps) conc (i + 1))
-    | None -> (steps, conc)
+    let () =
+      try Decoder.skip decoder Varint
+      with Decoder.Failure e ->
+        raise
+          (Parse.ParseError
+             (Printf.sprintf "Decoding error: %s" (Decoder.error_to_string e)))
+    in
+
+    let step =
+      try PB.decode_pb_proof_step decoder
+      with Decoder.Failure e ->
+        raise
+          (Parse.ParseError
+             (Printf.sprintf "Decoding error: %s" (Decoder.error_to_string e)))
+    in
+    match process_step step with
+    | Conclusion c -> (List.rev steps, Some c)
+    | Step s_proc -> loop_over_buf (s_proc :: steps) conc (i + 1)
   in
   let res = loop_over_buf [] None 0 in
   res
@@ -153,16 +134,20 @@ let build_stage_from_buf fd buf atomics :
     let buf = DBuffer.read_if_unavailable fd buf msg_sz in
 
     let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off msg_sz in
-    let step = Some (PB.decode_pb_proof_step decoder) in
+    let step =
+      try PB.decode_pb_proof_step decoder
+      with Pbrt.Decoder.Failure e ->
+        raise
+          (Parse.ParseError
+             (Printf.sprintf "Decoding error: %s"
+                (Pbrt.Decoder.error_to_string e)))
+    in
     let buf = DBuffer.advance buf msg_sz in
 
-    match step with
-    | Some s -> (
-        match process_step s with
-        | Conclusion c -> ((Some c, List.rev acc), buf)
-        | Step (Deduction _ as d) -> ((conc, List.rev (d :: acc)), buf)
-        | Step s_proc -> loop_steps (s_proc :: acc) conc buf)
-    | None -> raise Parse.IncompleteProofError
+    match process_step step with
+    | Conclusion c -> ((Some c, List.rev acc), buf)
+    | Step (Deduction _ as d) -> ((conc, List.rev (d :: acc)), buf)
+    | Step s_proc -> loop_steps (s_proc :: acc) conc buf
   in
 
   let parse_result, new_buf = loop_steps [] None buf in

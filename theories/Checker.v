@@ -425,14 +425,14 @@ Compute fact_equiv.validate
 Definition ProofStream := (@llist ProofStage ProofFact).
 
 Module Type CHECKER.
-  Parameter ProofInputType : Type.
+  Parameter Proof : Type.
 
-  Parameter validate: ConstraintProblem -> ProofInputType -> CheckerError.
-  Parameter soundness : checker_sound ProofInputType CheckerErrorType validate.
+  Parameter validate: ConstraintProblem -> Proof -> CheckerError.
+  Parameter soundness : checker_sound Proof CheckerErrorType validate.
 End CHECKER.
 
 Module CheckerImpl (R: RULES).
-  Parameter ProofListType : Type.
+  Parameter Proof : Type.
 
   Inductive StageResult :=
   | valid_single_stage
@@ -685,9 +685,8 @@ Module CheckerImpl (R: RULES).
 
 End CheckerImpl.
 
-
 Module SequentialChecker (R: RULES) <: CHECKER.
-  Definition ProofInputType := (list ProofStage * ProofFact)%type.
+  Definition Proof := (list ProofStage * ProofFact)%type.
 
   Module C := CheckerImpl R.
 
@@ -823,7 +822,7 @@ Module SequentialChecker (R: RULES) <: CHECKER.
       assumption.
   Qed.
 
-  Definition validate (csp : ConstraintProblem) (proof: ProofInputType) :=
+  Definition validate (csp : ConstraintProblem) (proof: Proof) :=
     let (proof_stages, conclusion) := proof in
     match validate_stages csp proof_stages with
     | C.valid_stage csp' => if nmap.exists_ (fun k => C.compare_with_fact conclusion) csp'.(constraints)
@@ -833,7 +832,7 @@ Module SequentialChecker (R: RULES) <: CHECKER.
     end.
 
 
-  Theorem soundness : checker_sound (ProofInputType) CheckerErrorType validate.
+  Theorem soundness : checker_sound (Proof) CheckerErrorType validate.
   Proof.
     unfold checker_sound.
     intros csp proof conclusion Hvalid.
@@ -901,7 +900,7 @@ Module SequentialChecker (R: RULES) <: CHECKER.
 End SequentialChecker.
 
 Module StreamingChecker (R: RULES) <: CHECKER.
-  Definition ProofInputType := ProofStream.
+  Definition Proof := ProofStream.
 
   Module C := CheckerImpl R.
 
