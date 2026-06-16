@@ -205,6 +205,7 @@ let resolve_atomic_id atomics id =
   | None, Some a1 -> a1
   | None, None -> raise (UndefinedAtomic id)
 
+(* LATER: TRMC *)
 let resolve_atomic_ids atomics ids =
   List.rev_map (resolve_atomic_id atomics) ids |> List.rev
 
@@ -270,20 +271,6 @@ let conclusion_fact conclusion atomics =
         i_consequent = None;
       }
 
-let debug_string_of_steps steps =
-  "-"
-  ^ String.concat "\n-"
-      (List.map
-         (function
-           | AtomDefinition def -> Printf.sprintf "AtomDefinition: %i" def.id
-           | Inference inf ->
-               Printf.sprintf "Inference: %s"
-                 (string_of_big_int inf.constraint_id)
-           | Deduction ded ->
-               Printf.sprintf "Deduction: %s"
-                 (string_of_big_int ded.constraint_id))
-         steps)
-
 let create_steps_parser () = Angstrom.Buffered.parse proof_stage
 
 let build_stage_from_parse_result (res : conclusion option * step list) atomics
@@ -312,14 +299,11 @@ let build_stages_from_state state atomics :
         in
         let new_state = parse proof_stage |> fun s -> feed s (`Bigstring bs) in
         (Some res, new_state)
-    | Partial _ ->
-        (None, state)
-    | Fail (_unconsumed, _, e) ->
-        raise (ParseError e)
+    | Partial _ -> (None, state)
+    | Fail (_unconsumed, _, e) -> raise (ParseError e)
   in
   match parse_result with
-  | None ->
-      (new_state, LNil, atomics)
+  | None -> (new_state, LNil, atomics)
   | Some res ->
       build_stage_from_parse_result res atomics |> fun (stage, new_atomics) ->
       (new_state, stage, new_atomics)

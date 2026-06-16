@@ -9,11 +9,6 @@ let usage = "drcp-bin-parse <file>"
 let bin_file = ref ""
 let arg_count = ref 0
 
-let time f =
-  let t = Sys.time () in
-  let res = f () in
-  (res, Sys.time () -. t)
-
 let parse_inf_hint (i : PB.inference_step) =
   let h = i.label_hint in
   match h with
@@ -55,9 +50,9 @@ let parse_nogood (n : PB.nogood_step) : Parse.step =
       sequence = List.rev_map big_int_of_int prophint |> List.rev;
     }
 
-type capnp_step = Conclusion of Parse.conclusion | Step of Parse.step
+type deserialize_step = Conclusion of Parse.conclusion | Step of Parse.step
 
-let parse_conclusion (c : PB.conclusion_step) : capnp_step =
+let parse_conclusion (c : PB.conclusion_step) : deserialize_step =
   match c with
   | Unsat -> Conclusion Parse.Unsat
   | Objective_bound b -> Conclusion (Parse.DualBound b)
@@ -69,7 +64,7 @@ let map_op (op : PB.atomic_op) =
   | Le -> Coq_less_equal
   | Ge -> Coq_greater_equal
 
-let parse_constraint (c : PB.atomic_constraint) : capnp_step =
+let parse_constraint (c : PB.atomic_constraint) : deserialize_step =
   let id = c.id in
   let variab = c.var in
   let op = c.op in
@@ -83,7 +78,7 @@ let parse_constraint (c : PB.atomic_constraint) : capnp_step =
            (variab, { atm_cmp = map_op op; atm_val = big_int_of_int value });
        })
 
-let string_of_cstep (step : capnp_step) =
+let string_of_cstep (step : deserialize_step) =
   match step with
   | Step s -> (
       match s with
@@ -97,7 +92,7 @@ let string_of_cstep (step : capnp_step) =
       | Parse.Unsat -> "Conclusion: Unsat"
       | Parse.DualBound b -> Printf.sprintf "Conclusion: DualBound %d" b)
 
-let process_step (message : PB.proof_step) : capnp_step =
+let process_step (message : PB.proof_step) : deserialize_step =
   match message with
   | Constraint c -> parse_constraint c
   | Inference i -> Step (parse_inference i)
@@ -148,30 +143,26 @@ let build_stage_from_buf fd buf atomics :
     proofStream * Parse.atomic_map * DBuffer.t =
   (* Collect list of steps *)
   let rec loop_steps acc conc (buf : DBuffer.t) =
+    (* Read size of message *)
     let buf = DBuffer.read_if_unavailable fd buf max_varint_size in
-
     let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off max_varint_size in
     let msg_sz = Pbrt.Decoder.int_as_varint decoder in
 
-    let buf = { buf with off = buf.off + varint_size msg_sz } in
+    (* Resize buffer accordingly *)
+    let buf = DBuffer.advance buf (varint_size msg_sz) in
     let buf = DBuffer.read_if_unavailable fd buf msg_sz in
-    let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off msg_sz in
 
+    let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off msg_sz in
     let step = Some (PB.decode_pb_proof_step decoder) in
-    let off = buf.off + msg_sz in
-    let buf = { buf with off } in
+    let buf = DBuffer.advance buf msg_sz in
 
     match step with
     | Some s -> (
         match process_step s with
-        | Conclusion c ->
-            ((Some c, List.rev acc), buf)
-        | Step (Deduction _ as d) ->
-            ((conc, List.rev (d :: acc)), buf)
-        | Step s_proc ->
-            loop_steps (s_proc :: acc) conc buf)
-    | None ->
-        raise (Parse.ParseError "reached end of buffer while building stage")
+        | Conclusion c -> ((Some c, List.rev acc), buf)
+        | Step (Deduction _ as d) -> ((conc, List.rev (d :: acc)), buf)
+        | Step s_proc -> loop_steps (s_proc :: acc) conc buf)
+    | None -> raise Parse.IncompleteProofError
   in
 
   let parse_result, new_buf = loop_steps [] None buf in
@@ -205,8 +196,6 @@ let deserialize_binary_proof (source : Bytes.t) :
     | None -> raise (Parse.ParseError "No conclusion found in proof")
   in
   (proof, conclusion_fact)
-
-let bufsz = 4096
 
 let rec read_available_and_build_stage fd buf atomics : proofStream =
   (* Process all full stages encountered so far *)

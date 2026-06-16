@@ -58,6 +58,8 @@ module DBuffer = struct
     let bufsz = 0x1000 in
     (len + bufsz - 1) / bufsz * bufsz
 
+  let advance (buf : t) delta = { buf with off = buf.off + delta }
+
   (** [read_if_unavailable fd buf until off len] checks if [len] bytes can still
       be read from the buffer and fills the buffer with more data from [fd] if
       [off + len] is larger than [until]. If [len] is greater than [bufsz], the
