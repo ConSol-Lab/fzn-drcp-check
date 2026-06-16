@@ -1,7 +1,3 @@
-(* Re-export what the extracted MenhirLib code expects from Stdlib.Lazy. *)
-type 'a t = 'a Stdlib.Lazy.t
-let force = Stdlib.Lazy.force
-
 type ('a, 'b) lazylist =
   | LNil
   | Single of 'b

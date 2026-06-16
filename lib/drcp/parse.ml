@@ -1,6 +1,6 @@
 open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_core.Checker
-open Drcpcheck_core.Lazy
+open Drcpcheck_core.Lazylist
 open Angstrom
 open Big_int_Z
 
@@ -326,7 +326,7 @@ let rec read_available_text_and_build_stage in_chan state atomics : proofStream
   in
 
   if contents = `Eof then close_in in_chan;
-  let open Drcpcheck_core.Lazy in
+  let open Drcpcheck_core.Lazylist in
   let out = append_terminate stages (Thunk next) in
   out
 

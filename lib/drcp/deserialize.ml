@@ -203,7 +203,7 @@ let rec read_available_and_build_stage fd buf atomics : proofStream =
 
   let next = fun () -> read_available_and_build_stage fd new_buf new_atomics in
 
-  let open Drcpcheck_core.Lazy in
+  let open Drcpcheck_core.Lazylist in
   let out = append_terminate stages (Thunk next) in
 
   out

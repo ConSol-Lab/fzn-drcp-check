@@ -3,12 +3,12 @@ open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_drcp.Parse
 open Big_int_Z
 
-let lmap = Drcpcheck_core.Lazy.map_i
-let lto_list = Drcpcheck_core.Lazy.to_list_i
-let lof_list = Drcpcheck_core.Lazy.of_list
+let lmap = Drcpcheck_core.Lazylist.map_i
+let lto_list = Drcpcheck_core.Lazylist.to_list_i
+let lof_list = Drcpcheck_core.Lazylist.of_list
 
 let conv expected =
-  let open Drcpcheck_core.Lazy in
+  let open Drcpcheck_core.Lazylist in
   expected |> fun (proof, conclusion) -> lof_list proof @ Single conclusion
 
 let implication premises consequent =
