@@ -1,0 +1,28 @@
+(executable
+ (name test_binary)
+ (libraries drcpcheck_drcp drcpcheck_flatzinc))
+
+(rule
+ (alias runtest)
+ (deps empty.txt output.txt)
+ (action
+  (diff empty.txt output.txt)))
+
+(rule
+ (target empty.txt)
+ (action
+  (with-stdout-to
+   empty.txt
+   (echo ""))))
+
+(rule
+ (target output.txt)
+ (deps
+  (glob_files ../invalid/*)
+  (glob_files ../valid/*))
+ (action
+  (with-stdout-to
+   output.txt
+   (progn
+    (run ./test_binary.exe ../invalid)
+    (run ./test_binary.exe ../valid)))))
