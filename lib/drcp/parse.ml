@@ -25,6 +25,13 @@ type step =
   | Deduction of deduction
   | AtomDefinition of atom_definition
 
+(* Tail-recursive version of [many] *)
+let many_rev p =
+  let rec go p acc = (p >>= fun x -> go p (x :: acc)) <|> return acc in
+  go p []
+
+let many_tr p = many_rev p >>| List.rev
+
 let ws =
   skip_while (function ' ' | '\t' -> true | _ -> false) <?> "whitespace"
 
@@ -105,7 +112,7 @@ let atom_definition =
 let inference_rule =
   ident
 
-let premises = many (atomic_code <* ws_sep) <* char '0'
+let premises = many_tr (atomic_code <* ws_sep) <* char '0'
 
 let inference_args =
   let generated_by =
@@ -130,7 +137,7 @@ let deduction_line =
   *> lift3
        (fun id premises sequence -> { constraint_id = id; premises; sequence })
        (big_integer <* ws_sep) premises
-       (many (ws_sep *> big_integer))
+       (many_tr (ws_sep *> big_integer))
   <* eol <?> "deduction line"
 
 let proof_line =
@@ -152,7 +159,7 @@ let conclusion_line =
   <* ws_with_new_line <?> "conclusion line"
 
 let proof =
-  many proof_line >>= fun steps ->
+  many_tr proof_line >>= fun steps ->
   conclusion_line >>= fun conclusion -> return (steps, conclusion)
 
 let proof_stage_line =
@@ -162,12 +169,12 @@ let proof_stage_line =
   | _ -> fail "Unknown proof line"
 
 let proof_stage =
-  many proof_stage_line >>= fun steps ->
+  many_rev proof_stage_line >>= fun rev_steps ->
   peek_char >>= function
   | Some 'n' ->
-      deduction_line >>| fun d -> (None, List.append steps [ Deduction d ])
-  | Some 'c' -> conclusion_line >>| fun c -> (Some c, steps)
-  | None -> return (None, steps)
+      deduction_line >>| fun d -> (None, List.rev (Deduction d :: rev_steps))
+  | Some 'c' -> conclusion_line >>| fun c -> (Some c, List.rev rev_steps)
+  | None -> return (None, List.rev rev_steps)
   | Some chr -> fail (Printf.sprintf "Unknown proof line with char [%c]" chr)
 
 module IntMap = Map.Make (Int)
