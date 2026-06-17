@@ -40,17 +40,29 @@ let rec map_i f g = function
 
 let ( @ ) l1 l2 = append l1 l2
 
-let rec rev = function
-  | LNil -> LNil
-  | Single _ as s -> s
-  | Cons (x, xs) -> append (rev xs) (Cons (x, LNil))
-  | Thunk f -> rev (f ())
+let rev l =
+  let rec go acc = function
+    | LNil -> acc
+    | Single _ as s -> (
+        match acc with
+        | LNil -> s
+        | _ -> raise (Invalid_argument "rev: list terminated by a Single"))
+    | Cons (x, xs) -> go (Cons (x, acc)) xs
+    | Thunk f -> go acc (f ())
+  in
+  go LNil l
 
-let rec rev_i = function
-  | LNil -> LNil
-  | Single _ as s -> s
-  | Cons (x, xs) -> append (rev_i xs) (Cons (x, LNil))
-  | Thunk _ -> raise (Invalid_argument "rev_i: cannot reverse a Thunk")
+let rev_i l =
+  let rec go acc = function
+    | LNil -> acc
+    | Single _ as s -> (
+        match acc with
+        | LNil -> s
+        | _ -> raise (Invalid_argument "rev_i: list terminated by a Single"))
+    | Cons (x, xs) -> go (Cons (x, acc)) xs
+    | Thunk _ -> raise (Invalid_argument "rev_i: cannot reverse a Thunk")
+  in
+  go LNil l
 
 let rec to_list = function
   | LNil -> []
