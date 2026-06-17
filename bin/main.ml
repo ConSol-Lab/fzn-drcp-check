@@ -40,7 +40,7 @@ let speclist =
     ( "--bufsz",
       Arg.Int (fun n ->
           if n < 16 * 1024 then raise (Arg.Bad "--bufsz must be at least 16kB");
-          Drcpcheck_util.Buffer.bufsz := n),
+          Drcpcheck_drcp.Parse.bufsz := n),
       "Streaming read-buffer size in bytes (default: 1MiB)" );
   ]
 
@@ -123,15 +123,14 @@ let show_conclusion conclusion =
 
 let run_streamed ?(format = `Text) csp file =
   let fd = Unix.openfile file [ O_RDONLY ] 0 in
-  let buf = Drcpcheck_util.Buffer.DBuffer.create_default () in
+  let chan = Unix.in_channel_of_descr fd in
   let stream =
     match format with
     | `Text ->
-        let chan = Unix.in_channel_of_descr fd in
         Drcpcheck_drcp.Parse.read_streamed_text chan
           Drcpcheck_drcp.Parse.IntMap.empty
     | `Binary ->
-        Drcpcheck_drcp.Deserialize.read_available_and_build_stage fd buf
+        Drcpcheck_drcp.Deserialize.read_available_and_build_stage chan
           Drcpcheck_drcp.Parse.IntMap.empty
   in
   let result = StreamingChecker.validate csp stream in

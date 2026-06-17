@@ -2,7 +2,6 @@
  (name drcpcheck_drcp)
  (libraries
   drcpcheck_core
-  drcpcheck_util
   angstrom
   camlzip
   pbrt

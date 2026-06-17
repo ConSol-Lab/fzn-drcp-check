@@ -1,6 +1,5 @@
 open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_core.Checker
-open Drcpcheck_util.Buffer
 open Big_int_Z
 module PB = Drcp_proto
 
@@ -107,62 +106,48 @@ let bin_to_steps bytes =
   let res = loop_over_buf [] None 0 in
   res
 
-(* Adapted from Pbrt: https://github.com/mransan/ocaml-protoc/blob/master/src/runtime/stubs.c *)
-let varint_size i =
-  if i <= 0x7F then 1
-  else if i <= 0x3FFF then 2
-  else if i <= 0x1FFFFF then 3
-  else if i <= 0xFFFFFFF then 4
-  else if i <= 0x7FFFFFFFF then 5
-  else if i <= 0x3FFFFFFFFFFF then 6
-  else if i <= 0x1FFFFFFFFFFFF then 7
-  else 8
-
 let max_varint_size = 5
 
-let build_stage_from_buf fd buf atomics :
-    proofStream * Parse.atomic_map * DBuffer.t =
-  (* Collect list of steps *)
-  let rec loop_steps acc conc (buf : DBuffer.t) =
-    (* Read size of message *)
-    let buf = DBuffer.read_if_unavailable fd buf max_varint_size in
-    let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off max_varint_size in
-    let msg_sz = Pbrt.Decoder.int_as_varint decoder in
+(* Read a base-128 varint from the buffered channel. *)
+let read_varint_chan chan =
+  match input_byte chan with
+  | exception End_of_file -> None
+  | b0 ->
+      let rec go shift acc b n =
+        if n > max_varint_size then
+          raise (Parse.ParseError "varint too long (corrupt proof)");
+        let acc = acc lor ((b land 0x7f) lsl shift) in
+        if b land 0x80 = 0 then acc
+        else
+          match input_byte chan with
+          | b' -> go (shift + 7) acc b' (n + 1)
+          | exception End_of_file ->
+              raise (Parse.ParseError "truncated binary proof")
+      in
+      Some (go 0 0 b0 1)
 
-    (* Resize buffer accordingly *)
-    let buf = DBuffer.advance buf (varint_size msg_sz) in
-    let buf = DBuffer.read_if_unavailable fd buf msg_sz in
-
-    let decoder = Pbrt.Decoder.of_subbytes buf.data buf.off msg_sz in
-    let step =
-      try PB.decode_pb_proof_step decoder
-      with Pbrt.Decoder.Failure e ->
-        raise
-          (Parse.ParseError
-             (Printf.sprintf "Decoding error: %s"
-                (Pbrt.Decoder.error_to_string e)))
-    in
-    let buf = DBuffer.advance buf msg_sz in
-
-    match process_step step with
-    | Conclusion c -> ((Some c, List.rev acc), buf)
-    | Step (Deduction _ as d) -> ((conc, List.rev (d :: acc)), buf)
-    | Step s_proc -> loop_steps (s_proc :: acc) conc buf
+(* Decode one stage (deps + deduction or conclusion). *)
+let decode_stage_chan chan scratch :
+    (Parse.conclusion option * Parse.step list) * in_channel =
+  let rec loop_steps acc conc =
+    match read_varint_chan chan with
+    | None -> raise (Parse.ParseError "truncated binary proof")
+    | Some msg_sz ->
+        if Bytes.length !scratch < msg_sz then
+          scratch := Bytes.create (Stdlib.max msg_sz (2 * Bytes.length !scratch));
+        (try really_input chan !scratch 0 msg_sz
+         with End_of_file -> raise (Parse.ParseError "truncated binary proof"));
+        let s =
+          try PB.decode_pb_proof_step (Pbrt.Decoder.of_subbytes !scratch 0 msg_sz)
+          with Pbrt.Decoder.Failure _ ->
+            raise (Parse.ParseError "malformed binary proof step")
+        in
+        match process_step s with
+        | Conclusion c -> ((Some c, List.rev acc), chan)
+        | Step (Deduction _ as d) -> ((conc, List.rev (d :: acc)), chan)
+        | Step s_proc -> loop_steps (s_proc :: acc) conc
   in
-
-  let parse_result, new_buf = loop_steps [] None buf in
-  let proof, new_atomics =
-    Parse.build_stage_from_parse_result parse_result atomics
-  in
-  (proof, new_atomics, new_buf)
-
-let calc_time_acc (acc : float ref) f =
-  let start = Sys.time () in
-  let res = f () in
-  let end_ = Sys.time () in
-  let dur = end_ -. start in
-  acc := !acc +. dur;
-  res
+  loop_steps [] None
 
 let deserialize_binary_proof (source : Bytes.t) :
     proofStage list * coq_ProofFact =
@@ -182,13 +167,6 @@ let deserialize_binary_proof (source : Bytes.t) :
   in
   (proof, conclusion_fact)
 
-let rec read_available_and_build_stage fd buf atomics : proofStream =
-  (* Process all full stages encountered so far *)
-  let stages, new_atomics, new_buf = build_stage_from_buf fd buf atomics in
-
-  let next = fun () -> read_available_and_build_stage fd new_buf new_atomics in
-
-  let open Drcpcheck_core.Lazylist in
-  let out = append_terminate stages (Thunk next) in
-
-  out
+let read_available_and_build_stage chan atomics : proofStream =
+  let scratch = ref (Bytes.create 4096) in
+  Parse.stream_stages (fun chan -> decode_stage_chan chan scratch) chan atomics

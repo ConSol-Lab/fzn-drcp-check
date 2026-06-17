@@ -4,6 +4,8 @@ open Drcpcheck_core.Lazylist
 open Angstrom
 open Big_int_Z
 
+let bufsz = ref (1024 * 1024)
+
 type atom_definition = { id : int; atomic : coq_BoundAtomic }
 
 type inference = {
@@ -301,13 +303,13 @@ let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
   next buf atomics ()
 
 let read_streamed_text in_chan atomics : proofStream =
-  let staging = Bytes.create !Drcpcheck_util.Buffer.bufsz in
+  let staging = Bytes.create !bufsz in
   let consume w =
     match Parse_window.parse_one in_chan staging proof_stage w with
     | Ok res, w -> (res, w)
     | Error msg, _ -> raise (ParseError msg)
   in
-  stream_stages consume (Parse_window.create !Drcpcheck_util.Buffer.bufsz) atomics
+  stream_stages consume (Parse_window.create !bufsz) atomics
 
 let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with
