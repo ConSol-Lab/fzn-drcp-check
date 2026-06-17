@@ -318,16 +318,16 @@ let rec read_available_text_and_build_stage in_chan state atomics : proofStream
     | n -> `String Bytes.(unsafe_to_string (sub buf 0 n))
     end
   in
-  let state' = Angstrom.Buffered.feed state contents in
-  let new_state, stages, new_atomics = build_stages_from_state state' atomics in
-  let next =
-   fun () -> read_available_text_and_build_stage in_chan new_state new_atomics
-  in
-
+  let state = Angstrom.Buffered.feed state contents in
   if contents = `Eof then close_in in_chan;
   let open Drcpcheck_core.Lazylist in
-  let out = append_terminate stages (Thunk next) in
-  out
+  let rec drain state atomics =
+    match build_stages_from_state state atomics with
+    | new_state, LNil, _ ->
+        Thunk (fun () -> read_available_text_and_build_stage in_chan new_state atomics)
+    | new_state, stage, new_atomics -> append_terminate stage (drain new_state new_atomics)
+  in
+  drain state atomics
 
 let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with
