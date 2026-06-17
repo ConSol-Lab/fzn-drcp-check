@@ -9,3 +9,5 @@ _build/
 **/*.glob
 **/Makefile.coq
 **/Makefile.coq.conf
+# Benchmark venv (make init)
+benchmark/.venv/
