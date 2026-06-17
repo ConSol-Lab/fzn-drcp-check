@@ -173,13 +173,22 @@ let run_checker flatzinc_file drcp_file =
   in
   match result with
   | Proofs.Coq_valid c ->
-      Printf.printf "Proof is valid with conclusion: %s\n" (show_conclusion c)
+      Printf.printf "Proof is valid with conclusion: %s\n" (show_conclusion c);
+      exit 0
   | Proofs.Coq_invalid e ->
       print_error e;
       exit 1
 
 let () =
   Arg.parse speclist assign_args usage;
+  if !debug_mode then Printexc.record_backtrace true;
 
-  if !arg_count != 2 then print_endline usage
-  else run_checker !flatzinc_file !drcp_file
+  (* Exit codes: 0 valid, 1 invalid proof, 2 misuse, 255 any other error. *)
+  if !arg_count <> 2 then (prerr_endline usage; exit 2)
+  else
+    try run_checker !flatzinc_file !drcp_file
+    with e ->
+      Printf.eprintf "error: %s\n%!" (Printexc.to_string e);
+      if Printexc.backtrace_status () then
+        Printf.eprintf "%s%!" (Printexc.get_backtrace ());
+      exit 255
