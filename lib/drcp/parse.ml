@@ -233,7 +233,7 @@ exception IncompleteProofError
 
 let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
     (acc : indexedInference list) :
-    coq_BoundAtomic IntMap.t * proofStage option * step list =
+    atomic_map * proofStage option * step list =
   match steps with
   | [] -> (atomics, None, [])
   | AtomDefinition def :: tail ->
@@ -277,8 +277,6 @@ let conclusion_fact conclusion atomics =
         i_consequent = None;
       }
 
-let create_steps_parser () = Angstrom.Buffered.parse proof_stage
-
 let build_stage_from_parse_result (res : conclusion option * step list) atomics
     =
   match res with
@@ -293,48 +291,23 @@ let build_stage_from_parse_result (res : conclusion option * step list) atomics
           (Cons (stage, LNil), new_atomics)
       | new_atomics, None, _ -> (LNil, new_atomics))
 
-let build_stages_from_state state atomics :
-    (conclusion option * step list) Buffered.state * proofStream * atomic_map =
-  let open Buffered in
-  let parse_result, new_state =
-    match state with
-    | Done (unconsumed, res) ->
-        let bs =
-          Bigstringaf.copy unconsumed.buf ~off:unconsumed.off
-            ~len:unconsumed.len
-        in
-        let new_state = parse proof_stage |> fun s -> feed s (`Bigstring bs) in
-        (Some res, new_state)
-    | Partial _ -> (None, state)
-    | Fail (_unconsumed, _, e) -> raise (ParseError e)
+let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
+    (buf : 'buf) (atomics : atomic_map) : proofStream =
+  let rec next buf atomics () =
+    let res, buf = consume_one buf in
+    let frag, atomics = build_stage_from_parse_result res atomics in
+    append_terminate frag (Thunk (next buf atomics))
   in
-  match parse_result with
-  | None -> (new_state, LNil, atomics)
-  | Some res ->
-      build_stage_from_parse_result res atomics |> fun (stage, new_atomics) ->
-      (new_state, stage, new_atomics)
+  next buf atomics ()
 
-(** Read one or more stages from the current buffer. *)
-let rec read_available_text_and_build_stage in_chan state atomics : proofStream
-    =
-  let buf = Bytes.create !Drcpcheck_util.Buffer.bufsz in
-  let contents =
-    begin match input in_chan buf 0 !Drcpcheck_util.Buffer.bufsz with
-    | exception Sys_error _ -> `Eof
-    | 0 -> `Eof
-    | n -> `String Bytes.(unsafe_to_string (sub buf 0 n))
-    end
+let read_streamed_text in_chan atomics : proofStream =
+  let staging = Bytes.create !Drcpcheck_util.Buffer.bufsz in
+  let consume w =
+    match Parse_window.parse_one in_chan staging proof_stage w with
+    | Ok res, w -> (res, w)
+    | Error msg, _ -> raise (ParseError msg)
   in
-  let state = Angstrom.Buffered.feed state contents in
-  if contents = `Eof then close_in in_chan;
-  let open Drcpcheck_core.Lazylist in
-  let rec drain state atomics =
-    match build_stages_from_state state atomics with
-    | new_state, LNil, _ ->
-        Thunk (fun () -> read_available_text_and_build_stage in_chan new_state atomics)
-    | new_state, stage, new_atomics -> append_terminate stage (drain new_state new_atomics)
-  in
-  drain state atomics
+  stream_stages consume (Parse_window.create !Drcpcheck_util.Buffer.bufsz) atomics
 
 let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with

@@ -128,9 +128,8 @@ let run_streamed ?(format = `Text) csp file =
     match format with
     | `Text ->
         let chan = Unix.in_channel_of_descr fd in
-        let text_parser = Drcpcheck_drcp.Parse.create_steps_parser () in
-        Drcpcheck_drcp.Parse.read_available_text_and_build_stage chan
-          text_parser Drcpcheck_drcp.Parse.IntMap.empty
+        Drcpcheck_drcp.Parse.read_streamed_text chan
+          Drcpcheck_drcp.Parse.IntMap.empty
     | `Binary ->
         Drcpcheck_drcp.Deserialize.read_available_and_build_stage fd buf
           Drcpcheck_drcp.Parse.IntMap.empty
