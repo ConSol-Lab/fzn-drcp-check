@@ -300,22 +300,26 @@ let conclusion_fact conclusion atomics =
   | DualBound code ->
       { i_premises = [ Atoms.resolve atomics (-code) ]; i_consequent = None }
 
-let build_stage_from_parse_result (res : conclusion option * step list) atomics
-    (tail : unit -> proofStream) : proofStream =
-  match res with
-  | Some conc, _ -> Conclusion (conclusion_fact conc atomics)
-  | None, steps -> (
-      match convert_proof_stage steps atomics [] with
-      | Some stage, _ -> Cons (stage, tail ())
-      | None, _ -> tail ())
+type 'st stream_step = Stage of proofStage * 'st | Conclusion of coq_ProofFact
+
+let rec stream_of (step : 'st -> 'st stream_step) (state : 'st) : proofStream =
+  match step state with
+  | Conclusion conc -> Conclusion conc
+  | Stage (stage, state) -> Cons (stage, Thunk (fun () -> stream_of step state))
 
 let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
     (buf : 'buf) (atomics : Atoms.t) : proofStream =
-  let rec next buf () =
+  let rec step buf =
     let res, buf = consume_one buf in
-    build_stage_from_parse_result res atomics (fun () -> Thunk (next buf))
+    match res with
+    | Some conc, _ -> Conclusion (conclusion_fact conc atomics)
+    | None, [] -> raise (ParseError "truncated proof")
+    | None, steps -> (
+        match convert_proof_stage steps atomics [] with
+        | Some stage, _ -> Stage (stage, buf)
+        | None, _ -> step buf)
   in
-  next buf ()
+  stream_of step buf
 
 let read_streamed_text in_chan : proofStream =
   let staging = Bytes.create !bufsz in

@@ -106,42 +106,35 @@ module Resolve = struct
         { i_premises = [ resolve (-code) ]; i_consequent = None }
 end
 
-let read_proof (read : Source.t) : proofStage list * coq_ProofFact =
+let stream_proof (read : Source.t) : proofStream =
   let t = Parse.Atoms.create () in
-  let rec loop infs stages =
-    match read () with
-    | None -> raise (Parse.ParseError "No conclusion found in proof")
-    | Some (Constraint c) ->
-        Parse.Atoms.define t c.PB.id (Resolve.atom c);
-        loop infs stages
-    | Some (Inference i) ->
-        loop (Resolve.inference (Parse.Atoms.resolve t) i :: infs) stages
-    | Some (Nogood n) ->
-        loop [] (Resolve.stage (Parse.Atoms.resolve t) n (List.rev infs) :: stages)
-    | Some (Conclusion c) ->
-        (List.rev stages, Resolve.conclusion (Parse.Atoms.resolve t) c)
+  let step () =
+    let rec loop infs =
+      match read () with
+      | None -> raise (Parse.ParseError "truncated binary proof")
+      | Some (Constraint c) ->
+          Parse.Atoms.define t c.PB.id (Resolve.atom c);
+          loop infs
+      | Some (Inference i) ->
+          loop (Resolve.inference (Parse.Atoms.resolve t) i :: infs)
+      | Some (Nogood n) ->
+          Parse.Stage (Resolve.stage (Parse.Atoms.resolve t) n (List.rev infs), ())
+      | Some (Conclusion c) ->
+          Parse.Conclusion (Resolve.conclusion (Parse.Atoms.resolve t) c)
+    in
+    loop []
   in
-  loop [] []
+  Parse.stream_of step ()
+
+let read_proof (read : Source.t) : proofStage list * coq_ProofFact =
+  let rec collect acc (s : proofStream) =
+    match s with
+    | Conclusion conc -> (List.rev acc, conc)
+    | Cons (stage, tl) -> collect (stage :: acc) tl
+    | Thunk k -> collect acc (k ())
+  in
+  collect [] (stream_proof read)
 
 let deserialize_binary_proof (source : Bytes.t) :
     proofStage list * coq_ProofFact =
   read_proof (Source.of_bytes source)
-
-let stream_proof (read : Source.t) : proofStream =
-  let t = Parse.Atoms.create () in
-  let rec next infs =
-    match read () with
-    | None -> raise (Parse.ParseError "truncated binary proof")
-    | Some (Constraint c) ->
-        Parse.Atoms.define t c.PB.id (Resolve.atom c);
-        next infs
-    | Some (Inference i) ->
-        next (Resolve.inference (Parse.Atoms.resolve t) i :: infs)
-    | Some (Nogood n) ->
-        Cons
-          ( Resolve.stage (Parse.Atoms.resolve t) n (List.rev infs),
-            Thunk (fun () -> next []) )
-    | Some (Conclusion c) ->
-        Conclusion (Resolve.conclusion (Parse.Atoms.resolve t) c)
-  in
-  next []
