@@ -4,7 +4,6 @@ Require Import Checker.ConstraintProblem.
 Require Import Checker.AlldifferentCheck.
 Import Utility.Maps.
 Import Utility.Sets.
-Import Utility.LazyLists.
 Require Import Bool.
 Require Import List.
 Require Import Coq.Strings.String.
@@ -61,6 +60,11 @@ Record ProofStage := {
     s_conclusion : ProofFacts.ProofFact ;
     s_conclusion_index : N
   }.
+
+Inductive proof_stream :=
+| Conclusion (conc : ProofFacts.ProofFact)
+| Cons (stage : ProofStage) (tl : proof_stream)
+| Thunk (next : unit -> proof_stream).
 
 Inductive CheckerErrorType : Type :=
   | unknown_inference (id : N) (name: string)
@@ -422,7 +426,7 @@ Compute fact_equiv.validate
   ].
  *)
 
-Definition ProofStream := (@llist ProofStage ProofFact).
+Definition ProofStream := proof_stream.
 
 Module Type CHECKER.
   Parameter Proof : Type.
@@ -906,10 +910,9 @@ Module StreamingChecker (R: RULES) <: CHECKER.
 
   Fixpoint validate_stages (csp : ConstraintProblem) (p : ProofStream) : (option ProofFact * C.CheckStagesResult) :=
     match p with
-    | lnil => (None, C.valid_stage csp)
-    | lsingle conc => (Some conc, C.valid_stage csp)
-    | lthunk next => validate_stages csp (next tt)
-    | lcons (stage) (p') =>
+    | Conclusion conc => (Some conc, C.valid_stage csp)
+    | Thunk next => validate_stages csp (next tt)
+    | Cons (stage) (p') =>
         let csp' := ConstraintProblem.add
                       (stage.(s_conclusion_index))
                       (stage.(s_conclusion))
@@ -923,7 +926,7 @@ Module StreamingChecker (R: RULES) <: CHECKER.
 
   Theorem step_soundness : forall
       (csp : ConstraintProblem) (p : ProofStream) (stage : ProofStage) (oconc : option ProofFact),
-      (exists csp', validate_stages csp (lcons stage p) = (oconc, C.valid_stage csp')) ->
+      (exists csp', validate_stages csp (Cons stage p) = (oconc, C.valid_stage csp')) ->
       fact_holds csp (stage.(s_conclusion)).
   Proof.
     intros csp p stage oconc Hvalid.
@@ -1062,9 +1065,7 @@ Module StreamingChecker (R: RULES) <: CHECKER.
     generalize dependent csp.
     simpl.
     (* Induction by the sequence of stages *)
-    induction stages as [|x|stage|].
-    (* Impossible case: should not happen *)
-    - intros. inversion Hvalid.
+    induction stages as [x|stage|].
     (* Base case is a simple lookup in the original CSP *)
     - unfold validate.
       simpl.
@@ -1096,7 +1097,7 @@ Module StreamingChecker (R: RULES) <: CHECKER.
         simpl in Hvalid.
         Transparent validate_stages.
         destruct (
-            validate_stages csp (lcons stage stages)
+            validate_stages csp (Cons stage stages)
           ) as [[fact|] [csp'|]] eqn:Evalid ; inversion Hvalid.
         exists csp'.
         destruct (nmap.exists_). injection Hvalid; intro Hconc.

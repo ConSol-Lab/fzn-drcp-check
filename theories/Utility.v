@@ -2065,32 +2065,3 @@ Qed.
 (** End code from Coq std++ *)
 
 End SortedEx.
-
-Module LazyLists.
-  Section ll_impl.
-    Context {A: Type}.
-    Context {B: Type}.
-
-    Inductive llist :=
-    | lnil
-    | lsingle (e: B)
-    | lcons (hd: A) (tl: llist)
-    | lthunk (next: unit -> llist).
-
-    Implicit Type ll : llist.
-
-    Fixpoint length ll :=
-      match ll with
-      | lnil => 0
-      | lsingle _ => 1
-      | lcons _ tl => 1 + length tl
-      | lthunk next => length (next tt)
-      end.
-
-    Fixpoint repeat (a: A) (n: nat) :=
-      match n with
-      | 0 => lnil
-      | S n => lthunk (fun _ => lcons a (repeat a n))
-      end.
-  End ll_impl.
-End LazyLists.

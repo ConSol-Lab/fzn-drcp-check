@@ -1,6 +1,5 @@
 open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_core.Checker
-open Drcpcheck_core.Lazylist
 open Big_int_Z
 module PB = Drcp_proto
 
@@ -143,6 +142,6 @@ let stream_proof (read : Source.t) : proofStream =
           ( Resolve.stage (Parse.Atoms.resolve t) n (List.rev infs),
             Thunk (fun () -> next []) )
     | Some (Conclusion c) ->
-        Single (Resolve.conclusion (Parse.Atoms.resolve t) c)
+        Conclusion (Resolve.conclusion (Parse.Atoms.resolve t) c)
   in
   next []

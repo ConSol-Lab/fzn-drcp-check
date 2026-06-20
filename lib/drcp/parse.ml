@@ -1,6 +1,5 @@
 open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_core.Checker
-open Drcpcheck_core.Lazylist
 open Angstrom
 open Big_int_Z
 
@@ -326,25 +325,19 @@ let conclusion_fact conclusion atomics =
       }
 
 let build_stage_from_parse_result (res : conclusion option * step list) atomics
-    =
+    (tail : atomic_map -> proofStream) : proofStream =
   match res with
-  | None, [] -> (LNil, atomics)
-  | Some conc, steps ->
-      convert_proof_stage steps atomics [] |> fun (new_atomics, _, _) ->
-      (Single (conclusion_fact conc atomics), new_atomics)
+  | Some conc, _ -> Conclusion (conclusion_fact conc atomics)
   | None, steps -> (
       match convert_proof_stage steps atomics [] with
-      | new_atomics, Some stage, _ ->
-          (* remove what was read from buffer *)
-          (Cons (stage, LNil), new_atomics)
-      | new_atomics, None, _ -> (LNil, new_atomics))
+      | new_atomics, Some stage, _ -> Cons (stage, tail new_atomics)
+      | new_atomics, None, _ -> tail new_atomics)
 
 let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
     (buf : 'buf) (atomics : atomic_map) : proofStream =
   let rec next buf atomics () =
     let res, buf = consume_one buf in
-    let frag, atomics = build_stage_from_parse_result res atomics in
-    append_terminate frag (Thunk (next buf atomics))
+    build_stage_from_parse_result res atomics (fun a -> Thunk (next buf a))
   in
   next buf atomics ()
 
