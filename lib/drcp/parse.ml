@@ -312,7 +312,10 @@ let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
   let rec step buf =
     let res, buf = consume_one buf in
     match res with
-    | Some conc, _ -> Conclusion (conclusion_fact conc atomics)
+    | Some conc, steps ->
+        (* process any atoms between the last nogood and the conclusion *)
+        ignore (convert_proof_stage steps atomics []);
+        Conclusion (conclusion_fact conc atomics)
     | None, [] -> raise (ParseError "truncated proof")
     | None, steps -> (
         match convert_proof_stage steps atomics [] with
