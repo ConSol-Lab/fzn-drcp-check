@@ -1,0 +1,10 @@
+; End-to-end Core_bench for streamed validation (FZN=.. PROOF=.. ...)
+(executable
+ (name bench)
+ (modules bench)
+ (libraries
+  drcpcheck_core
+  drcpcheck_flatzinc
+  drcpcheck_drcp
+  core_bench
+  core_unix.command_unix))
