@@ -14,7 +14,9 @@ let parse_inf_hint (i : PB.inference_step) =
   | PB.Binary_equals -> "binary_equals"
   | PB.Binary_not_equals -> "binary_not_equals"
   | Custom ->
-      if PB.inference_step_has_label_custom i then i.label_custom else "none"
+      if PB.inference_step_has_label_custom i && i.label_custom <> "" then
+        i.label_custom
+      else raise (Parse.ParseError "custom inference hint without a label")
 
 let map_op (op : PB.atomic_op) =
   match op with
