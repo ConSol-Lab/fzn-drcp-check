@@ -4,8 +4,6 @@ open Drcpcheck_core.Lazylist
 open Big_int_Z
 module PB = Drcp_proto
 
-type step = Conclusion of Parse.conclusion | Step of Parse.step
-
 let parse_inf_hint (i : PB.inference_step) =
   let h = i.label_hint in
   match h with
@@ -19,66 +17,12 @@ let parse_inf_hint (i : PB.inference_step) =
   | Custom ->
       if PB.inference_step_has_label_custom i then i.label_custom else "none"
 
-let parse_inference (i : PB.inference_step) : Parse.step =
-  let id = i.id in
-  let premises = i.premises in
-  let propagated = i.propagated in
-  let generated_by = i.generated_by in
-  let label = parse_inf_hint i in
-  Inference
-    {
-      constraint_id = big_int_of_int id;
-      premises;
-      consequent = (if propagated <> 0 then Some propagated else None);
-      generated_by =
-        (if generated_by <> 0 then [ big_int_of_int generated_by ] else []);
-      label;
-    }
-
-let parse_nogood (n : PB.nogood_step) : Parse.step =
-  let id = n.id in
-  let literals = n.literals in
-  let prophint = n.propagation_hint in
-
-  Deduction
-    {
-      constraint_id = big_int_of_int id;
-      premises = literals;
-      sequence = List.rev_map big_int_of_int prophint |> List.rev;
-    }
-
-let parse_conclusion (c : PB.conclusion_step) : step =
-  match c with
-  | Unsat -> Conclusion Parse.Unsat
-  | Objective_bound b -> Conclusion (Parse.DualBound b)
-
 let map_op (op : PB.atomic_op) =
   match op with
   | Eq -> Coq_equal
   | Ne -> Coq_not_equal
   | Le -> Coq_less_equal
   | Ge -> Coq_greater_equal
-
-let parse_atomic (c : PB.atomic_constraint) : step =
-  let id = c.id in
-  let variab = c.var in
-  let op = c.op in
-  let value = c.value in
-
-  Step
-    (AtomDefinition
-       {
-         id;
-         atomic =
-           (variab, { atm_cmp = map_op op; atm_val = big_int_of_int value });
-       })
-
-let process_step (message : PB.proof_step) : step =
-  match message with
-  | Constraint c -> parse_atomic c
-  | Inference i -> Step (parse_inference i)
-  | Nogood n -> Step (parse_nogood n)
-  | Conclusion c -> parse_conclusion c
 
 let max_varint_size = 5
 
@@ -129,36 +73,81 @@ module Source = struct
           Some (decode (Pbrt.Decoder.of_subbytes !scratch 0 len))
 end
 
+module Resolve = struct
+  (* LATER: TRMC *)
+  let map_tr f l = List.rev (List.rev_map f l)
+
+  let atom (c : PB.atomic_constraint) : coq_BoundAtomic =
+    (c.var, { atm_cmp = map_op c.op; atm_val = big_int_of_int c.value })
+
+  let inference resolve (i : PB.inference_step) : indexedInference =
+    {
+      iinf_index = big_int_of_int i.id;
+      iinf_fact =
+        {
+          i_premises = map_tr resolve i.premises;
+          i_consequent =
+            (if i.propagated <> 0 then Some (resolve i.propagated) else None);
+        };
+      iinf_hint =
+        (if i.generated_by <> 0 then [ big_int_of_int i.generated_by ] else []);
+      iinf_rule = parse_inf_hint i;
+    }
+
+  let stage resolve (n : PB.nogood_step) infs : proofStage =
+    {
+      s_inferences = infs;
+      s_conclusion =
+        { i_premises = map_tr resolve n.literals; i_consequent = None };
+      s_chain = map_tr big_int_of_int n.propagation_hint;
+      s_conclusion_index = big_int_of_int n.id;
+    }
+
+  let conclusion resolve (c : PB.conclusion_step) : coq_ProofFact =
+    match c with
+    | Unsat -> { i_premises = []; i_consequent = None }
+    | Objective_bound code ->
+        { i_premises = [ resolve (-code) ]; i_consequent = None }
+end
+
 let read_proof (read : Source.t) : proofStage list * coq_ProofFact =
-  let rec loop steps =
+  let rec loop atomics infs stages =
     match read () with
     | None -> raise (Parse.ParseError "No conclusion found in proof")
-    | Some message -> (
-        match process_step message with
-        | Conclusion c ->
-            let proof, atomics =
-              Parse.convert_steps_to_proof (List.rev steps) Parse.IntMap.empty []
-            in
-            (proof, Parse.conclusion_fact c atomics)
-        | Step s -> loop (s :: steps))
+    | Some (Constraint c) ->
+        loop (Parse.IntMap.add c.PB.id (Resolve.atom c) atomics) infs stages
+    | Some (Inference i) ->
+        loop atomics
+          (Resolve.inference (Parse.resolve_atomic_id atomics) i :: infs)
+          stages
+    | Some (Nogood n) ->
+        loop atomics []
+          (Resolve.stage (Parse.resolve_atomic_id atomics) n (List.rev infs)
+          :: stages)
+    | Some (Conclusion c) ->
+        ( List.rev stages,
+          Resolve.conclusion (Parse.resolve_atomic_id atomics) c )
   in
-  loop []
+  loop Parse.IntMap.empty [] []
 
 let deserialize_binary_proof (source : Bytes.t) :
     proofStage list * coq_ProofFact =
   read_proof (Source.of_bytes source)
 
 let stream_proof (read : Source.t) : proofStream =
-  let rec next atomics steps =
+  let rec next atomics infs =
     match read () with
     | None -> raise (Parse.ParseError "truncated binary proof")
-    | Some message -> (
-        match process_step message with
-        | Conclusion c -> Single (Parse.conclusion_fact c atomics)
-        | Step (Deduction _ as d) -> (
-            match Parse.convert_proof_stage (List.rev (d :: steps)) atomics [] with
-            | atomics, Some stage, _ -> Cons (stage, Thunk (fun () -> next atomics []))
-            | atomics, None, _ -> next atomics [])
-        | Step s -> next atomics (s :: steps))
+    | Some (Constraint c) ->
+        next (Parse.IntMap.add c.PB.id (Resolve.atom c) atomics) infs
+    | Some (Inference i) ->
+        next atomics
+          (Resolve.inference (Parse.resolve_atomic_id atomics) i :: infs)
+    | Some (Nogood n) ->
+        Cons
+          ( Resolve.stage (Parse.resolve_atomic_id atomics) n (List.rev infs),
+            Thunk (fun () -> next atomics []) )
+    | Some (Conclusion c) ->
+        Single (Resolve.conclusion (Parse.resolve_atomic_id atomics) c)
   in
   next Parse.IntMap.empty []
