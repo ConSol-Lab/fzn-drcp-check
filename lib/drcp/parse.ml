@@ -202,6 +202,52 @@ let negate_atomic = function
       | Coq_not_equal ->
           (name, { atm_cmp = Coq_equal; atm_val = atomic.atm_val }))
 
+let map_tr f l = List.rev (List.rev_map f l)
+
+let dummy_atomic : coq_BoundAtomic =
+  ("", { atm_cmp = Coq_equal; atm_val = big_int_of_int 0 })
+
+module Atoms = struct
+  type t = {
+    mutable pos : coq_BoundAtomic array;
+    mutable neg : coq_BoundAtomic array;
+    mutable cap : int;
+  }
+
+  let create () =
+    {
+      pos = Array.make 256 dummy_atomic;
+      neg = Array.make 256 dummy_atomic;
+      cap = 256;
+    }
+
+  let ensure t id =
+    if id >= t.cap then begin
+      let n = Stdlib.max (id + 1) (t.cap * 2) in
+      let grow a =
+        let b = Array.make n dummy_atomic in
+        Array.blit a 0 b 0 t.cap;
+        b
+      in
+      t.pos <- grow t.pos;
+      t.neg <- grow t.neg;
+      t.cap <- n
+    end
+
+  let define t id atom =
+    if id <= 0 then raise (UndefinedAtomic id);
+    ensure t id;
+    t.pos.(id) <- atom;
+    t.neg.(id) <- negate_atomic atom
+
+  let resolve t code =
+    let i = abs code in
+    if i >= t.cap then raise (UndefinedAtomic code);
+    let atom = Array.unsafe_get (if code > 0 then t.pos else t.neg) i in
+    if atom == dummy_atomic then raise (UndefinedAtomic code);
+    atom
+end
+
 type atomic_map = coq_BoundAtomic IntMap.t
 
 let resolve_atomic_id atomics id =

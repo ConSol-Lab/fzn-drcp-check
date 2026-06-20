@@ -74,9 +74,6 @@ module Source = struct
 end
 
 module Resolve = struct
-  (* LATER: TRMC *)
-  let map_tr f l = List.rev (List.rev_map f l)
-
   let atom (c : PB.atomic_constraint) : coq_BoundAtomic =
     (c.var, { atm_cmp = map_op c.op; atm_val = big_int_of_int c.value })
 
@@ -85,7 +82,7 @@ module Resolve = struct
       iinf_index = big_int_of_int i.id;
       iinf_fact =
         {
-          i_premises = map_tr resolve i.premises;
+          i_premises = Parse.map_tr resolve i.premises;
           i_consequent =
             (if i.propagated <> 0 then Some (resolve i.propagated) else None);
         };
@@ -98,8 +95,8 @@ module Resolve = struct
     {
       s_inferences = infs;
       s_conclusion =
-        { i_premises = map_tr resolve n.literals; i_consequent = None };
-      s_chain = map_tr big_int_of_int n.propagation_hint;
+        { i_premises = Parse.map_tr resolve n.literals; i_consequent = None };
+      s_chain = Parse.map_tr big_int_of_int n.propagation_hint;
       s_conclusion_index = big_int_of_int n.id;
     }
 
@@ -111,43 +108,41 @@ module Resolve = struct
 end
 
 let read_proof (read : Source.t) : proofStage list * coq_ProofFact =
-  let rec loop atomics infs stages =
+  let t = Parse.Atoms.create () in
+  let rec loop infs stages =
     match read () with
     | None -> raise (Parse.ParseError "No conclusion found in proof")
     | Some (Constraint c) ->
-        loop (Parse.IntMap.add c.PB.id (Resolve.atom c) atomics) infs stages
+        Parse.Atoms.define t c.PB.id (Resolve.atom c);
+        loop infs stages
     | Some (Inference i) ->
-        loop atomics
-          (Resolve.inference (Parse.resolve_atomic_id atomics) i :: infs)
-          stages
+        loop (Resolve.inference (Parse.Atoms.resolve t) i :: infs) stages
     | Some (Nogood n) ->
-        loop atomics []
-          (Resolve.stage (Parse.resolve_atomic_id atomics) n (List.rev infs)
-          :: stages)
+        loop [] (Resolve.stage (Parse.Atoms.resolve t) n (List.rev infs) :: stages)
     | Some (Conclusion c) ->
-        ( List.rev stages,
-          Resolve.conclusion (Parse.resolve_atomic_id atomics) c )
+        (List.rev stages, Resolve.conclusion (Parse.Atoms.resolve t) c)
   in
-  loop Parse.IntMap.empty [] []
+  loop [] []
 
 let deserialize_binary_proof (source : Bytes.t) :
     proofStage list * coq_ProofFact =
   read_proof (Source.of_bytes source)
 
 let stream_proof (read : Source.t) : proofStream =
-  let rec next atomics infs =
+  let t = Parse.Atoms.create () in
+  let rec next infs =
     match read () with
     | None -> raise (Parse.ParseError "truncated binary proof")
     | Some (Constraint c) ->
-        next (Parse.IntMap.add c.PB.id (Resolve.atom c) atomics) infs
+        Parse.Atoms.define t c.PB.id (Resolve.atom c);
+        next infs
     | Some (Inference i) ->
-        next atomics
-          (Resolve.inference (Parse.resolve_atomic_id atomics) i :: infs)
+        next (Resolve.inference (Parse.Atoms.resolve t) i :: infs)
     | Some (Nogood n) ->
         Cons
-          ( Resolve.stage (Parse.resolve_atomic_id atomics) n (List.rev infs),
-            Thunk (fun () -> next atomics []) )
+          ( Resolve.stage (Parse.Atoms.resolve t) n (List.rev infs),
+            Thunk (fun () -> next []) )
     | Some (Conclusion c) ->
-        Single (Resolve.conclusion (Parse.resolve_atomic_id atomics) c)
+        Single (Resolve.conclusion (Parse.Atoms.resolve t) c)
   in
-  next Parse.IntMap.empty []
+  next []
