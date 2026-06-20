@@ -28,7 +28,7 @@ message AtomicConstraint {
   int32    id    = 1 [(ocaml_type) = int_t];  // ConstraintId
   string   var   = 2;
   AtomicOp op    = 3;
-  int32    value = 4 [(ocaml_type) = int_t];
+  int64    value = 4 [(ocaml_type) = int_t];  // int64 → int63 assumed to fit
 }
 
 message LiteralMapping {
@@ -54,11 +54,11 @@ enum InferenceHint {
 message InferenceStep {
   // `i <step_id> <premises> [0 <propagated>] [c:<constraint tag>] [l:<filtering algorithm>]`
   uint32         id       = 1 [(ocaml_type) = int_t];  // StepId
-  repeated int32 premises = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
+  repeated sint32 premises = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
   // a.k.a. "consequent"
   // Non-zero: the single propagated literal.
   // Zero (unset): premises imply a conflicting assignment.
-  int32         propagated   = 3 [(ocaml_type) = int_t];  // ConstraintId; 0 = absent
+  sint32        propagated   = 3 [(ocaml_type) = int_t];  // ConstraintId; 0 = absent
   int32         generated_by = 4 [(ocaml_type) = int_t];  // ConstraintId — constraint that introduced this inference
   InferenceHint label_hint   = 5;  // filtering algorithm / reasoning hint
   string        label_custom = 6;  // optional; used when label_hint == CUSTOM
@@ -67,7 +67,7 @@ message InferenceStep {
 message NogoodStep {
   // `n <step_id> <atomic constraint ids> [0 <propagation hint>]`
   uint32          id               = 1 [(ocaml_type) = int_t];  // StepId
-  repeated int32  literals         = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
+  repeated sint32 literals         = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
   repeated uint32 propagation_hint = 3 [(ocaml_type) = int_t];  // List(StepId); optional derivation order hint
 }
 
@@ -75,7 +75,7 @@ message ConclusionStep {
   // `c UNSAT`  OR  `c <objective bound>`
   oneof conclusion {
     Empty unsat           = 1;
-    int32 objective_bound = 2 [(ocaml_type) = int_t];  // ConstraintId
+    sint32 objective_bound = 2 [(ocaml_type) = int_t];  // ConstraintId
   }
 }
 
