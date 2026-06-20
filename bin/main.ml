@@ -126,9 +126,7 @@ let run_streamed ?(format = `Text) csp file =
   let chan = Unix.in_channel_of_descr fd in
   let stream =
     match format with
-    | `Text ->
-        Drcpcheck_drcp.Parse.read_streamed_text chan
-          Drcpcheck_drcp.Parse.IntMap.empty
+    | `Text -> Drcpcheck_drcp.Parse.read_streamed_text chan
     | `Binary ->
         Drcpcheck_drcp.Deserialize.stream_proof
           (Drcpcheck_drcp.Deserialize.Source.of_channel chan)

@@ -178,9 +178,6 @@ let proof_stage =
   | None -> return (None, List.rev rev_steps)
   | Some chr -> fail (Printf.sprintf "Unknown proof line with char [%c]" chr)
 
-module IntMap = Map.Make (Int)
-
-exception DoublyDefinedAtomicError
 exception UndefinedAtomic of int
 
 let negate_atomic = function
@@ -247,30 +244,14 @@ module Atoms = struct
     atom
 end
 
-type atomic_map = coq_BoundAtomic IntMap.t
-
-let resolve_atomic_id atomics id =
-  let positive = IntMap.find_opt id atomics in
-  let negative = Option.map negate_atomic (IntMap.find_opt (-id) atomics) in
-  match (positive, negative) with
-  | Some a1, Some a2 -> if a1 == a2 then a1 else raise DoublyDefinedAtomicError
-  | Some a1, None -> a1
-  | None, Some a1 -> a1
-  | None, None -> raise (UndefinedAtomic id)
-
-(* LATER: TRMC *)
-let resolve_atomic_ids atomics ids =
-  List.rev_map (resolve_atomic_id atomics) ids |> List.rev
-
-let convert_inference (atomics : atomic_map) (inference : inference) :
+let convert_inference (atomics : Atoms.t) (inference : inference) :
     indexedInference =
   {
     iinf_index = inference.constraint_id;
     iinf_fact =
       {
-        i_premises = resolve_atomic_ids atomics inference.premises;
-        i_consequent =
-          Option.map (resolve_atomic_id atomics) inference.consequent;
+        i_premises = map_tr (Atoms.resolve atomics) inference.premises;
+        i_consequent = Option.map (Atoms.resolve atomics) inference.consequent;
       };
     iinf_hint = inference.generated_by;
     iinf_rule = inference.label;
@@ -278,23 +259,22 @@ let convert_inference (atomics : atomic_map) (inference : inference) :
 
 exception IncompleteProofError
 
-let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
-    (acc : indexedInference list) :
-    atomic_map * proofStage option * step list =
+let rec convert_proof_stage (steps : step list) (atomics : Atoms.t)
+    (acc : indexedInference list) : proofStage option * step list =
   match steps with
-  | [] -> (atomics, None, [])
+  | [] -> (None, [])
   | AtomDefinition def :: tail ->
-      convert_proof_stage tail (IntMap.add def.id def.atomic atomics) acc
+      Atoms.define atomics def.id def.atomic;
+      convert_proof_stage tail atomics acc
   | Inference inf :: tail ->
       convert_proof_stage tail atomics (convert_inference atomics inf :: acc)
   | Deduction deduction :: tail ->
-      ( atomics,
-        Some
+      ( Some
           {
             s_inferences = List.rev acc;
             s_conclusion =
               {
-                i_premises = resolve_atomic_ids atomics deduction.premises;
+                i_premises = map_tr (Atoms.resolve atomics) deduction.premises;
                 i_consequent = None;
               };
             s_chain = deduction.sequence;
@@ -302,16 +282,15 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
           },
         tail )
 
-let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
-    (acc : proofStage list) : proofStage list * atomic_map =
+let rec convert_steps_to_proof (steps : step list) (atomics : Atoms.t)
+    (acc : proofStage list) : proofStage list =
   match steps with
-  | [] -> (List.rev acc, atomics)
+  | [] -> List.rev acc
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
-      | new_atomics, Some stage, rest ->
-          convert_steps_to_proof rest new_atomics (stage :: acc)
-      | new_atomics, None, [] -> (acc, new_atomics)
-      | _, None, _ -> raise IncompleteProofError)
+      | Some stage, rest -> convert_steps_to_proof rest atomics (stage :: acc)
+      | None, [] -> List.rev acc
+      | None, _ -> raise IncompleteProofError)
 
 exception ParseError of string
 
@@ -319,49 +298,40 @@ let conclusion_fact conclusion atomics =
   match conclusion with
   | Unsat -> { i_premises = []; i_consequent = None }
   | DualBound code ->
-      {
-        i_premises = [ resolve_atomic_id atomics (-code) ];
-        i_consequent = None;
-      }
+      { i_premises = [ Atoms.resolve atomics (-code) ]; i_consequent = None }
 
 let build_stage_from_parse_result (res : conclusion option * step list) atomics
-    (tail : atomic_map -> proofStream) : proofStream =
+    (tail : unit -> proofStream) : proofStream =
   match res with
   | Some conc, _ -> Conclusion (conclusion_fact conc atomics)
   | None, steps -> (
       match convert_proof_stage steps atomics [] with
-      | new_atomics, Some stage, _ -> Cons (stage, tail new_atomics)
-      | new_atomics, None, _ -> tail new_atomics)
+      | Some stage, _ -> Cons (stage, tail ())
+      | None, _ -> tail ())
 
 let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
-    (buf : 'buf) (atomics : atomic_map) : proofStream =
-  let rec next buf atomics () =
+    (buf : 'buf) (atomics : Atoms.t) : proofStream =
+  let rec next buf () =
     let res, buf = consume_one buf in
-    build_stage_from_parse_result res atomics (fun a -> Thunk (next buf a))
+    build_stage_from_parse_result res atomics (fun () -> Thunk (next buf))
   in
-  next buf atomics ()
+  next buf ()
 
-let read_streamed_text in_chan atomics : proofStream =
+let read_streamed_text in_chan : proofStream =
   let staging = Bytes.create !bufsz in
   let consume w =
     match Parse_window.parse_one in_chan staging proof_stage w with
     | Ok res, w -> (res, w)
     | Error msg, _ -> raise (ParseError msg)
   in
-  stream_stages consume (Parse_window.create !bufsz) atomics
+  stream_stages consume
+    (Parse_window.create !bufsz)
+    (Atoms.create ())
 
 let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with
   | Ok (steps, conclusion) ->
-      let proof, atomics = convert_steps_to_proof steps IntMap.empty [] in
-      let conclusion_fact =
-        match conclusion with
-        | Unsat -> { i_premises = []; i_consequent = None }
-        | DualBound code ->
-            {
-              i_premises = [ resolve_atomic_id atomics (-code) ];
-              i_consequent = None;
-            }
-      in
-      (proof, conclusion_fact)
+      let atomics = Atoms.create () in
+      let proof = convert_steps_to_proof steps atomics [] in
+      (proof, conclusion_fact conclusion atomics)
   | Error e -> raise (ParseError e)
