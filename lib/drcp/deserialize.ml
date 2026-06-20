@@ -1,5 +1,6 @@
 open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_core.Checker
+open Drcpcheck_core.Lazylist
 open Big_int_Z
 module PB = Drcp_proto
 
@@ -79,33 +80,6 @@ let process_step (message : PB.proof_step) : step =
   | Nogood n -> Step (parse_nogood n)
   | Conclusion c -> parse_conclusion c
 
-let bin_to_steps bytes =
-  let open Pbrt in
-  let decoder = Decoder.of_bytes bytes in
-  let rec loop_over_buf steps conc i =
-    (* skip length prefix *)
-    let () =
-      try Decoder.skip decoder Varint
-      with Decoder.Failure e ->
-        raise
-          (Parse.ParseError
-             (Printf.sprintf "Decoding error: %s" (Decoder.error_to_string e)))
-    in
-
-    let step =
-      try PB.decode_pb_proof_step decoder
-      with Decoder.Failure e ->
-        raise
-          (Parse.ParseError
-             (Printf.sprintf "Decoding error: %s" (Decoder.error_to_string e)))
-    in
-    match process_step step with
-    | Conclusion c -> (List.rev steps, Some c)
-    | Step s_proc -> loop_over_buf (s_proc :: steps) conc (i + 1)
-  in
-  let res = loop_over_buf [] None 0 in
-  res
-
 let max_varint_size = 5
 
 (* Read a base-128 varint from the buffered channel. *)
@@ -126,47 +100,65 @@ let read_varint_chan chan =
       in
       Some (go 0 0 b0 1)
 
-(* Decode one stage (deps + deduction or conclusion). *)
-let decode_stage_chan chan scratch :
-    (Parse.conclusion option * Parse.step list) * in_channel =
-  let rec loop_steps acc conc =
-    match read_varint_chan chan with
-    | None -> raise (Parse.ParseError "truncated binary proof")
-    | Some msg_sz ->
-        if Bytes.length !scratch < msg_sz then
-          scratch := Bytes.create (Stdlib.max msg_sz (2 * Bytes.length !scratch));
-        (try really_input chan !scratch 0 msg_sz
-         with End_of_file -> raise (Parse.ParseError "truncated binary proof"));
-        let s =
-          try PB.decode_pb_proof_step (Pbrt.Decoder.of_subbytes !scratch 0 msg_sz)
-          with Pbrt.Decoder.Failure _ ->
-            raise (Parse.ParseError "malformed binary proof step")
-        in
-        match process_step s with
-        | Conclusion c -> ((Some c, List.rev acc), chan)
-        | Step (Deduction _ as d) -> ((conc, List.rev (d :: acc)), chan)
-        | Step s_proc -> loop_steps (s_proc :: acc) conc
+module Source = struct
+  type t = unit -> PB.proof_step option
+
+  let decode dec =
+    try PB.decode_pb_proof_step dec
+    with Pbrt.Decoder.Failure e ->
+      raise (Parse.ParseError (Pbrt.Decoder.error_to_string e))
+
+  let of_bytes (b : Bytes.t) : t =
+    let dec = Pbrt.Decoder.of_bytes b in
+    fun () ->
+      (try Pbrt.Decoder.skip dec Pbrt.Varint
+       with Pbrt.Decoder.Failure e ->
+         raise (Parse.ParseError (Pbrt.Decoder.error_to_string e)));
+      Some (decode dec)
+
+  let of_channel (chan : in_channel) : t =
+    let scratch = ref (Bytes.create 4096) in
+    fun () ->
+      match read_varint_chan chan with
+      | None -> None
+      | Some len ->
+          if Bytes.length !scratch < len then
+            scratch := Bytes.create (Stdlib.max len (2 * Bytes.length !scratch));
+          (try really_input chan !scratch 0 len
+           with End_of_file -> raise (Parse.ParseError "truncated binary proof"));
+          Some (decode (Pbrt.Decoder.of_subbytes !scratch 0 len))
+end
+
+let read_proof (read : Source.t) : proofStage list * coq_ProofFact =
+  let rec loop steps =
+    match read () with
+    | None -> raise (Parse.ParseError "No conclusion found in proof")
+    | Some message -> (
+        match process_step message with
+        | Conclusion c ->
+            let proof, atomics =
+              Parse.convert_steps_to_proof (List.rev steps) Parse.IntMap.empty []
+            in
+            (proof, Parse.conclusion_fact c atomics)
+        | Step s -> loop (s :: steps))
   in
-  loop_steps [] None
+  loop []
 
 let deserialize_binary_proof (source : Bytes.t) :
     proofStage list * coq_ProofFact =
-  let steps, conclusion = bin_to_steps source in
-  let proof, atomics =
-    Parse.convert_steps_to_proof steps Parse.IntMap.empty []
-  in
-  let conclusion_fact =
-    match conclusion with
-    | Some Unsat -> { i_premises = []; i_consequent = None }
-    | Some (DualBound code) ->
-        {
-          i_premises = [ Parse.resolve_atomic_id atomics (-code) ];
-          i_consequent = None;
-        }
-    | None -> raise (Parse.ParseError "No conclusion found in proof")
-  in
-  (proof, conclusion_fact)
+  read_proof (Source.of_bytes source)
 
-let read_available_and_build_stage chan atomics : proofStream =
-  let scratch = ref (Bytes.create 4096) in
-  Parse.stream_stages (fun chan -> decode_stage_chan chan scratch) chan atomics
+let stream_proof (read : Source.t) : proofStream =
+  let rec next atomics steps =
+    match read () with
+    | None -> raise (Parse.ParseError "truncated binary proof")
+    | Some message -> (
+        match process_step message with
+        | Conclusion c -> Single (Parse.conclusion_fact c atomics)
+        | Step (Deduction _ as d) -> (
+            match Parse.convert_proof_stage (List.rev (d :: steps)) atomics [] with
+            | atomics, Some stage, _ -> Cons (stage, Thunk (fun () -> next atomics []))
+            | atomics, None, _ -> next atomics [])
+        | Step s -> next atomics (s :: steps))
+  in
+  next Parse.IntMap.empty []

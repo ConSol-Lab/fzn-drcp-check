@@ -130,8 +130,8 @@ let run_streamed ?(format = `Text) csp file =
         Drcpcheck_drcp.Parse.read_streamed_text chan
           Drcpcheck_drcp.Parse.IntMap.empty
     | `Binary ->
-        Drcpcheck_drcp.Deserialize.read_available_and_build_stage chan
-          Drcpcheck_drcp.Parse.IntMap.empty
+        Drcpcheck_drcp.Deserialize.stream_proof
+          (Drcpcheck_drcp.Deserialize.Source.of_channel chan)
   in
   let result = StreamingChecker.validate csp stream in
   result
