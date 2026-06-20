@@ -298,7 +298,7 @@ let conclusion_fact conclusion atomics =
   match conclusion with
   | Unsat -> { i_premises = []; i_consequent = None }
   | DualBound code ->
-      { i_premises = [ Atoms.resolve atomics (-code) ]; i_consequent = None }
+      { i_premises = []; i_consequent = Some (Atoms.resolve atomics code) }
 
 type 'st stream_step = Stage of proofStage * 'st | Conclusion of coq_ProofFact
 

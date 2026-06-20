@@ -103,7 +103,7 @@ module Resolve = struct
     match c with
     | Unsat -> { i_premises = []; i_consequent = None }
     | Objective_bound code ->
-        { i_premises = [ resolve (-code) ]; i_consequent = None }
+        { i_premises = []; i_consequent = Some (resolve code) }
 end
 
 let stream_proof (read : Source.t) : proofStream =

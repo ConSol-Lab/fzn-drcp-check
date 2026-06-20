@@ -217,7 +217,7 @@ let%test "parse a dual bound proof" =
           s_conclusion_index = big_int_of_int 3;
         };
       ],
-      { i_premises = [ atom "x1" Coq_greater_equal 1 ]; i_consequent = None } )
+      { i_premises = []; i_consequent = Some (atom "x1" Coq_less_equal 0) } )
   in
 
   test_parse source expected
