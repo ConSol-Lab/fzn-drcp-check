@@ -2,8 +2,8 @@ type t = { data : Bigstringaf.t; off : int (* consumed up to here *); until : in
 
 let create n = { data = Bigstringaf.create (Stdlib.max n 4096); off = 0; until = 0 }
 
-(* Make room then read one chunk from [in_chan] into [w.data] via [staging].  Returns [true] at EOF. *)
-let refill in_chan staging w =
+(* Make room, then read one chunk via [read] into [w.data] through [staging].  Returns [true] at EOF. *)
+let refill read staging w =
   let cap = Bigstringaf.length w.data in
   let w =
     if w.until < cap then w
@@ -17,14 +17,14 @@ let refill in_chan staging w =
       { w with data }
   in
   let room = Bigstringaf.length w.data - w.until in
-  match input in_chan staging 0 (Stdlib.min (Bytes.length staging) room) with
+  match read staging 0 (Stdlib.min (Bytes.length staging) room) with
   | 0 -> (w, true)
   | n ->
       Bigstringaf.blit_from_bytes staging ~src_off:0 w.data ~dst_off:w.until ~len:n;
       ({ w with until = w.until + n }, false)
 
-(* Parse one value with [p] out of the window, refilling from [in_chan] as the parser asks. *)
-let parse_one in_chan staging p w : ('a, string) result * t =
+(* Parse one value with [p] out of the window, refilling via [read] as the parser asks. *)
+let parse_one read staging p w : ('a, string) result * t =
   let open Angstrom.Unbuffered in
   let rec drive st w =
     match st with
@@ -32,7 +32,7 @@ let parse_one in_chan staging p w : ('a, string) result * t =
     | Fail (_, _, msg) -> (Error msg, w)
     | Partial { committed; continue } ->
         let w = { w with off = w.off + committed } in
-        let w, eof = refill in_chan staging w in
+        let w, eof = refill read staging w in
         let more = if eof then Complete else Incomplete in
         drive (continue w.data ~off:w.off ~len:(w.until - w.off) more) w
   in

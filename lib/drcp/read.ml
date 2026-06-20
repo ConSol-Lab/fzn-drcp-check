@@ -23,5 +23,11 @@ let slurp file =
 
 let read_proof drcp_file = Parse.parse_proof (slurp drcp_file)
 
+let read_streamed_text_gz file = Parse.read_streamed (Gzip.input (Gzip.open_in file))
+
+let read_streamed_binary_gz file =
+  Deserialize.stream_proof
+    (Deserialize.Source.of_reader (Gzip.input (Gzip.open_in file)))
+
 let read_binary_proof bin_file =
   Deserialize.deserialize_binary_proof (Bytes.unsafe_of_string (slurp bin_file))

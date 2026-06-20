@@ -27,21 +27,19 @@ let map_op (op : PB.atomic_op) =
 
 let max_varint_size = 5
 
-(* Read a base-128 varint from the buffered channel. *)
-let read_varint_chan chan =
-  match input_byte chan with
-  | exception End_of_file -> None
-  | b0 ->
+let read_varint next_byte =
+  match next_byte () with
+  | None -> None
+  | Some b0 ->
       let rec go shift acc b n =
         if n > max_varint_size then
           raise (Parse.ParseError "varint too long (corrupt proof)");
         let acc = acc lor ((b land 0x7f) lsl shift) in
         if b land 0x80 = 0 then acc
         else
-          match input_byte chan with
-          | b' -> go (shift + 7) acc b' (n + 1)
-          | exception End_of_file ->
-              raise (Parse.ParseError "truncated binary proof")
+          match next_byte () with
+          | Some b' -> go (shift + 7) acc b' (n + 1)
+          | None -> raise (Parse.ParseError "truncated binary proof")
       in
       Some (go 0 0 b0 1)
 
@@ -61,17 +59,32 @@ module Source = struct
          raise (Parse.ParseError (Pbrt.Decoder.error_to_string e)));
       Some (decode dec)
 
-  let of_channel (chan : in_channel) : t =
+  let of_reader (read : bytes -> int -> int -> int) : t =
+    let b1 = Bytes.create 1 in
+    let next_byte () =
+      if read b1 0 1 = 0 then None else Some (Char.code (Bytes.get b1 0))
+    in
     let scratch = ref (Bytes.create 4096) in
-    fun () ->
-      match read_varint_chan chan with
+    let really_read dst n =
+      let got = ref 0 in
+      while !got < n do
+        let r = read dst !got (n - !got) in
+        if r = 0 then raise (Parse.ParseError "truncated binary proof");
+        got := !got + r
+      done
+    in
+    let read_frame () =
+      match read_varint next_byte with
       | None -> None
       | Some len ->
           if Bytes.length !scratch < len then
             scratch := Bytes.create (Stdlib.max len (2 * Bytes.length !scratch));
-          (try really_input chan !scratch 0 len
-           with End_of_file -> raise (Parse.ParseError "truncated binary proof"));
-          Some (decode (Pbrt.Decoder.of_subbytes !scratch 0 len))
+          really_read !scratch len;
+          Some (Pbrt.Decoder.of_subbytes !scratch 0 len)
+    in
+    fun () -> Option.map decode (read_frame ())
+
+  let of_channel (chan : in_channel) : t = of_reader (input chan)
 end
 
 module Resolve = struct

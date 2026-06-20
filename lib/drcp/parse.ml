@@ -324,16 +324,18 @@ let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
   in
   stream_of step buf
 
-let read_streamed_text in_chan : proofStream =
+let read_streamed (read : bytes -> int -> int -> int) : proofStream =
   let staging = Bytes.create !bufsz in
   let consume w =
-    match Parse_window.parse_one in_chan staging proof_stage w with
+    match Parse_window.parse_one read staging proof_stage w with
     | Ok res, w -> (res, w)
     | Error msg, _ -> raise (ParseError msg)
   in
   stream_stages consume
     (Parse_window.create !bufsz)
     (Atoms.create ())
+
+let read_streamed_text in_chan : proofStream = read_streamed (input in_chan)
 
 let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with

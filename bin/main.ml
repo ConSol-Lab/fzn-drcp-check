@@ -122,17 +122,20 @@ let show_conclusion conclusion =
   | None -> "UNSATISFIABLE"
 
 let run_streamed ?(format = `Text) csp file =
-  let fd = Unix.openfile file [ O_RDONLY ] 0 in
-  let chan = Unix.in_channel_of_descr fd in
   let stream =
-    match format with
-    | `Text -> Drcpcheck_drcp.Parse.read_streamed_text chan
-    | `Binary ->
-        Drcpcheck_drcp.Deserialize.stream_proof
-          (Drcpcheck_drcp.Deserialize.Source.of_channel chan)
+    if Filename.check_suffix file ".gz" then
+      match format with
+      | `Text -> Drcpcheck_drcp.Read.read_streamed_text_gz file
+      | `Binary -> Drcpcheck_drcp.Read.read_streamed_binary_gz file
+    else
+      let chan = Unix.in_channel_of_descr (Unix.openfile file [ O_RDONLY ] 0) in
+      match format with
+      | `Text -> Drcpcheck_drcp.Parse.read_streamed_text chan
+      | `Binary ->
+          Drcpcheck_drcp.Deserialize.stream_proof
+            (Drcpcheck_drcp.Deserialize.Source.of_channel chan)
   in
-  let result = StreamingChecker.validate csp stream in
-  result
+  StreamingChecker.validate csp stream
 
 let run_checker flatzinc_file drcp_file =
   let format =
