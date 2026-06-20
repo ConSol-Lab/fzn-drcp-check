@@ -1,0 +1,29 @@
+(executable
+ (name test_validate)
+ (libraries drcpcheck_drcp drcpcheck_flatzinc))
+
+(rule
+ (alias runtest)
+ (deps empty.txt output.txt)
+ (action
+  (diff empty.txt output.txt)))
+
+(rule
+ (target empty.txt)
+ (action
+  (with-stdout-to
+   empty.txt
+   (echo ""))))
+
+(rule
+ (target output.txt)
+ (deps
+  (glob_files ../fzn/*)
+  (glob_files ../valid/*)
+  (glob_files ../invalid/*))
+ (action
+  (with-stdout-to
+   output.txt
+   (progn
+    (run ./test_validate.exe ../valid valid)
+    (run ./test_validate.exe ../invalid invalid)))))
