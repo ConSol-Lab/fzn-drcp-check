@@ -8,6 +8,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field, fields
@@ -99,6 +100,7 @@ class Stage:
         cap = [which("prlimit"), f"--as={self.max_rss}", "--"] if self.max_rss is not None else []
         argv = [which("taskset"), "-c", str(self.cpu), *cap, which("time"),
                 "-f", GNU_TIME_FMT_STR, "-o", str(self.stat), "--", *self.cmd]
+        log(f"[{time.strftime('%H:%M:%S')}] {' '.join(map(str, self.cmd))}")
         return await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.DEVNULL,
                                                     stderr=asyncio.subprocess.DEVNULL)
 
