@@ -1,5 +1,10 @@
 (dirs bin lib theories tests benchmark)
 
+(env
+ (dev
+  (ocamlopt_flags
+   (:standard -O3))))
+
 (alias
  (name default)
  (deps
