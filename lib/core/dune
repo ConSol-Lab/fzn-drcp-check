@@ -1,14 +1,6 @@
 (coq.extraction
  (prelude extraction)
- (extracted_modules
-  AlldifferentCheck Alphabet Ascii Ast Automaton BinInt BinNat BinNums BinPos
-  BinPosDef Bool Checker CheckerStreamed Comparisons ConstraintProblem
-  CumulativeCheck CumulativeUtil Datatypes DecidableClass Decimal Deduction
-  Domain DomainVar FMapAVL FMapList FSetAVL GenericMinMax Grammar Hexadecimal
-  Int Interpreter Interpreter_complete Interpreter_correct Linear List0 MSetAVL
-  MSetInterface MSetRBT Main Nat0 Number OrdList OrderedType Orders OrdersAlt
-  OrdersEx OrdersFacts OrdersLists OrdersTac Parser PeanoNat RBT Spec Specif
-  String0 Utility Validator_complete Validator_safe Zext)
+ (extracted_modules checker)
  (theories MMaps Checker FlatZinc MenhirLib))
 
 (env

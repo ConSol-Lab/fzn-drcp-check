@@ -5,8 +5,8 @@ the order of the variables in the source and expected matter. Since we do not re
 just order the variables to make the test pass.
 *)
 
-open Drcpcheck_core.Spec.ConstraintDefinitions
-open Drcpcheck_core.Utility.Maps
+open Drcpcheck_core.Checker.ConstraintDefinitions
+open Drcpcheck_core.Checker.Maps
 open Drcpcheck_flatzinc.Parse
 
 let interval lb ub =

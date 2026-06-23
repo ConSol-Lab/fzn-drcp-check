@@ -1,5 +1,5 @@
-open Drcpcheck_core.Spec.ProofFacts
-open Drcpcheck_core.CheckerStreamed
+open Drcpcheck_core.Checker.ProofFacts
+open Drcpcheck_core.Checker
 open Drcpcheck_core.Lazy
 open Angstrom
 open Big_int_Z
@@ -209,7 +209,7 @@ let resolve_atomic_ids atomics ids =
   List.rev_map (resolve_atomic_id atomics) ids |> List.rev
 
 let convert_inference (atomics : atomic_map) (inference : inference) :
-    coq_IndexedInference =
+    indexedInference =
   {
     iinf_index = inference.constraint_id;
     iinf_fact =
@@ -225,8 +225,8 @@ let convert_inference (atomics : atomic_map) (inference : inference) :
 exception IncompleteProofError
 
 let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
-    (acc : coq_IndexedInference list) :
-    coq_BoundAtomic IntMap.t * coq_ProofStage option * step list =
+    (acc : indexedInference list) :
+    coq_BoundAtomic IntMap.t * proofStage option * step list =
   match steps with
   | [] -> (atomics, None, [])
   | AtomDefinition def :: tail ->
@@ -249,14 +249,13 @@ let rec convert_proof_stage (steps : step list) (atomics : atomic_map)
         tail )
 
 let rec convert_steps_to_proof (steps : step list) (atomics : atomic_map)
-    (acc : coq_ProofStream) : coq_ProofStream * atomic_map =
-  let open Drcpcheck_core.Lazy in
+    (acc : proofStage list) : proofStage list * atomic_map =
   match steps with
-  | [] -> (rev acc, atomics)
+  | [] -> (List.rev acc, atomics)
   | head :: tail -> (
       match convert_proof_stage (head :: tail) atomics [] with
       | new_atomics, Some stage, rest ->
-          convert_steps_to_proof rest new_atomics (stage +: acc)
+          convert_steps_to_proof rest new_atomics (stage :: acc)
       | new_atomics, None, [] -> (acc, new_atomics)
       | _, None, _ -> raise IncompleteProofError)
 
@@ -302,7 +301,7 @@ let build_stage_from_parse_result (res : conclusion option * step list) atomics
       | new_atomics, None, _ -> (LNil, new_atomics))
 
 let build_stages_from_state state atomics :
-    (conclusion option * step list) Buffered.state * coq_ProofStream * atomic_map =
+    (conclusion option * step list) Buffered.state * proofStream * atomic_map =
   let open Buffered in
   let parse_result, new_state =
     match state with
@@ -329,7 +328,7 @@ let build_stages_from_state state atomics :
 let bufsz = 4096
 
 (** Read one or more stages from the current buffer. *)
-let rec read_available_text_and_build_stage in_chan state atomics : coq_ProofStream
+let rec read_available_text_and_build_stage in_chan state atomics : proofStream
     =
   let buf = Bytes.create bufsz in
   let contents =
@@ -350,10 +349,10 @@ let rec read_available_text_and_build_stage in_chan state atomics : coq_ProofStr
   let out = append_terminate stages (Thunk next) in
   out
 
-let parse_proof (source : string) : coq_ProofStream =
+let parse_proof (source : string) : proofStage list * coq_ProofFact =
   match parse_string ~consume:All proof source with
   | Ok (steps, conclusion) ->
-      let proof, atomics = convert_steps_to_proof steps IntMap.empty LNil in
+      let proof, atomics = convert_steps_to_proof steps IntMap.empty [] in
       let conclusion_fact =
         match conclusion with
         | Unsat -> { i_premises = []; i_consequent = None }
@@ -363,8 +362,7 @@ let parse_proof (source : string) : coq_ProofStream =
               i_consequent = None;
             }
       in
-      let open Drcpcheck_core.Lazy in
-      append proof (Single conclusion_fact)
+      (proof, conclusion_fact)
   | Error e -> raise (ParseError e)
 
 let time_run f =
@@ -373,14 +371,14 @@ let time_run f =
   (res, Sys.time () -. t)
 
 let parse_proof_timed (source : string) :
-    (coq_ProofStream * coq_ProofFact) * float * float =
+    (proofStage list * coq_ProofFact) * float * float =
   let str, dur_process =
     time_run (fun () -> parse_string ~consume:All proof source)
   in
   match str with
   | Ok (steps, conclusion) ->
       let (proof, atomics), dur_convert =
-        time_run (fun () -> convert_steps_to_proof steps IntMap.empty LNil)
+        time_run (fun () -> convert_steps_to_proof steps IntMap.empty [])
       in
       let conclusion_fact =
         match conclusion with

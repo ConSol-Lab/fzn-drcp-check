@@ -188,18 +188,12 @@ Module Proofs.
       ProofFacts.fact_valid sol fact.
 
   Inductive CheckResult (Error : Type) :=
-    | valid
+    | valid (conclusion : ProofFacts.ProofFact)
     | invalid (error : Error).
 
   Definition ProofChecker (Proof : Type) (Error : Type) := 
-    ConstraintDefinitions.ConstraintProblem -> ProofFacts.ProofFact -> Proof -> CheckResult Error.
-
-  Definition StreamedProofChecker (Proof : Type) (Error : Type) :=
-    ConstraintDefinitions.ConstraintProblem -> Proof -> option ProofFacts.ProofFact * CheckResult Error.
-
-  Definition streamed_checker_sound (Proof : Type) (Error : Type) (checker : StreamedProofChecker Proof Error) : Prop :=
-    forall csp proof fact, checker csp proof = (Some fact, valid Error) -> fact_holds csp fact.
+    ConstraintDefinitions.ConstraintProblem -> Proof -> CheckResult Error.
 
   Definition checker_sound (Proof : Type) (Error : Type) (checker : ProofChecker Proof Error) : Prop :=
-    forall csp proof fact, checker csp fact proof = (valid Error) -> fact_holds csp fact.
+    forall csp proof fact, checker csp proof = (valid Error fact) -> fact_holds csp fact.
 End Proofs.

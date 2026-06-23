@@ -1,5 +1,5 @@
-open Drcpcheck_core.Spec.ProofFacts
-open Drcpcheck_core.CheckerStreamed
+open Drcpcheck_core.Checker.ProofFacts
+open Drcpcheck_core.Checker
 open Drcpcheck_util.Buffer
 open Big_int_Z
 module PB = Drcp_proto
@@ -33,7 +33,6 @@ let parse_inference (i : PB.inference_step) : Parse.step =
   let propagated = i.propagated in
   let generated_by = i.generated_by in
   let label = parse_inf_hint i in
-
   Inference
     {
       constraint_id = big_int_of_int id;
@@ -45,7 +44,6 @@ let parse_inference (i : PB.inference_step) : Parse.step =
     }
 
 let parse_nogood (n : PB.nogood_step) : Parse.step =
-
   let id = n.id in
   let literals = n.literals in
   let prophint = n.propagation_hint in
@@ -117,11 +115,7 @@ let process (buf : PB.proof_buffer) : Parse.step list * Parse.conclusion option
     =
   List.fold_left process_step_or_conc ([], None) buf.steps
 
-let read_bin bin_file =
-  let chan = open_in_bin bin_file in
-  let len = in_channel_length chan in
-  let bytes = Bytes.create len in
-  really_input chan bytes 0 len;
+let bin_to_steps bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in
   let rec loop_over_buf steps conc i =
     (* skip length prefix *)
@@ -135,13 +129,7 @@ let read_bin bin_file =
     | None -> (steps, conc)
   in
   let res = loop_over_buf [] None 0 in
-  close_in chan;
   res
-
-let create_decoder ?(off = 0) ?(len = 0) buf =
-  match len with
-  | 0 -> Pbrt.Decoder.of_bytes buf
-  | l -> Pbrt.Decoder.of_subbytes buf off l
 
 (* Adapted from Pbrt: https://github.com/mransan/ocaml-protoc/blob/master/src/runtime/stubs.c *)
 let varint_size i =
@@ -156,9 +144,8 @@ let varint_size i =
 
 let max_varint_size = 5
 
-(* [until] is how much data has currently been read into the buffer *)
 let build_stage_from_buf fd buf atomics :
-    coq_ProofStream * Parse.atomic_map * DBuffer.t =
+    proofStream * Parse.atomic_map * DBuffer.t =
   (* Collect list of steps *)
   let rec loop_steps acc conc (buf : DBuffer.t) =
     let buf = DBuffer.read_if_unavailable fd buf max_varint_size in
@@ -201,10 +188,11 @@ let calc_time_acc (acc : float ref) f =
   acc := !acc +. dur;
   res
 
-let parse_binary_proof (source : string) : coq_ProofStream =
-  let steps, conclusion = read_bin source in
+let deserialize_binary_proof (source : Bytes.t) :
+    proofStage list * coq_ProofFact =
+  let steps, conclusion = bin_to_steps source in
   let proof, atomics =
-    Parse.convert_steps_to_proof steps Parse.IntMap.empty LNil
+    Parse.convert_steps_to_proof steps Parse.IntMap.empty []
   in
   let conclusion_fact =
     match conclusion with
@@ -216,12 +204,11 @@ let parse_binary_proof (source : string) : coq_ProofStream =
         }
     | None -> raise (Parse.ParseError "No conclusion found in proof")
   in
-  let open Drcpcheck_core.Lazy in
-  proof @ Single conclusion_fact
+  (proof, conclusion_fact)
 
 let bufsz = 4096
 
-let rec read_available_and_build_stage fd buf atomics : coq_ProofStream =
+let rec read_available_and_build_stage fd buf atomics : proofStream =
   (* Process all full stages encountered so far *)
   let stages, new_atomics, new_buf = build_stage_from_buf fd buf atomics in
 

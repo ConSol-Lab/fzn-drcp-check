@@ -1,6 +1,5 @@
 -R _build/default/theories Checker
 -R _build/default/lib/flatzinc/coq FlatZinc
--R _build/default/theories CheckerStreamed
 theories
 lib/flatzinc/coq/Ast.v
 -I _build/default/lib

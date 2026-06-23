@@ -1,5 +1,5 @@
-open Drcpcheck_core.CheckerStreamed
-open Drcpcheck_core.Spec.ProofFacts
+open Drcpcheck_core.Checker
+open Drcpcheck_core.Checker.ProofFacts
 open Drcpcheck_drcp.Parse
 open Big_int_Z
 
@@ -81,23 +81,22 @@ let show_conclusion conclusion =
   let conclusion = Printf.sprintf "c %s %s" conclusion_premises consequent in
   conclusion
 
-let show_proof proof =
-  let steps =
-    String.concat "\n" (lmap show_proof_stage show_conclusion proof |> lto_list)
-  in
-  steps
+let show_proof proof conc =
+  let steps = String.concat "\n" (List.map show_proof_stage proof) in
+  let c = show_conclusion conc in
+  steps ^ "\n" ^ c
 
 let test_parse input expected =
   let parsed = parse_proof input in
   if parsed = expected then true
   else
-    let expected_proof = expected in
-    let parsed_proof = parsed in
+    let expected_proof, expected_conclusion = expected in
+    let parsed_proof, parsed_conclusion = parsed in
     let _ =
       Printf.printf
         "==========\nEXPECTED:\n%s\n----------\nPARSED:\n%s\n==========\n"
-        (show_proof expected_proof)
-        (show_proof parsed_proof)
+        (show_proof expected_proof expected_conclusion)
+        (show_proof parsed_proof parsed_conclusion)
     in
     false
 
@@ -118,7 +117,7 @@ let%test "parse an empty nogood" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source (conv expected)
+  test_parse source expected
 
 let%test "parse a unit nogood" =
   let source = {|
@@ -138,7 +137,7 @@ let%test "parse a unit nogood" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source (conv expected)
+  test_parse source expected
 
 let%test "parse a proof stage" =
   let source =
@@ -177,7 +176,7 @@ let%test "parse a proof stage" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source (conv expected)
+  test_parse source expected
 
 let%test "parse initial domain inferences without constraint hint" =
   let source =
@@ -209,7 +208,7 @@ let%test "parse initial domain inferences without constraint hint" =
       { i_premises = []; i_consequent = None } )
   in
 
-  test_parse source (conv expected)
+  test_parse source expected
 
 let%test "parse a dual bound proof" =
   let source = {|
@@ -229,4 +228,4 @@ let%test "parse a dual bound proof" =
       { i_premises = [ atom "x1" Coq_greater_equal 1 ]; i_consequent = None } )
   in
 
-  test_parse source (conv expected)
+  test_parse source expected

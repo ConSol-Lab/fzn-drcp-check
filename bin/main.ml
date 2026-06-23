@@ -1,7 +1,8 @@
 open Big_int_Z
-open Drcpcheck_core
-open Drcpcheck_core.CheckerStreamed
-open Drcpcheck_core.Spec.ProofFacts
+open Drcpcheck_core.Checker
+open Drcpcheck_core.Checker.ProofFacts
+module StreamingChecker = StreamingChecker (DefaultRules)
+module SeqChecker = SequentialChecker (DefaultRules)
 
 let usage =
   {|
@@ -52,42 +53,43 @@ let read_proof drcp_file =
     really_input_string proof_handle (in_channel_length proof_handle)
   in
   close_in proof_handle;
-  Printf.printf "Parsing proof from %s...\n%!" drcp_file;
   Drcpcheck_drcp.Parse.parse_proof source
 
-let read_binary_proof ?(_compression = `Packing) bin_file =
-  let () = Printf.printf "Reading binary proof from %s...\n%!" bin_file in
-  Drcpcheck_drcp.Deserialize_proto.parse_binary_proof bin_file
+let read_binary_proof bin_file =
+  let chan = open_in_bin bin_file in
+  let len = in_channel_length chan in
+  let source = Bytes.create len in
+  really_input chan source 0 len;
+  close_in chan;
+  Drcpcheck_drcp.Deserialize.deserialize_binary_proof source
+
+let show_atomic (name, atomic) =
+  let cmp =
+    match atomic.atm_cmp with
+    | Coq_greater_equal -> ">="
+    | Coq_less_equal -> "<="
+    | Coq_equal -> "=="
+    | Coq_not_equal -> "!="
+  in
+  let value = string_of_big_int atomic.atm_val in
+  Printf.sprintf "[%s %s %s]" name cmp value
 
 let print_error e =
   match e with
-  | Coq_deduction_implies_not_false ->
+  | Deduction_implies_not_false ->
       print_endline
         "One of the deduction steps does not imply false. This should not be \
          able to happen!"
-  | Coq_unknown_inference (step_id, name) ->
+  | Unknown_inference (step_id, name) ->
       Printf.printf "Inference %s (%s) is unknown\n"
         (string_of_big_int step_id)
         name
-  | Coq_invalid_inference step_id ->
+  | Invalid_inference step_id ->
       Printf.printf "Inference %s is unsound\n" (string_of_big_int step_id)
-  | Coq_invalid_deduction (step_id, None) ->
+  | Invalid_deduction (step_id, None) ->
       Printf.printf "Deduction %s has inconsistent premises\n"
         (string_of_big_int step_id)
-  | Coq_invalid_deduction (step_id, Some inferences) ->
-      let show_atomic = function
-        | name, atomic ->
-            let cmp =
-              match atomic.atm_cmp with
-              | Coq_greater_equal -> ">="
-              | Coq_less_equal -> "<="
-              | Coq_equal -> "=="
-              | Coq_not_equal -> "!="
-            in
-            let value = string_of_big_int atomic.atm_val in
-            Printf.sprintf "[%s %s %s]" name cmp value
-      in
-
+  | Invalid_deduction (step_id, Some inferences) ->
       let premises fact =
         String.concat " " (List.map show_atomic fact.i_premises)
       in
@@ -108,10 +110,10 @@ let print_error e =
       List.iter
         (fun inf ->
           Printf.printf "  - %s\n    Missing premises: %s\n"
-            (print_fact inf.Deduction.fact)
-            (String.concat ", " (List.map show_atomic inf.Deduction.missing_premises)))
+            (print_fact inf.fact)
+            (String.concat ", " (List.map show_atomic inf.missing_premises)))
         inferences
-  | Coq_invalid_conclusion -> print_endline "Invalid conclusion."
+  | Invalid_conclusion -> print_endline "Invalid conclusion."
 
 let time label f =
   if not !debug_mode then f ()
@@ -133,10 +135,10 @@ let run_streamed ?(format = `Text) csp file =
         Drcpcheck_drcp.Parse.read_available_text_and_build_stage chan
           text_parser Drcpcheck_drcp.Parse.IntMap.empty
     | `Binary ->
-        Drcpcheck_drcp.Deserialize_proto.read_available_and_build_stage fd buf
+        Drcpcheck_drcp.Deserialize.read_available_and_build_stage fd buf
           Drcpcheck_drcp.Parse.IntMap.empty
   in
-  let result = validate default_rules csp stream in
+  let result = StreamingChecker.validate csp stream in
   result
 
 let run_checker flatzinc_file drcp_file =
@@ -166,17 +168,16 @@ let run_checker flatzinc_file drcp_file =
   let result =
     if !streamed_mode then run_streamed ~format csp drcp_file
     else
-      let proof_stream =
+      let proof =
         match format with
         | `Binary -> time "parse-proof" (fun () -> read_binary_proof drcp_file)
         | `Text -> time "parse-proof" (fun () -> read_proof drcp_file)
       in
-      Printf.printf "Verifying proof...\n%!";
-      time "validate" (fun () -> validate default_rules csp proof_stream)
+      time "validate" (fun () -> SeqChecker.validate csp proof)
   in
   match result with
-  | Spec.Proofs.Coq_valid -> print_endline "Proof is valid!"
-  | Spec.Proofs.Coq_invalid e ->
+  | Proofs.Coq_valid _ -> print_endline "Proof is valid!"
+  | Proofs.Coq_invalid e ->
       print_error e;
       exit 1
 

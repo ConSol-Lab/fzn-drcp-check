@@ -1,6 +1,6 @@
 From Checker Require Import Spec.
 From Checker Require Import Checker.
-From Checker Require Import CheckerStreamed.
+
 From Checker Require Import Utility.
 From FlatZinc Require Import Ast.
 From FlatZinc Require Import Parser.
@@ -28,13 +28,13 @@ Extract Constant List.rev_append => "List.rev_append".
 Extract Constant List.length => "fun l -> Big_int_Z.big_int_of_int (List.length l)".
 
 Extract Inductive Utility.LazyLists.llist => "Lazy.lazylist" [ "Lazy.LNil" "Lazy.Single" "Lazy.Cons" "Lazy.Thunk" ].
+Extraction Inline ProofStream.
 
-Separate Extraction
+Extraction "checker"
   Spec.ConstraintDefinitions.ConstraintProblem
-  Checker.validate
-  Checker.default_rules
-  CheckerStreamed.validate
-  CheckerStreamed.default_rules
+  Checker.DefaultRules
+  Checker.StreamingChecker
+  Checker.SequentialChecker
   Ast.mk_ast
   Parser.model
   Lower.to_constraint_problem

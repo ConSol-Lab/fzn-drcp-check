@@ -1,7 +1,6 @@
 open Lexing
 open Printf
-open Drcpcheck_core.Datatypes
-open Drcpcheck_core.Parser
+open Drcpcheck_core.Checker
 
 exception ParseError of string
 
@@ -27,6 +26,6 @@ let parse lexbuf source_name =
     | MenhirLibParser.Inter.Parsed_pr (ast, _rest) -> ast
     | MenhirLibParser.Inter.Fail_pr_full (_, _)    -> err "syntax error"
     | MenhirLibParser.Inter.Timeout_pr             -> err "timeout" in
-  match Drcpcheck_core.Ast.Lower.to_constraint_problem ast with
-  | Coq_inl csp -> csp
-  | Coq_inr msg -> err ("cannot lower FlatZinc model: " ^ msg)
+  match Lower.to_constraint_problem ast with
+  | Inl csp -> csp
+  | Inr msg -> err ("cannot lower FlatZinc model: " ^ msg)
