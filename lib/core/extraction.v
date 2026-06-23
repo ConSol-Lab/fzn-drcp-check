@@ -28,6 +28,7 @@ Extract Constant List.rev_append => "List.rev_append".
 Extract Constant List.length => "fun l -> Big_int_Z.big_int_of_int (List.length l)".
 
 Extraction Inline ProofStream.
+Extraction Inline Checker.SequentialCheckerImpl.step Checker.SequentialCheckerImpl.finalize.
 
 Extraction "checker"
   Spec.ConstraintDefinitions.ConstraintProblem

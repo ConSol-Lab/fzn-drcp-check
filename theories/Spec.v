@@ -187,13 +187,21 @@ Module Proofs.
       ConstraintDefinitions.satisfies_problem csp sol ->
       ProofFacts.fact_valid sol fact.
 
-  Inductive CheckResult (Error : Type) :=
+  Inductive CheckResult {Error : Type} :=
     | valid (conclusion : ProofFacts.ProofFact)
     | invalid (error : Error).
+  Arguments CheckResult : clear implicits.
 
-  Definition ProofChecker (Proof : Type) (Error : Type) := 
+  Definition ProofChecker (Proof : Type) (Error : Type) :=
     ConstraintDefinitions.ConstraintProblem -> Proof -> CheckResult Error.
 
-  Definition checker_sound (Proof : Type) (Error : Type) (checker : ProofChecker Proof Error) : Prop :=
-    forall csp proof fact, checker csp proof = (valid Error fact) -> fact_holds csp fact.
+  Definition checker_sound {Proof Error : Type} (checker : ProofChecker Proof Error) : Prop :=
+    forall csp proof fact, checker csp proof = valid fact -> fact_holds csp fact.
+
+  Module Type CHECKER.
+    Parameter Proof : Type.
+    Parameter Error : Type.
+    Parameter validate : ProofChecker Proof Error.
+    Parameter validate_sound : checker_sound validate.
+  End CHECKER.
 End Proofs.
