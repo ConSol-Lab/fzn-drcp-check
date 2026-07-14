@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print a before/after delta table for two bench.py runs.
 
-    compare.py --old before/*.jsonl --new after/*.jsonl
+    compare.py [--phase solve] --old before/*.jsonl --new after/*.jsonl
 """
 import argparse
 import sys
@@ -16,12 +16,12 @@ FMT = {str(Format.TEXT): "text", str(Format.BINARY): "bin"}
 MODE = {str(Mode.BATCH): "batch", str(Mode.INCREMENTAL): "stream", str(Mode.STREAMING): "stream"}
 
 
-def checker_means(paths: list[Path]) -> pd.DataFrame:
+def phase_means(paths: list[Path], phase: str) -> pd.DataFrame:
     df = pd.DataFrame(r for p in paths for r in read_jsonl(p))
-    df = df[df["phase"] == str(Phase.CHECK)]
+    df = df[df["phase"] == phase]
+    mode = df["format"].map(FMT) + " " + df["mode"].map(MODE) if phase == str(Phase.CHECK) else df["format"].map(FMT)
     df = df.assign(instance=df["input"].map(lambda s: Path(str(s)).stem),
-                   mode=df["format"].map(FMT) + " " + df["mode"].map(MODE),
-                   m=df["peak_rss"] / (1 << 20))
+                   mode=mode, m=df["peak_rss"] / (1 << 20))
     return df.groupby(["instance", "mode"], observed=True).agg(t=("elapsed", "mean"), m=("m", "mean"))
 
 
@@ -30,9 +30,11 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--old", type=Path, nargs="+", required=True, help="baseline bench.py JSONL(s)")
     ap.add_argument("--new", type=Path, nargs="+", required=True, help="candidate bench.py JSONL(s)")
+    ap.add_argument("--phase", choices=[str(p) for p in Phase], default=str(Phase.CHECK),
+                    help="pipeline phase to compare (default: check)")
     args = ap.parse_args()
 
-    d = checker_means(args.old).join(checker_means(args.new), lsuffix="<", rsuffix=">", how="inner")
+    d = phase_means(args.old, args.phase).join(phase_means(args.new, args.phase), lsuffix="<", rsuffix=">", how="inner")
     d["Δt"] = (d["t>"] - d["t<"]) / d["t<"] * 100
     d["Δm"] = (d["m>"] - d["m<"]) / d["m<"] * 100
     fmt = {"t<": "{:.2f}s", "t>": "{:.2f}s", "Δt": "{:+.0f}%",
