@@ -8,11 +8,12 @@ open Drcpcheck_flatzinc.Read
 
 let usage =
   {|
-fzn_drcp_check [-s] [--drcp-format text|binary] [-d] <flatzinc> <drcp|bin>
+fzn_drcp_check [-s] [--drcp-format text|binary] [-d] [--bufsz N] <flatzinc> <drcp|bin>
 
 --drcp-format: proof encoding. Defaults to guessing from the file extension, .drcp or .bin.
 -s: streamed mode. Performs incremental reads from a file or pipe instead of loading everything in memory at once.
 -d: debug mode. Prints precise time measurements for each step of the checking process.
+--bufsz N: streaming read-buffer size in bytes (default: 1MiB).
 |}
 
 (* Input files *)
@@ -36,6 +37,11 @@ let speclist =
       " Proof encoding (default: guessed from the file extension)" );
     ("-s", Arg.Set streamed_mode, "Streamed mode");
     ("-d", Arg.Set debug_mode, "Debug mode");
+    ( "--bufsz",
+      Arg.Int (fun n ->
+          if n < 16 * 1024 then raise (Arg.Bad "--bufsz must be at least 16kB");
+          Drcpcheck_util.Buffer.bufsz := n),
+      "Streaming read-buffer size in bytes (default: 1MiB)" );
   ]
 
 let assign_args anonymous_argument =

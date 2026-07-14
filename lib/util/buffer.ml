@@ -1,5 +1,8 @@
 (** Buffer operations for efficient in-memory data management. *)
 
+(** Messages are read in batches of maximum size [bufsz]. *)
+let bufsz = ref (1024 * 1024)
+
 module DBuffer = struct
   type t = {
     data : bytes; (* The actual buffer data *)
@@ -11,7 +14,7 @@ module DBuffer = struct
   let create size = { data = Bytes.create size; until = 0; off = 0 }
 
   (** [create_default] creates a new empty buffer. *)
-  let create_default () = create 4096
+  let create_default () = create !bufsz
 
   (** [resize buf new_len] resizes the buffer [buf] to [new_len] bytes and
       copies unprocessed data to the beginning of the new buffer *)

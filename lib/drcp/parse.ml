@@ -308,15 +308,12 @@ let build_stages_from_state state atomics :
       build_stage_from_parse_result res atomics |> fun (stage, new_atomics) ->
       (new_state, stage, new_atomics)
 
-(* Messages are read in batches of maximum size bufsz. Here we use 4KiB which seems reasonable. *)
-let bufsz = 4096
-
 (** Read one or more stages from the current buffer. *)
 let rec read_available_text_and_build_stage in_chan state atomics : proofStream
     =
-  let buf = Bytes.create bufsz in
+  let buf = Bytes.create !Drcpcheck_util.Buffer.bufsz in
   let contents =
-    begin match input in_chan buf 0 bufsz with
+    begin match input in_chan buf 0 !Drcpcheck_util.Buffer.bufsz with
     | exception Sys_error _ -> `Eof
     | 0 -> `Eof
     | n -> `String Bytes.(unsafe_to_string (sub buf 0 n))
