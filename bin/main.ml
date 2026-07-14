@@ -124,6 +124,16 @@ let time label f =
     res
   end
 
+let show_conclusion conclusion =
+  let conclusion_premises =
+    String.concat " " (List.map show_atomic conclusion.i_premises)
+  in
+  match conclusion.i_consequent with
+  | Some atomic when conclusion.i_premises = [] -> show_atomic atomic
+  | Some atomic ->
+      Printf.sprintf "%s -> %s" conclusion_premises (show_atomic atomic)
+  | None -> "UNSATISFIABLE"
+
 let run_streamed ?(format = `Text) csp file =
   let fd = Unix.openfile file [ O_RDONLY ] 0 in
   let buf = Drcpcheck_util.Buffer.DBuffer.create_default () in
@@ -176,7 +186,8 @@ let run_checker flatzinc_file drcp_file =
       time "validate" (fun () -> SeqChecker.validate csp proof)
   in
   match result with
-  | Proofs.Coq_valid _ -> print_endline "Proof is valid!"
+  | Proofs.Coq_valid c ->
+      Printf.printf "Proof is valid with conclusion: %s\n" (show_conclusion c)
   | Proofs.Coq_invalid e ->
       print_error e;
       exit 1
