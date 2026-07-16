@@ -51,8 +51,22 @@ module Source = struct
     with Pbrt.Decoder.Failure e ->
       raise (Parse.ParseError (Pbrt.Decoder.error_to_string e))
 
+  let read_header dec =
+    let h = PB.decode_pb_header dec in
+    if h.PB.format <> Parse.proof_format then
+      raise
+        (Parse.ParseError
+           (Printf.sprintf "expected proof format %s, got %s" Parse.proof_format
+              h.PB.format));
+    if h.PB.version <> Parse.proof_version then
+      raise
+        (Parse.ParseError
+           (Printf.sprintf "expected proof version %d, got %d" Parse.proof_version
+              h.PB.version))
+
   let of_bytes (b : Bytes.t) : t =
     let dec = Pbrt.Decoder.of_bytes b in
+    read_header (Pbrt.Decoder.nested dec);
     fun () ->
       (try Pbrt.Decoder.skip dec Pbrt.Varint
        with Pbrt.Decoder.Failure e ->
@@ -82,6 +96,9 @@ module Source = struct
           really_read !scratch len;
           Some (Pbrt.Decoder.of_subbytes !scratch 0 len)
     in
+    (match read_frame () with
+    | None -> raise (Parse.ParseError "missing proof header")
+    | Some dec -> read_header dec);
     fun () -> Option.map decode (read_frame ())
 
   let of_channel (chan : in_channel) : t = of_reader (input chan)

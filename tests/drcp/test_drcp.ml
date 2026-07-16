@@ -79,7 +79,7 @@ let show_proof proof conc =
   steps ^ "\n" ^ c
 
 let test_parse input expected =
-  let parsed = parse_proof input in
+  let parsed = parse_proof ("v 1\n" ^ input) in
   if parsed = expected then true
   else
     let expected_proof, expected_conclusion = expected in

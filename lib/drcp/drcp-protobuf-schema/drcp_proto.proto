@@ -12,6 +12,11 @@ package drcp;
 
 message Empty {}
 
+message Header {
+  string format  = 1;
+  uint32 version = 2 [(ocaml_type) = int_t];
+}
+
 // -----------------------------
 // Types
 // -----------------------------

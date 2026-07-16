@@ -4,6 +4,8 @@ open Angstrom
 open Big_int_Z
 
 let bufsz = ref (1024 * 1024)
+let proof_version = 1
+let proof_format = "DRCP"
 
 type atom_definition = { id : int; atomic : coq_BoundAtomic }
 
@@ -83,6 +85,18 @@ let big_integer =
   return (if negb then Big_int_Z.sub_big_int Big_int_Z.zero_big_int bi else bi)
   <?> "expected big integer"
 
+let version_line =
+  ws_with_new_line
+  *> (char 'v'
+     <?> Printf.sprintf "expected a version header (v %d)" proof_version)
+  *> ws_sep *> big_integer
+  >>= fun v ->
+  if eq_big_int v (big_int_of_int proof_version) then eol *> return ()
+  else
+    fail
+      (Printf.sprintf "expected proof version %d, got %s" proof_version
+         (string_of_big_int v))
+
 let cmp =
   choice
     [
@@ -160,7 +174,7 @@ let conclusion_line =
   <* ws_with_new_line <?> "conclusion line"
 
 let proof =
-  many_tr proof_line >>= fun steps ->
+  version_line *> many_tr proof_line >>= fun steps ->
   conclusion_line >>= fun conclusion -> return (steps, conclusion)
 
 let proof_stage_line =
@@ -326,14 +340,13 @@ let stream_stages (consume_one : 'buf -> (conclusion option * step list) * 'buf)
 
 let read_streamed (read : bytes -> int -> int -> int) : proofStream =
   let staging = Bytes.create !bufsz in
-  let consume w =
-    match Parse_window.parse_one read staging proof_stage w with
+  let consume_with p w =
+    match Parse_window.parse_one read staging p w with
     | Ok res, w -> (res, w)
     | Error msg, _ -> raise (ParseError msg)
   in
-  stream_stages consume
-    (Parse_window.create !bufsz)
-    (Atoms.create ())
+  let (), w = consume_with version_line (Parse_window.create !bufsz) in
+  stream_stages (consume_with proof_stage) w (Atoms.create ())
 
 let read_streamed_text in_chan : proofStream = read_streamed (input in_chan)
 
