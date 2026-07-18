@@ -1,14 +1,15 @@
 syntax = "proto3";
 
-// DRCP (Deletion Reverse Constraint Propagation) schema
+// DRCP (Deletion Reverse Constraint Propagation) schema for proof logging and exchange.
+//
+// Validation rules (to be enforced by the application, not protobuf):
+//   - ConstraintId (sint32) and StepId (uint32) must be non-zero
+//   - StepId must be unique within a proof
+//   - Variable identifiers must match: [a-zA-Z_][a-zA-Z0-9_]*
+//   - Every ConstraintId referenced in the proof must exist in the mapping
 
 package drcp;
 
-// -----------------------------
-// Utility
-// -----------------------------
-
-// Used as an empty placeholder in oneof branches.
 message Empty {}
 
 // -----------------------------
@@ -25,19 +26,13 @@ enum AtomicOp {
 }
 
 message AtomicConstraint {
-  int32    id    = 1 [(ocaml_type) = int_t];  // ConstraintId
-  string   var   = 2;
+  uint32   id    = 1 [(ocaml_type) = int_t];  // ConstraintId
+  string   var   = 2;  // identifier, regex-validated in application code
   AtomicOp op    = 3;
-  int64    value = 4 [(ocaml_type) = int_t];  // int64 → int63 assumed to fit
-}
-
-message LiteralMapping {
-  // Dictionary: literal id -> atomic constraint.
-  repeated AtomicConstraint atoms = 1;
+  int64    value = 4 [(ocaml_type) = int_t];  // largest possible value but in practice takes less space with binary packing
 }
 
 // Inference Hints (Pumpkin-specific)
-// CUSTOM indicates the application should inspect label_custom on InferenceStep.
 enum InferenceHint {
   INITIAL_DOMAIN    = 0;
   LINEAR_BOUNDS     = 1;
@@ -46,27 +41,28 @@ enum InferenceHint {
   ALL_DIFFERENT     = 4;
   BINARY_EQUALS     = 5;
   BINARY_NOT_EQUALS = 6;
-  CUSTOM            = 7;
 }
 
 // -----------------------------
 // Proof steps
+// -----------------------------
+
 message InferenceStep {
   // `i <step_id> <premises> [0 <propagated>] [c:<constraint tag>] [l:<filtering algorithm>]`
-  uint32         id       = 1 [(ocaml_type) = int_t];  // StepId
-  repeated sint32 premises = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
-  // a.k.a. "consequent"
-  // Non-zero: the single propagated literal.
-  // Zero (unset): premises imply a conflicting assignment.
-  sint32        propagated   = 3 [(ocaml_type) = int_t];  // ConstraintId; 0 = absent
-  int32         generated_by = 4 [(ocaml_type) = int_t];  // ConstraintId — constraint that introduced this inference
-  InferenceHint label_hint   = 5;  // filtering algorithm / reasoning hint
-  string        label_custom = 6;  // optional; used when label_hint == CUSTOM
+  uint32 id = 1 [(ocaml_type) = int_t];  // StepId
+  repeated sint32 premises     = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
+  sint32          propagated   = 3 [(ocaml_type) = int_t];  // ConstraintId; 0 = absent (premises imply conflicting assignment). a.k.a. consequent
+  int32           generated_by = 4 [(ocaml_type) = int_t];  // ConstraintId: constraint that introduced this inference
+
+  oneof label {
+    InferenceHint label_hint   = 5;  // filtering algorithm / reasoning hint
+    string        label_custom = 6;
+  }
 }
 
 message NogoodStep {
   // `n <step_id> <atomic constraint ids> [0 <propagation hint>]`
-  uint32          id               = 1 [(ocaml_type) = int_t];  // StepId
+  uint32 id = 1 [(ocaml_type) = int_t];  // StepId
   repeated sint32 literals         = 2 [(ocaml_type) = int_t];  // List(ConstraintId)
   repeated uint32 propagation_hint = 3 [(ocaml_type) = int_t];  // List(StepId); optional derivation order hint
 }
@@ -75,7 +71,7 @@ message ConclusionStep {
   // `c UNSAT`  OR  `c <objective bound>`
   oneof conclusion {
     Empty unsat           = 1;
-    sint32 objective_bound = 2 [(ocaml_type) = int_t];  // ConstraintId
+    sint32                objective_bound = 2 [(ocaml_type) = int_t];  // ConstraintId
   }
 }
 
@@ -86,9 +82,4 @@ message ProofStep {
     ConclusionStep   conclusion = 3;
     AtomicConstraint constraint = 4;
   }
-}
-
-message ProofBuffer {
-  // Ordered proof steps containing inferences, nogoods, conclusions, and inline constraints.
-  repeated ProofStep steps = 1;
 }

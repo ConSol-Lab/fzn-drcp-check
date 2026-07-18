@@ -3,20 +3,20 @@ open Drcpcheck_core.Checker
 open Big_int_Z
 module PB = Drcp_proto
 
-let parse_inf_hint (i : PB.inference_step) =
-  let h = i.label_hint in
-  match h with
-  | PB.Initial_domain -> "initial_domain"
-  | PB.Linear_bounds -> "linear_bounds"
-  | PB.Nogood -> "nogood"
-  | PB.Time_table -> "time_table"
-  | PB.All_different -> "all_different"
-  | PB.Binary_equals -> "binary_equals"
-  | PB.Binary_not_equals -> "binary_not_equals"
-  | Custom ->
-      if PB.inference_step_has_label_custom i && i.label_custom <> "" then
-        i.label_custom
-      else raise (Parse.ParseError "custom inference hint without a label")
+let parse_label (i : PB.inference_step) =
+  match i.label with
+  | None | Some (PB.Label_custom "") ->
+      raise (Parse.ParseError "inference without a label")
+  | Some l -> (
+      match l with
+      | PB.Label_hint PB.Initial_domain -> "initial_domain"
+      | PB.Label_hint PB.Linear_bounds -> "linear_bounds"
+      | PB.Label_hint PB.Nogood -> "nogood"
+      | PB.Label_hint PB.Time_table -> "time_table"
+      | PB.Label_hint PB.All_different -> "all_different"
+      | PB.Label_hint PB.Binary_equals -> "binary_equals"
+      | PB.Label_hint PB.Binary_not_equals -> "binary_not_equals"
+      | PB.Label_custom s -> s)
 
 let map_op (op : PB.atomic_op) =
   match op with
@@ -102,7 +102,7 @@ module Resolve = struct
         };
       iinf_hint =
         (if i.generated_by <> 0 then [ big_int_of_int i.generated_by ] else []);
-      iinf_rule = parse_inf_hint i;
+      iinf_rule = parse_label i;
     }
 
   let stage resolve (n : PB.nogood_step) infs : proofStage =
