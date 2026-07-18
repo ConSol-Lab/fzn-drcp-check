@@ -8,7 +8,7 @@ open Drcpcheck_flatzinc.Read
 
 let usage =
   {|
-fzn_drcp_check [-s] [--drcp-format text|binary] [-d] [--bufsz N] <flatzinc> <drcp|bin>
+drcpcheck [-s] [--drcp-format text|binary] [-d] [--bufsz N] <flatzinc> <drcp|bin>
 
 --drcp-format: proof encoding. Defaults to guessing from the file extension, .drcp or .bin.
 -s: streamed mode. Performs incremental reads from a file or pipe instead of loading everything in memory at once.

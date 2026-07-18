@@ -1,4 +1,4 @@
 (executable
  (name main)
- (public_name fzn_drcp_check)
+ (public_name drcpcheck)
  (libraries drcpcheck_core drcpcheck_flatzinc drcpcheck_drcp unix))

@@ -486,7 +486,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         return p
     ap.add_argument("--solver", type=_executable, default=Path("pumpkin-solver"), help="pumpkin-solver binary")
     ap.add_argument("--processor", type=_executable, default=Path("pumpkin-proof-processor"), help="pumpkin-proof-processor binary")
-    ap.add_argument("--rocq-checker", type=_executable, default=Path("fzn_drcp_check"), help="verified fzn_drcp_check binary")
+    ap.add_argument("--rocq-checker", type=_executable, default=Path("drcpcheck"), help="verified drcpcheck binary")
     ap.add_argument("--rust-checker", type=_executable, default=Path("pumpkin-checker"), help="native pumpkin-checker binary")
 
     def _enum_csv(enum: type[StrEnum]):

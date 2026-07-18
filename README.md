@@ -26,7 +26,7 @@ dune build
 in the root directory. Alternatively, the checker can be executed directly by
 `dune` by running
 ```
-dune exec fzn_drcp_check -- <args>
+dune exec drcpcheck -- <args>
 ```
 
 ## Proof formats and options
@@ -36,8 +36,8 @@ Pass either a text (`.drcp`) or binary (`.bin`) DRCP proof — the format is inf
 Pass `-s` to check the proof incrementally (step by step, without loading it all at once).  Use `--bufsz N` to set the read-buffer size (in bytes, default 1 MiB).
 
 ```
-dune exec fzn_drcp_check -- <model.fzn> <proof.bin>    # binary proof
-dune exec fzn_drcp_check -- -s <model.fzn> <proof.drcp>   # streamed
+dune exec drcpcheck -- <model.fzn> <proof.bin>    # binary proof
+dune exec drcpcheck -- -s <model.fzn> <proof.drcp>   # streamed
 ```
 
 ## Documentation
