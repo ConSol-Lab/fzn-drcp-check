@@ -5,16 +5,12 @@ the DRCP (Deletion Reverse-unit-propagation Constraint Proof) proof format.
 
 ## Dependencies
 
-The project requires Rocq/Coq 8.20. The following OPAM packages should be installed:
-- `menhir`
-- `coq-menhirlib`
-- `angstrom`
-- `ppx_import`
-- `ppx_inline_test`
-- `coq-mmaps`, for which you need to add a repository: 
-  ```
-  opam repo add coq-released https://coq.inria.fr/opam/released
-  ```
+The project requires Coq 8.20:
+
+```console
+opam repo add coq-released https://coq.inria.fr/opam/released
+opam install . --deps-only
+```
 
 ## Building
 

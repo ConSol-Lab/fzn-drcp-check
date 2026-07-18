@@ -1,5 +1,7 @@
 (lang dune 3.18)
 
+(generate_opam_files true)
+
 (using coq 0.10)
 
 (using menhir 3.0)
@@ -30,6 +32,6 @@
 (source
  (github ConSol-Lab/fzn-drcp-check))
 
-(authors "Maarten Flippo" "Konstantin Sidorov")
+(authors "Maarten Flippo" "Konstantin Sidorov" "Tip ten Brink" "Clément Pit-Claudel" "Emir Demirović")
 
 (license MIT)
