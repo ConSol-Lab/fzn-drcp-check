@@ -18,6 +18,8 @@ MODE = {str(Mode.BATCH): "batch", str(Mode.INCREMENTAL): "stream", str(Mode.STRE
 
 def phase_means(paths: list[Path], phase: str) -> pd.DataFrame:
     df = pd.DataFrame(r for p in paths for r in read_jsonl(p))
+    bad = df[df["returncode"] != 0]
+    assert bad.empty, f"crashed runs:\n{bad[['input', 'phase', 'returncode']].value_counts()}"
     df = df[df["phase"] == phase]
     mode = df["format"].map(FMT) + " " + df["mode"].map(MODE) if phase == str(Phase.CHECK) else df["format"].map(FMT)
     df = df.assign(instance=df["input"].map(lambda s: Path(str(s)).stem),
