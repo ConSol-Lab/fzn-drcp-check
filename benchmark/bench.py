@@ -25,7 +25,7 @@ class ProofType(StrEnum):
     NONE, SCAFFOLD, FULL = "none", "scaffold", "full"
 
 class Mode(StrEnum):
-    NONE, BATCH, INCREMENTAL, STREAMING = "none", "batch", "incremental", "streaming"
+    NONE, BATCH, INCREMENTAL, TEE, STREAMING = "none", "batch", "incremental", "tee", "streaming"
 
     @property
     def flags(self) -> list[str]:
@@ -34,7 +34,7 @@ class Mode(StrEnum):
     @property
     def pipelined(self) -> bool:
         """Whether the producer and checker overlap through a FIFO."""
-        return self is Mode.STREAMING
+        return self in (Mode.TEE, Mode.STREAMING)
 
 class Format(StrEnum):
     TEXT, BINARY = "text", "binary"
@@ -51,7 +51,7 @@ class Checker(StrEnum):
     NONE, RUST, ROCQ = "none", "rust", "rocq"
 
 class Phase(StrEnum):
-    SOLVE, PROCESS, CHECK = "solve", "process", "check"
+    SOLVE, PROCESS, TEE, CHECK = "solve", "process", "tee", "check"
 
 DIMS = {"proof_type": ProofType, "mode": Mode, "format": Format, "checker": Checker}
 PROOF_SUFFIXES = (".drcp", ".bin")
@@ -184,21 +184,26 @@ class BenchmarkConfiguration:
         if self.is_proof:
             cmd = [checker, *sflag, *flags, self.input.with_suffix(".fzn"), self.input]
             return [stage(Phase.CHECK, cmd, cpu_a, self.input, None)], []
-        full = (wd / "full").with_suffix(self.format.suffix)
-        if self.mode.pipelined:
-            full = full.with_name(full.name + ".fifo")
-        check = stage(Phase.CHECK, [checker, *sflag, *flags, self.input, full],
-                      cpu_b if self.mode.pipelined else cpu_a, full, None, concurrent=self.mode.pipelined)
+        disk = (wd / "full").with_suffix(self.format.suffix)
+        full = disk.with_name(disk.name + ".fifo") if self.mode.pipelined else disk
+        src, tees = full, []
+        if self.mode is Mode.TEE: # a tee duplicates the stream to disk on the fly
+            src = full.with_name(full.name + "2")
+            tees = [stage(Phase.TEE, ["sh", "-c", f"exec {which('tee')} {disk} < {full} > {src}"],
+                          cpu_b, full, disk, concurrent=True)]
+        check = stage(Phase.CHECK, [checker, *sflag, *flags, self.input, src],
+                      cpu_b if self.mode.pipelined else cpu_a, src, None, concurrent=self.mode.pipelined)
         if self.proof_type is ProofType.SCAFFOLD:
             scaffold = (wd / "scaffold").with_suffix(self.format.suffix)
             flat = [stage(Phase.SOLVE, [self.tools.solver, self.input, *flags, "--proof-path", scaffold], cpu_a, self.input, scaffold),
                     stage(Phase.PROCESS, [self.tools.processor, *flags, self.input, scaffold, full], cpu_a, scaffold, full),
-                    check]
+                    *tees, check]
         else:
             flat = [stage(Phase.SOLVE, [self.tools.solver, self.input, "--proof-type", "full", *flags, "--proof-path", full], cpu_a, self.input, full),
-                    check]
-        # pipelining overlaps producer and check through the FIFO
-        return (flat[:-2], flat[-2:]) if self.mode.pipelined else (flat, [])
+                    *tees, check]
+        # pipelining overlaps producer, tee, and check through the FIFOs
+        n = 2 + len(tees)
+        return (flat[:-n], flat[-n:]) if self.mode.pipelined else (flat, [])
 
     async def run(self, cpu_a: int, cpu_b: int) -> Run:
         """Run the sequential prefix, then the concurrent group."""
@@ -256,7 +261,7 @@ def configurations(inputs: list[Path], reps: int, types: list[ProofType], modes:
         if any(none) != all(none):
             continue
         if inp.suffix in PROOF_SUFFIXES: # Skip irrelevant runs for pre-recorded proofs
-            if pt is not ProofType.FULL or fmt.suffix != inp.suffix or mode is Mode.STREAMING:
+            if pt is not ProofType.FULL or fmt.suffix != inp.suffix or mode.pipelined:
                 continue
         if checker is Checker.RUST and mode is Mode.BATCH:
             continue
@@ -465,9 +470,10 @@ class Waterfall:
         axs[0][1].set_xlim(0, rss_max)
         present = set(self.df["checker"])
         checks = [f"check ({c.capitalize()})" for c in self.CHECKER_COLOR if c in present]
-        fig.legend(handles=[Patch(color=self.color[p], label=p) for p in [Phase.SOLVE, Phase.PROCESS, *checks]] +
+        phases = [Phase.SOLVE, Phase.PROCESS] + [Phase.TEE] * (Phase.TEE in set(self.df["phase"]))
+        fig.legend(handles=[Patch(color=self.color[p], label=p) for p in [*phases, *checks]] +
                    [Patch(facecolor="0.7", hatch="///", ec="0.4", label="waiting (wall − CPU)")],
-                   ncol=5, loc="outside lower center", fontsize=7, frameon=False,
+                   ncol=6, loc="outside lower center", fontsize=7, frameon=False,
                    title=r"bars = mean   ·   error bar and $x^{+hi}_{-lo}$ = 95% bootstrap CI", title_fontsize=7)
         ipath = Path(str(self.df["input"].iloc[0]))
         fig.suptitle(f"{ipath.parent.name}/{ipath.name}" if ipath.parent.name else ipath.name,

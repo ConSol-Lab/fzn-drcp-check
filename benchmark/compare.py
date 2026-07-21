@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bench import Format, Mode, Phase, read_jsonl  # noqa: E402
 
 FMT = {str(Format.TEXT): "text", str(Format.BINARY): "bin"}
-MODE = {str(Mode.BATCH): "batch", str(Mode.INCREMENTAL): "stream", str(Mode.STREAMING): "stream"}
+MODE = {str(Mode.BATCH): "batch", str(Mode.INCREMENTAL): "stream", str(Mode.STREAMING): "stream",
+        str(Mode.TEE): "stream"}
 
 
 def phase_means(paths: list[Path], phase: str) -> pd.DataFrame:
