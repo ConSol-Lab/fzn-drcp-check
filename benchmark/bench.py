@@ -399,11 +399,13 @@ class Waterfall:
 
     def _draw_facet(self, axs_row, fm, s) -> None:
         clr = s["phase"].map(self.color)
+        fill = np.where(s["crash"] != "", "none", clr) # failed bars: border only, no fill
+        lw = np.where(s["crash"] != "", .7, 0)
         aw, am = axs_row
         aw.set_ylim(s["y"].min() - 0.6, s["y"].max() + 0.6) # trim the autoscaled y-margin
-        aw.barh(s.y, s.cpu, left=s.start, height=1, color=clr)
-        aw.barh(s.y, s.wall - s.cpu, left=s.start + s.cpu, height=1, color=clr, alpha=.3, hatch="///", ec=clr, lw=0)
-        am.barh(s.y, s.peak_rss, left=s.mstart, height=1, color=clr)
+        aw.barh(s.y, s.cpu, left=s.start, height=1, color=fill, ec=clr, lw=lw)
+        aw.barh(s.y, s.wall - s.cpu, left=s.start + s.cpu, height=1, color=fill, alpha=.3, hatch="///", ec=clr, lw=lw)
+        am.barh(s.y, s.peak_rss, left=s.mstart, height=1, color=fill, ec=clr, lw=lw)
         for ax, base, val, lo, hi in [(aw, "start", "wall", "lo_t", "hi_t"),
                                       (am, "mstart", "peak_rss", "lo_m", "hi_m")]:
             if not (e := s[s[hi].notna()]).empty: # rows with a CI to draw
@@ -412,8 +414,10 @@ class Waterfall:
                             fmt="none", ecolor="0.2", capsize=1.5, lw=.7)
         for b in s.itertuples():
             sz = f" → {self.iec_bytes(b.produces_bytes)}" if not np.isnan(b.produces_bytes) else ""
-            aw.text(b.start + b.t_label_x, b.y, f"  {b.phase}: {self._ci_annot(b.wall, b.lo_t, b.hi_t, self.ES)}{sz}", va="center", fontsize=6)
-            am.text(b.mstart + b.m_label_x, b.y, f"  {self._ci_annot(b.peak_rss, b.lo_m, b.hi_m, self.iec_bytes)}", va="center", fontsize=6)
+            mark, tail = ("$✘$ ", f" [crashed {b.crash}]") if b.crash else ("", "") # mathtext ✘: Fira Sans lacks U+2718
+            red = "red" if b.crash else None
+            aw.text(b.start + b.t_label_x, b.y, f"  {mark}{b.phase}: {self._ci_annot(b.wall, b.lo_t, b.hi_t, self.ES)}{sz}{tail}", va="center", fontsize=6, color=red)
+            am.text(b.mstart + b.m_label_x, b.y, f"  {mark}{self._ci_annot(b.peak_rss, b.lo_m, b.hi_m, self.iec_bytes)}{tail}", va="center", fontsize=6, color=red)
         self._label_facet(axs_row, fm, s)
 
     def render(self, dest: Path) -> None:
@@ -424,13 +428,18 @@ class Waterfall:
             lt, ht = self._boot_ci(g["elapsed"]) or (np.nan, np.nan)
             lm, hm = self._boot_ci(g["peak_rss"]) or (np.nan, np.nan)
             assert g["concurrent"].nunique() == 1
+            codes = sorted(set(g["returncode"]))
             return pd.Series({"wall": g["elapsed"].mean(), "cpu": g["cpu"].mean(), "peak_rss": g["peak_rss"].mean(),
                               "concurrent": g["concurrent"].iloc[0], "produces_bytes": g["produces_bytes"].astype(float).mean(),
+                              "crash": ", ".join(map(str, codes)) if any(codes) else "",
                               "lo_t": lt, "hi_t": ht, "lo_m": lm, "hi_m": hm})
 
         df = self.df.assign(cpu=self.df[["user", "sys"]].sum(axis=1, min_count=1))
+        cfg = ["input", *DIMS]
+        df["crashed"] = df.groupby(cfg + ["repetition_idx"], observed=True)["returncode"].transform("any")
+        df = df[df["crashed"] == df.groupby(cfg, observed=True)["crashed"].transform("any")] # a config with crashed reps is summarized by those reps only
         scen = ["format", "proof_type", "mode", "checker"]
-        a = (df.groupby(scen + ["phase"], observed=True)[["elapsed", "cpu", "peak_rss", "concurrent", "produces_bytes"]]
+        a = (df.groupby(scen + ["phase"], observed=True)[["elapsed", "cpu", "peak_rss", "concurrent", "produces_bytes", "returncode"]]
              .apply(agg).reset_index())
         a = pd.concat([self._stack(g) for _, g in a.groupby(scen, observed=True)], ignore_index=True)
         a["phase"] = np.where(a["phase"] == Phase.CHECK,
