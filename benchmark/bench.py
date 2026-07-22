@@ -50,6 +50,11 @@ class Format(StrEnum):
 class Checker(StrEnum):
     NONE, RUST, ROCQ = "none", "rust", "rocq"
 
+    @property
+    def last_phase(self) -> "Phase":
+        """The phase that concludes a pipeline using this checker."""
+        return Phase.SOLVE if self is Checker.NONE else Phase.CHECK
+
 class Phase(StrEnum):
     SOLVE, PROCESS, TEE, CHECK = "solve", "process", "tee", "check"
 
@@ -539,7 +544,7 @@ class OutputFile:
         if self.is_plot_only:
             self.rows = rows
             return
-        self.skipped = {config_key(r) for r in rows if r["phase"] == Phase.CHECK}
+        self.skipped = {config_key(r) for r in rows if r["phase"] == Checker(r["checker"]).last_phase}
         self.rows = [r for r in rows if config_key(r) in self.skipped] # drop partial traces (interrupted runs)
 
     @property
