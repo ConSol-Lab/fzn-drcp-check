@@ -89,7 +89,6 @@ Module ConstraintDefinitions.
     {
       capacity: N;
       activities: list Activity;
-      valid_durations : Forall (fun a => a.(activity_duration) >= 1)%N activities;
     }.
 
   Record AlldifferentConstraint :=

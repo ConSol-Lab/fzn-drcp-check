@@ -180,12 +180,6 @@ Definition z_to_N_nonneg (owner : string) (z : Z) : result N :=
   if Z.leb 0 z then ok (Z.to_N z)
   else err (owner ++ ": expected a non-negative integer").
 
-Definition activity_duration_ge_1_dec (act : Activity) :
-  ({ activity_duration act >= 1 } + {~ (activity_duration act >= 1) })%N.
-Proof.
-  destruct (activity_duration act); [right | left]; lia.
-Defined.
-
 Fixpoint zip_activities (starts : list Var) (durs : list N) (usgs : list N)
   : list Activity :=
   match starts, durs, usgs with
@@ -208,9 +202,7 @@ Definition create_cumulative (c : collected) (args : list constr_arg)
       let* uns    := map_sum (z_to_N_nonneg "cumulative: usage") us in
       let* cap    := z_to_N_nonneg "cumulative: capacity" cz in
       let acts := zip_activities starts dns uns in
-      let* proof  := from_dec (Forall_dec _ activity_duration_ge_1_dec acts)
-                              (fun _ => "cumulative: every activity duration must be >= 1") in
-      ok {| capacity := cap; activities := acts; valid_durations := proof |}
+      ok {| capacity := cap; activities := acts |}
   | _ => err "cumulative"
   end.
 
