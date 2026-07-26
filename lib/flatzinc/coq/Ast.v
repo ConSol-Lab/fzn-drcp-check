@@ -1,5 +1,4 @@
 From Coq Require Import ZArith NArith String List Bool Lia.
-From Coq.Lists Require ListDec.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -162,17 +161,12 @@ Definition create_linear (c : collected) (args : list constr_arg)
   | _ => err "int_lin_le"
   end.
 
-Definition Var_eq_dec : forall x y : Var, {x = y} + {x <> y}.
-Proof. decide equality; [apply string_dec | apply Z.eq_dec]. Defined.
-
 Definition create_alldifferent (c : collected) (args : list constr_arg)
   : result AlldifferentConstraint :=
   match args with
   | [vars_arg] =>
       let* vs    := variable_array c vars_arg in
-      let* proof := from_dec (ListDec.NoDup_dec Var_eq_dec vs)
-                             (fun _ => "alldifferent: argument contains duplicate variables") in
-      ok {| diff_variables := vs; diff_unique_vars := proof |}
+      ok {| diff_variables := vs |}
   | _ => err "alldifferent"
   end.
 

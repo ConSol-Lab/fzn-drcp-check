@@ -31,11 +31,7 @@ Definition valuation_in_state {V} (st : state) (vs : list V) (v : V -> Z) : Prop
   forall x, In x vs -> sint.In (v x) (st x).
 
 Definition Alldifferent_l {V} (vs : list V) (sol : V -> Z) : Prop :=
-    forall x y,
-      x <> y ->
-      In x vs -> 
-      In y vs -> 
-        sol x <> sol y.
+    NoDup (map sol vs).
 
 Definition AllDifferent_sat {V} (st : state) (vs : list V) :=
   exists v, valuation_in_state st vs v /\ Alldifferent_l vs v.
@@ -53,26 +49,18 @@ Qed.
 Lemma alldiff_conflict_if_union_lt_vars {V} (st : state) (vars : list V) (domain_union : list Z) :
   NoDup domain_union
     ->
-  NoDup vars
-    ->
   (forall n, In n domain_union <-> (exists x, In x vars /\ sint.In n (st x)))
     ->
   length domain_union < length vars
     ->
   ~ AllDifferent_sat st vars.
 Proof.
-  intros Hunion_nd Hvars_nd Hunion Hlengths.
+  intros Hunion_nd Hunion Hlengths.
   intros [A [Hastate Halldiff]].
   enough (length domain_union >= length vars) by lia; clear Hlengths.
   rewrite <- length_map with (f := A).
   apply NoDup_incl_length.
-  - apply nodup_map_pairwise.
-    + exact Hvars_nd.
-    + intros x y Hxin Hyin Hxy.
-      apply Halldiff.
-      * exact Hxy.
-      * exact Hxin.
-      * exact Hyin.
+  - exact Halldiff.
   - intros n. rewrite in_map_iff.
     intros (x & Hx_A & Hxin).
     rewrite Hunion.
@@ -463,6 +451,53 @@ Proof.
   destruct smap.find as [dom|] eqn:Hfind; repeat split; try easy; destruct lb_ub_from_dom as [[lb ub]|]; repeat split; try easy.
 Qed. *)
 
+Lemma proof_variables_nodup doms constr :
+  NoDup constr.(diff_variables)
+    ->
+  NoDup (proof_variables doms constr).
+Proof.
+  intros Hconstr_nd.
+  unfold proof_variables.
+  apply NoDup_app.
+  - unfold bounded_in_vars.
+    rewrite flat_map_option_as_filter_map with (d := const 0).
+    remember (fun x : string =>
+      if
+      is_bounded (doms d-> x) &&
+      existsb (same_ident x)
+      (diff_variables constr)
+      then Some (var_name x)
+      else None) as fn.
+    apply Injective_map_NoDup_in.
+    {
+      intros x y. setoid_rewrite filter_In.
+      unfold filter_f_option.
+      unfold option_map_default.
+      destruct (fn x) as [fx|] eqn:Hfnx; try easy.
+      destruct (fn y) as [fy|] eqn:Hfny; try easy.
+      intros [Hxin _] [Hyin _].
+      subst fn.
+      destruct is_bounded; destruct existsb;
+      destruct is_bounded; destruct existsb;
+      simpl in *;
+      try discriminate.
+      inversion Hfnx; inversion Hfny.
+      intros H.
+      inversion H.
+      reflexivity.
+    }
+    apply NoDup_filter.
+    apply nodup_bindings_keys.
+  - unfold const_vars. apply NoDup_filter.
+    exact Hconstr_nd.
+  - intros v Hin.
+    apply in_bounded_in_vars in Hin.
+    intros Hinv.
+    unfold const_vars in Hinv.
+    rewrite filter_In in Hinv.
+    destruct v; easy.
+Qed.
+
 (** The proof is a bit large because we aim to explicitly decouple the implementation details and the core idea of checking alldifferent. *)
 Lemma checker_alldifferent :
   forall fact sol constr,
@@ -477,6 +512,8 @@ Proof.
   apply infer_domains_correct with (sol := sol) in Hinfer.
   rewrite <- Hinfer; clear Hinfer cnsq fact.
   intros Halldiff Hconfl Hin_doms.
+  (* Distinct values require distinct variables, so the constraint's variables are pairwise distinct. *)
+  pose proof (NoDup_map_inv _ _ Halldiff) as Hconstr_nd.
   (* Now we have that sol adheres to domain, so let us build a state with it. We use materialize_dom_for_var for this. *)
   remember (fun v => option_default sint.empty (materialized_dom_for_var doms v)) as st.
   unfold sol_in_doms in Hin_doms.
@@ -501,19 +538,20 @@ Proof.
     - simpl. rewrite sint.add_spec. left. reflexivity.
   }
   clear Hin_doms.
+  assert (NoDup vars) as Hvars_nd
+    by (subst vars; apply proof_variables_nodup, Hconstr_nd).
   (* We now show we get a conflict if we have that some of the values in the particular variables we chose are not all distinct. This brings us a step closer to applying our core proof. *)
   enough (~ Alldifferent_l vars (fun v => evaluate v sol)) as Halldiff_l.
   {
-    clear -Halldiff Halldiff_l Heqvars.
+    clear -Halldiff Halldiff_l Heqvars Hvars_nd.
     apply Halldiff_l; clear Halldiff_l.
-    intros x y.
-    subst vars.
-    intros Hneq Hinx Hiny.
-    apply proof_variables_or in Hinx, Hiny.
-    apply Halldiff.
-    - assumption.
-    - apply Hinx.
-    - apply Hiny.
+    apply nodup_sublist with (l2 := map (fun v => evaluate v sol) constr.(diff_variables)).
+    - exact Halldiff.
+    - apply sub_list_map, sublist_if_in_nodup; [| exact Hvars_nd ].
+      subst vars.
+      intros v Hin.
+      apply proof_variables_or in Hin.
+      apply Hin.
   }
   clear Halldiff.
   enough (~ AllDifferent_sat st vars) as Halldiff_sat.
@@ -529,46 +567,6 @@ Proof.
   remember (sint.elements (union_sets (materialize_vars_doms (diff_variables constr) doms))) as domain_union.
   apply alldiff_conflict_if_union_lt_vars with (domain_union := domain_union).
   { subst domain_union. apply sint.elements_nodup. }
-  { subst vars. clear.
-    unfold proof_variables.
-    apply NoDup_app.
-    - unfold bounded_in_vars.
-      rewrite flat_map_option_as_filter_map with (d := const 0).
-      remember (fun x : string =>
-        if
-        is_bounded (doms d-> x) &&
-        existsb (same_ident x)
-        (diff_variables constr)
-        then Some (var_name x)
-        else None) as fn.
-      apply Injective_map_NoDup_in.
-      {
-        intros x y. setoid_rewrite filter_In.
-        unfold filter_f_option.
-        unfold option_map_default.
-        destruct (fn x) as [fx|] eqn:Hfnx; try easy.
-        destruct (fn y) as [fy|] eqn:Hfny; try easy.
-        intros [Hxin _] [Hyin _].
-        subst fn.
-        destruct is_bounded; destruct existsb;
-        destruct is_bounded; destruct existsb;
-        simpl in *;
-        try discriminate.
-        inversion Hfnx; inversion Hfny.
-        intros H.
-        inversion H.
-        reflexivity.
-      }
-      apply NoDup_filter.
-      apply nodup_bindings_keys.
-    - unfold const_vars. apply NoDup_filter.
-      apply constr.(diff_unique_vars).
-    - intros v Hin.
-      apply in_bounded_in_vars in Hin.
-      intros Hinv.
-      unfold const_vars in Hinv.
-      rewrite filter_In in Hinv.
-      destruct v; easy. }
   { 
     (* We now need to show that the union used by the checker is indeed a valid union in the sense of the core proof. *)
     subst st domain_union vars. clear.
@@ -624,7 +622,7 @@ Proof.
   rewrite flat_map_option_as_filter_map with (d := sint.empty).
   rewrite length_map.
   apply NoDup_incl_length.
-  - apply NoDup_filter. apply constr.(diff_unique_vars).
+  - apply NoDup_filter. exact Hconstr_nd.
   - intros v. rewrite filter_In. unfold filter_f_option.
     destruct materialized_dom_for_var as [s|] eqn:Hmtrl_doms; try easy.
     intros [Hinconstr _].
@@ -635,46 +633,12 @@ Proof.
     apply Hmtrl_doms.
 Qed.
 
-Definition build_alldifferent_vars (vs : list string) (cs : list Z) :=
-  let nodup_ints := sint.elements (sint.build cs) in
-  let nodup_strs := sstr.elements (sstr.build vs) in 
-  let nodup_vars := map var_name nodup_strs in
-  let nodup_consts := map const nodup_ints in
-  nodup_vars ++ nodup_consts.
-
-Lemma build_vars_nodup :
-  forall vs cs,
-    NoDup (build_alldifferent_vars vs cs).
-Proof.
-  intros vs cs.
-  apply NoDup_app.
-  - apply Injective_map_NoDup_in.
-    + intros x y _ _ H. inversion H; reflexivity.
-    + apply sstr.elements_nodup.
-  - apply Injective_map_NoDup_in.
-    + intros x y _ _ H. inversion H; reflexivity.
-    + apply sint.elements_nodup.
-  - intros v.
-    setoid_rewrite in_map_iff.
-    intros (x & Hvx & Hxin).
-    intros (c & Hvc & Hcin).
-    rewrite <- Hvx in Hvc.
-    discriminate Hvc.
-Qed.
-
-Definition build_alldifferent (vs : list string) (cs : list Z) : AlldifferentConstraint :=
-  {|
-    diff_variables := build_alldifferent_vars vs cs;
-    diff_unique_vars := build_vars_nodup vs cs
-  |}.
-
 Open Scope string_scope.
 
 (* Should be true, there is a conflict. *)
 Compute 
-  let constr := build_alldifferent (
-    "x" :: "y" :: nil
-  ) nil in
+  let constr :=
+    {| diff_variables := var_name "x" :: var_name "y" :: nil |} in
   let fact := 
     {| 
       i_premises :=
@@ -687,9 +651,8 @@ Compute
 
 (* Should be false. *)
 Compute 
-  let constr := build_alldifferent (
-    "x" :: "y" :: nil
-  ) nil in
+  let constr :=
+    {| diff_variables := var_name "x" :: var_name "y" :: nil |} in
   let fact := 
     {| 
       i_premises :=
@@ -704,9 +667,8 @@ Compute
 
 (* Should be true. Union is 3 and 5 but we have 3 variables. *)
 Compute 
-  let constr := build_alldifferent (
-    "x" :: "y" :: "z" :: nil
-  ) nil in
+  let constr :=
+    {| diff_variables := var_name "x" :: var_name "y" :: var_name "z" :: nil |} in
   let fact := 
     {| 
       i_premises :=
@@ -727,9 +689,8 @@ Compute
 
 (* Should be true. Constant 1 causes x to not be able to be 1. *)
 Compute 
-  let constr := build_alldifferent (
-    "x" :: nil
-  ) (1%Z :: nil) in
+  let constr :=
+    {| diff_variables := var_name "x" :: const 1%Z :: nil |} in
   let fact := 
     {| 
       i_premises :=

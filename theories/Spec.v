@@ -95,7 +95,6 @@ Module ConstraintDefinitions.
   Record AlldifferentConstraint :=
     {
       diff_variables : list Var;
-      diff_unique_vars : NoDup diff_variables 
     }.
 
   Inductive Constraint :=
@@ -142,11 +141,7 @@ Module ConstraintDefinitions.
       ((usage_at_timepoint sol t constraint.(activities)) <= constraint.(capacity))%N.
 
   Definition Alldifferent (constraint : AlldifferentConstraint) (sol : Assignment) : Prop :=
-    forall x y,
-      x <> y ->
-      In x constraint.(diff_variables) -> 
-      In y constraint.(diff_variables) -> 
-        evaluate x sol <> evaluate y sol
+    NoDup (map (fun v => evaluate v sol) constraint.(diff_variables))
   .
 
   Open Scope Z_scope.

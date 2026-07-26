@@ -727,45 +727,6 @@ Proof.
       * apply IHl; assumption.
 Qed.
 
-Lemma nodup_map_pairwise (A B : Type) :
-  forall (f : A -> B) (l : list A),
-    NoDup l
-      ->
-    (forall a1 a2,
-      In a1 l
-        ->
-      In a2 l
-        ->
-      a1 <> a2
-        ->
-      f a1 <> f a2)
-      ->
-    NoDup (map f l).
-Proof.
-  intros f l Hnodup Hpair.
-  induction l.
-  - simpl. apply NoDup_nil.
-  - simpl.
-    inversion Hnodup; subst x; subst l0.
-    apply NoDup_cons.
-    + unfold not.
-      intros Hin.
-      rewrite in_map_iff in Hin.
-      destruct Hin as (a' & Hfa & Hin').
-      apply Hpair with (a1 := a) (a2 := a').
-      * left. reflexivity.
-      * right. exact Hin'.
-      * intros Haa'. subst a'. contradiction.
-      * symmetry. exact Hfa.
-    + apply IHl.
-      * exact H2.
-      * intros a1 a2 Hin1 Hin2 Hneq.
-        apply Hpair.
-        -- right. exact Hin1.
-        -- right. exact Hin2.
-        -- exact Hneq.
-Qed.
-
 Lemma nodup_key :
   forall K B A (l : list A) (a_k : A -> K) (f : A -> B) (b_k : B -> K),
   NoDup (map a_k l)
