@@ -59,24 +59,20 @@ Lemma alldiff_conflict_if_union_lt_vars {V} (st : state) (vars : list V) (domain
     ->
   length domain_union < length vars
     ->
-  (forall (x y: V), x = y \/ x <> y)
-    ->
   ~ AllDifferent_sat st vars.
 Proof.
-  intros Hunion_nd Hvars_nd Hunion Hlengths Heqdec.
+  intros Hunion_nd Hvars_nd Hunion Hlengths.
   intros [A [Hastate Halldiff]].
   enough (length domain_union >= length vars) by lia; clear Hlengths.
   rewrite <- length_map with (f := A).
   apply NoDup_incl_length.
-  - apply Injective_map_NoDup_in.
-    + intros x y Hxin Hyin Hxy_A.
-      destruct (Heqdec x y); [ congruence |].
-      enough (A x <> A y) by contradiction; clear Hxy_A.
+  - apply nodup_map_pairwise.
+    + exact Hvars_nd.
+    + intros x y Hxin Hyin Hxy.
       apply Halldiff.
-      * auto.
+      * exact Hxy.
       * exact Hxin.
       * exact Hyin.
-    + exact Hvars_nd.
   - intros n. rewrite in_map_iff.
     intros (x & Hx_A & Hxin).
     rewrite Hunion.
@@ -467,8 +463,6 @@ Proof.
   destruct smap.find as [dom|] eqn:Hfind; repeat split; try easy; destruct lb_ub_from_dom as [[lb ub]|]; repeat split; try easy.
 Qed. *)
 
-Scheme Equality for Var.
-
 (** The proof is a bit large because we aim to explicitly decouple the implementation details and the core idea of checking alldifferent. *)
 Lemma checker_alldifferent :
   forall fact sol constr,
@@ -639,7 +633,6 @@ Proof.
     destruct v as [x|]; try reflexivity.
     apply (in_materialized_iff_in_dom_for_var 0%Z) in Hmtrl_doms.
     apply Hmtrl_doms.
-  - intros x y; destruct (Var_eq_dec x y); eauto.
 Qed.
 
 Definition build_alldifferent_vars (vs : list string) (cs : list Z) :=
