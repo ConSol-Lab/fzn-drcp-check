@@ -558,8 +558,14 @@ Definition bounds_times (bounds : list BoundedActivity) :=
   (* We don't include the processing time because they will have been already conflicting at the latest start time *)
   (t_min, t_max).
 
+(** Whether every activity of the constraint lasts at least one time unit. *)
+Definition nonzero_duration a :=
+  (a.(activity_duration) >= 1)%N.
+
 (** All bounds in a list of bounds have some basic facts known about them. *)
 Lemma valid_bounds_properties constr sol bounds : 
+  Forall nonzero_duration constr.(activities)
+    ->
   valid_bounds sol constr.(activities) bounds
     ->
   Forall (fun bound => 
@@ -568,7 +574,7 @@ Lemma valid_bounds_properties constr sol bounds :
     bound.(b_lb) <= bound.(b_ub)
   ) bounds.
 Proof.
-  intros Hvalid.
+  intros Hdur Hvalid.
   rewrite Forall_forall. intros bound Hin.
   apply in_split in Hin.
   destruct Hin as (bounds_l & bounds_r & Hbounds).
@@ -576,14 +582,13 @@ Proof.
   2: { exact Hvalid. }
   destruct Hbounds as (acts_l & act & acts_r & H).
   split.
-  - specialize constr.(valid_durations) as Hdur.
-    rewrite Forall_forall in Hdur.
+  - rewrite Forall_forall in Hdur.
     specialize (Hdur act).
     assert (In act (activities constr)) as Hin.
     { destruct H as (H & _). rewrite H.
       rewrite in_app_iff. right. simpl.
       left. reflexivity. }
-    apply Hdur in Hin.
+    apply Hdur in Hin; unfold nonzero_duration in Hin.
     lia.
   - lia.
 Qed.
@@ -627,13 +632,70 @@ Definition check_time_conflict_horizon (capacity : N) (bounds : list BoundedActi
   | _ => false
   end.
 
+(** Zero-duration activities are never active, so dropping them preserves the semantics (`ensure_nonzero_equiv`).  `check_conflict_for_bound` assumes there are no such activities left. *)
+Definition ensure_nonzero_duration constr : CumulativeConstraint :=
+  {| capacity := constr.(capacity);
+     activities := activities_pos_duration constr.(activities) |}.
+
+(** A zero-duration activity is never active. *)
+Lemma zero_duration_never_active (sol : Assignment) :
+  forall t act,
+    act.(activity_duration) = 0%N
+      ->
+    is_active_at sol t act = false.
+Proof.
+  unfold is_active_at; intros t act ->.
+  rewrite andb_false_iff, Z.ltb_ge, Z.leb_gt.
+  lia.
+Qed.
+
+Lemma usage_at_timepoint_cons (sol : Assignment) :
+  forall t act acts,
+    usage_at_timepoint sol t (act :: acts)
+      = ((if is_active_at sol t act then act.(activity_usage) else 0) + usage_at_timepoint sol t acts)%N.
+Proof.
+  unfold usage_at_timepoint; intros; simpl.
+  destruct is_active_at; simpl.
+  all: rewrite ?n_fold_is_n_sum; lia.
+Qed.
+
+(** Dropping zero-duration activities does not change the usage at any timepoint. *)
+Lemma usage_at_timepoint_pos_duration (sol : Assignment) :
+  forall t acts,
+    usage_at_timepoint sol t (activities_pos_duration acts)
+      = usage_at_timepoint sol t acts.
+Proof.
+  intros t acts.
+  unfold activities_pos_duration.
+  induction acts as [| act acts IH].
+  - reflexivity.
+  - cbn [filter].
+    destruct (1 <=? _)%N eqn:Hdur; rewrite !usage_at_timepoint_cons.
+    + congruence.
+    + rewrite (zero_duration_never_active sol t act).
+      * rewrite IH; reflexivity.
+      * apply N.leb_gt in Hdur; lia.
+Qed.
+
+(** Removing zero-length constraints preserves the semantics. *)
+Lemma ensure_nonzero_equiv :
+  forall constr sol,
+    Cumulative constr sol <-> Cumulative (ensure_nonzero_duration constr) sol.
+Proof.
+  intros constr sol.
+  unfold Cumulative, ensure_nonzero_duration; simpl.
+  split; intros H t; specialize (H t).
+  all: revert H; rewrite usage_at_timepoint_pos_duration.
+  all: auto.
+Qed.
+
 (* Main possible improvements:
   - Reuse the full resource profile for the cannot schedule
   - Do not retry the right-hand side in the final check_conflict_bound
   - Allow the use of 'hints' to be able to determine at what time there is a profile conflict, or what activity cannot be scheduled (requires changing the proof format)
   - Do not check every timepoint, but instead only profile height changes
 *)
-Definition cumulative_checker (fact : ProofFact) (constraint : CumulativeConstraint) : bool :=
+Definition cumulative_checker_nonzero (fact : ProofFact) (constraint : CumulativeConstraint) : bool :=
   let (bounds, maybe_bound_rhs) := inferred_cumulative_activity_bounds constraint fact in
   (* First try conflict for the activity from the rhs *)
   let rhs_found_conflict :=
@@ -646,6 +708,9 @@ Definition cumulative_checker (fact : ProofFact) (constraint : CumulativeConstra
   else if check_time_conflict_horizon (capacity constraint) bounds then true
   (* Otherwise fallback and try to find a conflict for all activities. Note that it will retry the r.h.s. *)
   else existsb (check_conflict_for_bound (capacity constraint) bounds) bounds.
+
+Definition cumulative_checker (fact : ProofFact) (constraint : CumulativeConstraint) : bool :=
+  cumulative_checker_nonzero fact (ensure_nonzero_duration constraint).
 
 
 
@@ -926,6 +991,8 @@ Qed.
 
 (** Given a cumulative constraint, a solution for that constraint and a set of bounds corresponding to that constraint and satisfied by the solution, we should not be able to find a conflict. *)
 Lemma no_bound_conflict_for_solution constraint assignment bounds :
+  Forall nonzero_duration constraint.(activities)
+    ->
   Cumulative constraint assignment
     ->
   valid_bounds assignment constraint.(activities) bounds
@@ -935,13 +1002,13 @@ Lemma no_bound_conflict_for_solution constraint assignment bounds :
       ->
     check_conflict_for_bound (capacity constraint) bounds bound = false.
 Proof.
-  intros Hcumul Hvalid.
+  intros Hdur Hcumul Hvalid.
   intros bound Hinbounds.
   unfold check_conflict_for_bound.
   pose proof Hvalid as Hvalid'.
   destruct resource_profile eqn:Hprofile.
   { exfalso. apply no_profile_overflow_for_solution with (assignment := assignment) in Hprofile; try assumption.
-    apply valid_bounds_properties in Hvalid.
+    apply (valid_bounds_properties _ _ _ Hdur) in Hvalid.
     rewrite Forall_forall in Hvalid.
     apply Hvalid in Hinbounds.
     rewrite range_rev_is_rev_range.
@@ -971,12 +1038,17 @@ Lemma checker_cumulative :
       -> 
     fact_valid assignment fact.
 Proof.
-  intros constr fact Hchecked.
+  intros constr0 fact Hchecked.
   unfold cumulative_checker in Hchecked.
+  intros sol Hcumul.
+  (* Switch to the constraint that the checker actually runs on. *)
+  apply ensure_nonzero_equiv in Hcumul.
+  pose proof (activities_pos_duration_correct constr0.(activities)) as Hdur.
+  set (constr := ensure_nonzero_duration constr0) in *.
+  unfold cumulative_checker_nonzero in Hchecked.
   (* We want to get rid of the case where the checker returns false when there is an inconsistency immediately in the fact/it cannot produce bounds. *)
   destruct inferred_cumulative_activity_bounds as [bounds prop_bound_opt] eqn:Hbounds.
   (* We now want to use our spec for inferred_cumulative_bounds. *)
-  intros sol Hcumul.
   apply inferred_cumulative_activity_bounds_spec with (constr := constr) (bounds := bounds) (prop_bound_opt := prop_bound_opt).
   { exact Hbounds. }
   intros Hvalid.
@@ -1005,6 +1077,7 @@ Proof.
   - enough (check_conflict_for_bound (capacity constr) bounds bound = false) 
       by (rewrite H in Hconflict; discriminate).
     apply no_bound_conflict_for_solution with (assignment := sol).
+    + exact Hdur.
     + exact Hcumul.
     + exact Hvalid.
     + exact Hinbounds.

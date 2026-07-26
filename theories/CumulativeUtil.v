@@ -33,8 +33,7 @@ Module BuildCumul.
   Definition build_cumulative (activities : list Activity) (cap : N) : CumulativeConstraint :=
     {|
       capacity := cap ;
-      activities := activities_pos_duration activities;
-      valid_durations := activities_pos_duration_correct activities;
+      activities := activities;
     |}.
 End BuildCumul.
 
