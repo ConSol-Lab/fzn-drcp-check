@@ -137,7 +137,7 @@ Proof.
     repeat split; easy.
 Qed. 
 
-(** Given a domain map, we want to get the materialized domain corresponding to a var. We ignore constants, so if we have constants in our alldifferent constraint it might not completely work. It should be possible to add support by simply returning a singleton set containing the constant in that case, but we do not do that here. *)
+(** Given a domain map, we want to get the materialized domain corresponding to a var. *)
 Definition materialized_dom_for_var (doms: Domains) (var : Var) : option sint.t :=
   match var with
   | var_name x =>
@@ -229,7 +229,7 @@ Proof.
 Qed.
 
 (** * Checker  *)
-(** This is the actual checker. If assumptions are made using constant values in the constraint, we ignore them and they will not be checked. *)
+(** This is the actual checker. *)
 Definition alldifferent_checker (fact : ProofFact) (constraint : AlldifferentConstraint) : bool :=
   match infer_domains fact with
   | None => false
