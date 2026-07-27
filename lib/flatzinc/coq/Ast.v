@@ -27,7 +27,7 @@ Record constr : Type := mk_constr {
 Inductive decl_item : Type :=
   | DIParConst  (name : string) (value : Z)
   | DIParArray  (name : string) (values : list Z)
-  | DIVarScalar (name : string) (domain : IntSet)
+  | DIVarScalar (name : string) (domain : IntSet) (assigned : option Z)
   | DIVarArray  (name : string) (elts : list const_or_ident).
 
 Record ast : Type := mk_ast {
@@ -83,6 +83,13 @@ Record collected : Type := mk_collected {
 Definition empty_collected : collected :=
   mk_collected smap.empty smap.empty smap.empty smap.empty.
 
+(** An assigned value takes priority over the declared domain. *)
+Definition resolve_domain (dom : IntSet) (assigned : option Z) : IntSet :=
+  match assigned with
+  | None => dom
+  | Some v => interval v v
+  end.
+
 Definition add_decl (c : collected) (d : decl_item) : collected :=
   match d with
   | DIParConst name v =>
@@ -92,9 +99,9 @@ Definition add_decl (c : collected) (d : decl_item) : collected :=
       mk_collected (c_constants c)
         (smap.add name xs (c_const_arrays c))
         (c_variables c) (c_var_arrays c)
-  | DIVarScalar name dom =>
+  | DIVarScalar name dom assigned =>
       mk_collected (c_constants c) (c_const_arrays c)
-        (smap.add name dom (c_variables c))
+        (smap.add name (resolve_domain dom assigned) (c_variables c))
         (c_var_arrays c)
   | DIVarArray name elts =>
       mk_collected (c_constants c) (c_const_arrays c) (c_variables c)
