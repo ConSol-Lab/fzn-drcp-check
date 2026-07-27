@@ -142,7 +142,8 @@ Module ConstraintDefinitions.
       ((usage_at_timepoint sol t constraint.(activities)) <= constraint.(capacity))%N.
 
   Definition Alldifferent (constraint : AlldifferentConstraint) (sol : Assignment) : Prop :=
-    forall x y, 
+    forall x y,
+      x <> y ->
       In x constraint.(diff_variables) -> 
       In y constraint.(diff_variables) -> 
         evaluate x sol <> evaluate y sol
