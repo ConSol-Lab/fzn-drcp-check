@@ -114,12 +114,12 @@ decl_item:
     OF INT COLON name = IDENT EQUALS value = int_literal_array SEMICOLON
       { DIParArray name value }
   | VAR BOOL COLON name = IDENT annotation_list SEMICOLON
-      { DIVarScalar name (interval 0%Z 0%Z) }
+      { DIVarScalar name (interval 0%Z 0%Z) None }
   | VAR dom = int_domain COLON name = IDENT annotation_list SEMICOLON
-      { DIVarScalar name dom }
+      { DIVarScalar name dom None }
   | VAR dom = int_domain COLON name = IDENT annotation_list
-    EQUALS INT_LITERAL SEMICOLON
-      { DIVarScalar name dom }
+    EQUALS value = INT_LITERAL SEMICOLON
+      { DIVarScalar name dom (Some value) }
   | ARRAY OPEN_BRACKET int_interval CLOSE_BRACKET OF
     VAR INT COLON name = IDENT annotation_list EQUALS
     OPEN_BRACKET arr = constr_or_ident_list CLOSE_BRACKET SEMICOLON
