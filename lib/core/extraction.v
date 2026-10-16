@@ -17,6 +17,7 @@ Extraction Blacklist List String Nat.
 
 Set Extraction Output Directory ".".
 
+Extract Inlined Constant String.eqb => "String.equal".
 Extract Constant OrdersEx.String_as_OT.compare => "fun s1 s2 -> let cmp = String.compare s1 s2 in if cmp < 0 then Lt else if cmp = 0 then Eq else Gt".
 
 Extract Constant BinNat.N.eqb => "Big_int_Z.eq_big_int".
