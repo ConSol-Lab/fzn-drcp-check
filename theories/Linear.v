@@ -53,7 +53,7 @@ Fixpoint compute_linear_lower_bound (terms : list (Z * Var)) (doms : Domains) : 
                       end
   end.
 
-Definition linear_checker (fact : ProofFact) (c : LinearConstraint) :=
+Definition linear_store_checker (fact : ProofFact) (c : LinearConstraint) :=
   match Deduction.infer_domains fact with
   (* Currently information on what variable is r.h.s. is not used. *)
   | Some (doms, _) => 
@@ -133,14 +133,14 @@ Proof.
 
 Qed.
 
-Theorem linear_checker_soundness : forall
+Theorem linear_store_checker_soundness : forall
   (fact : ProofFact) (sol : Assignment) (c : LinearConstraint),
   Linear c sol ->
-  Is_true (linear_checker fact c)
+  Is_true (linear_store_checker fact c)
   -> fact_valid sol fact.
 Proof.
   intros fact sol c.
-  unfold linear_checker.
+  unfold linear_store_checker.
   destruct c as [lin_terms lin_bound].
   unfold Linear.
   simpl.
@@ -152,6 +152,144 @@ Proof.
   intros Hvalid.
   enough (lb <= evaluate_linear lin_terms sol) by lia.
   apply bound_validity with (doms := doms) ; assumption.
+Qed.
+
+(** Lower bound on [coef * x] implied by an atom on [x]. *)
+Definition atom_term_lower_bound (coef : Z) (a : Atomic) : option Z :=
+  match a.(atm_cmp), coef >? 0 with
+  | equal, _ | greater_equal, true | less_equal, false => Some (coef * a.(atm_val))
+  | _, _ => None
+  end.
+
+(** The negated consequent if it is on [x]. *)
+Definition negated_atom_on (x : string) (premises : list BoundAtomic) (negated : option BoundAtomic) :=
+  match negated with
+  | Some (y, a) => if String.eqb x y then Some (a, premises) else None
+  | None => None
+  end.
+
+(** The next premise if it is on [x], else the negated consequent if it is on [x]. *)
+Definition next_atom_on (x : string) (premises : list BoundAtomic) (negated : option BoundAtomic) :=
+  match premises with
+  | (y, a) :: premises' => if String.eqb x y then Some (a, premises') else negated_atom_on x premises negated
+  | [] => negated_atom_on x premises negated
+  end.
+
+Fixpoint scan_linear_lower_bound (terms : list (Z * Var)) (premises : list BoundAtomic) (negated : option BoundAtomic) : option Z :=
+  match terms with
+  | [] => Some 0
+  | (coef, const value) :: tail =>
+    match scan_linear_lower_bound tail premises negated with
+    | Some acc => Some (coef * value + acc)
+    | None => None
+    end
+  | (coef, var_name x) :: tail =>
+    match next_atom_on x premises negated with
+    | Some (a, premises') =>
+      match atom_term_lower_bound coef a, scan_linear_lower_bound tail premises' negated with
+      | Some value, Some acc => Some (value + acc)
+      | _, _ => None
+      end
+    | None => None
+    end
+  end.
+
+(** Pair each term with an atom by one in-order scan of the premises, without building domains. *)
+Definition linear_scan_checker (fact : ProofFact) (c : LinearConstraint) :=
+  match scan_linear_lower_bound c.(l_terms) fact.(i_premises) (option_map negate_bound_atomic fact.(i_consequent)) with
+  | Some lb => lb >? c.(l_bound)
+  | None => false
+  end.
+
+Lemma atom_term_lower_bound_validity : forall coef a val bound,
+  atomic_holds val a ->
+  atom_term_lower_bound coef a = Some bound ->
+  bound <= coef * val.
+Proof.
+  unfold atom_term_lower_bound, atomic_holds.
+  intros coef [[] v] val bound Hholds Hbound; simpl in *;
+    destruct (coef >? 0) eqn:Hsign; inversion Hbound; subst; try nia.
+Qed.
+
+Lemma negated_atom_on_valid : forall sol x premises negated a premises',
+  (forall y b, negated = Some (y, b) -> atomic_holds (sol y) b) ->
+  negated_atom_on x premises negated = Some (a, premises') ->
+  atomic_holds (sol x) a /\ premises' = premises.
+Proof.
+  unfold negated_atom_on.
+  intros sol x premises [[y b]|] a premises' Hnegated Hnext; try discriminate.
+  destruct (String.eqb_spec x y); inversion Hnext; subst; eauto.
+Qed.
+
+Lemma next_atom_on_valid : forall sol x premises negated a premises',
+  valid_atoms sol premises ->
+  (forall y b, negated = Some (y, b) -> atomic_holds (sol y) b) ->
+  next_atom_on x premises negated = Some (a, premises') ->
+  atomic_holds (sol x) a /\ valid_atoms sol premises'.
+Proof.
+  unfold next_atom_on, valid_atoms.
+  intros sol x [|[y b] tail] negated a premises' Hpremises Hnegated Hnext; simpl in *.
+  - apply negated_atom_on_valid with (sol := sol) in Hnext as [? ->]; eauto.
+  - destruct (String.eqb_spec x y).
+    + inversion Hnext; subst; split; eauto.
+    + apply negated_atom_on_valid with (sol := sol) in Hnext as [? ->]; eauto.
+Qed.
+
+Lemma scan_bound_validity : forall terms sol premises negated bound,
+  valid_atoms sol premises ->
+  (forall y b, negated = Some (y, b) -> atomic_holds (sol y) b) ->
+  scan_linear_lower_bound terms premises negated = Some bound ->
+  bound <= evaluate_linear terms sol.
+Proof.
+  induction terms as [|[coef [x|value]] tail IH]; simpl;
+    intros sol premises negated bound Hpremises Hnegated Hscan.
+  - inversion Hscan; lia.
+  - destruct next_atom_on as [[a premises']|] eqn:Hnext; try discriminate.
+    apply next_atom_on_valid with (sol := sol) in Hnext as [Ha Hpremises']; eauto.
+    destruct atom_term_lower_bound as [value|] eqn:Hterm; try discriminate.
+    destruct scan_linear_lower_bound as [acc|] eqn:Htail; inversion Hscan; subst.
+    apply atom_term_lower_bound_validity with (val := sol x) in Hterm; try assumption.
+    enough (acc <= evaluate_linear tail sol) by lia.
+    eauto.
+  - destruct scan_linear_lower_bound as [acc|] eqn:Htail; inversion Hscan; subst.
+    enough (acc <= evaluate_linear tail sol) by lia.
+    eauto.
+Qed.
+
+Theorem linear_scan_checker_soundness : forall
+  (fact : ProofFact) (sol : Assignment) (c : LinearConstraint),
+  Linear c sol ->
+  linear_scan_checker fact c = true ->
+  fact_valid sol fact.
+Proof.
+  unfold linear_scan_checker, Linear.
+  intros [premises consequent] sol c Hsat Hcheck; simpl in *.
+  destruct scan_linear_lower_bound as [lb|] eqn:Hscan; try discriminate.
+  apply Z.gtb_gt in Hcheck.
+  destruct consequent as [consequent|].
+  - apply inference_valid_neg_rhs.
+    intros Hatoms.
+    enough (lb <= evaluate_linear (l_terms c) sol) by lia.
+    apply scan_bound_validity with (premises := premises) (negated := Some (negate_bound_atomic consequent)); eauto.
+    + intros x a Hin; apply Hatoms; simpl; eauto.
+    + intros y b Hneg; apply Hatoms; left; congruence.
+  - intros Hpremises.
+    enough (lb <= evaluate_linear (l_terms c) sol) by lia.
+    apply scan_bound_validity with (premises := premises) (negated := None); easy.
+Qed.
+
+Definition linear_checker (fact : ProofFact) (c : LinearConstraint) :=
+  linear_scan_checker fact c || linear_store_checker fact c.
+
+Theorem linear_checker_soundness : forall
+  (fact : ProofFact) (sol : Assignment) (c : LinearConstraint),
+  Linear c sol ->
+  Is_true (linear_checker fact c)
+  -> fact_valid sol fact.
+Proof.
+  unfold linear_checker.
+  intros fact sol c Hsat Hcheck.
+  destruct linear_scan_checker eqn:Hscan; eauto using linear_scan_checker_soundness, linear_store_checker_soundness.
 Qed.
 
 
@@ -188,7 +326,8 @@ Proof.
 Qed.
 
 Definition linear_eq_checker (fact : ProofFact) (c : LinearConstraint) :=
-  orb (linear_checker fact c) (linear_checker fact (negate c)).
+  linear_scan_checker fact c || linear_scan_checker fact (negate c)
+  || linear_store_checker fact c || linear_store_checker fact (negate c).
 
 Theorem linear_eq_checker_soundness : forall
   (fact : ProofFact) (sol : string -> Z) (c : LinearConstraint),
@@ -197,15 +336,9 @@ Theorem linear_eq_checker_soundness : forall
   fact_valid sol fact.
 Proof.
   intros fact sol c Heq Hvalid.
-  apply equality_via_negate in Heq.
-  destruct Heq as [Hbound Hneg].
+  apply equality_via_negate in Heq as [Hbound Hneg].
   unfold linear_eq_checker in Hvalid.
-  apply orb_prop in Hvalid.
-  destruct Hvalid as [Hvalid_bound | Hvalid_neg].
-  - apply linear_checker_soundness with (c := c) ; try assumption.
-    apply Is_true_eq_left in Hvalid_bound.
-    assumption.
-  - apply linear_checker_soundness with (c := negate c) ; try assumption.
-    apply Is_true_eq_left in Hvalid_neg.
-    assumption.
+  repeat rewrite orb_true_iff in Hvalid.
+  destruct Hvalid as [[[Hvalid | Hvalid] | Hvalid] | Hvalid];
+    eauto using linear_scan_checker_soundness, linear_store_checker_soundness, Is_true_eq_left.
 Qed.
